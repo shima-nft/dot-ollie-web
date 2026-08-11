@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="theme-color" content="#0b132b">
+	<title>OLLIE</title>
+	<!-- ホーム画面に追加してアプリのように使う(通信が無くても遊べる) -->
+	<link rel="manifest" href="manifest.json">
+	<link rel="apple-touch-icon" href="icons/icon-180.png">
+	<link rel="icon" type="image/png" href="icons/icon-192.png">
+	<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+	<div id="shell">
+		<div id="lcd-frame">
+			<canvas id="lcd"></canvas>
+		</div>
+		<!-- RUN のパッド(誤タップ防止の大ボタン)。出す・隠すは js/shell.js が決める
+		     ・act   = 特大の「跳ぶ」ボタン(画面のほぼ全部。どこを押しても跳べる)
+		     ・sound = ★音の入り切り(2026-08-06 島さんの指定。一時停止の隣)
+		     ・pause = ★一時停止(右上・扉の隣。2026-08-05 島さんの指定で追加)
+		     ・exit  = 右上の小さな「もどる」ボタン(選択画面へ)
+		     キット付属の◀▶やA/Bは、RUN が使わないので置いていない -->
+		<div id="gamepad">
+			<button class="key pad" id="pad-sound" data-action="sound"><canvas class="pad-label" data-icon="sound"></canvas></button>
+			<button class="key pad" id="pad-pause" data-action="pause"><canvas class="pad-label" data-icon="pause"></canvas></button>
+			<button class="key pad" id="pad-exit"   data-action="exit"><canvas class="pad-label" data-icon="exit"></canvas></button>
+			<button class="key pad ab" id="pad-act" data-action="act"><canvas class="pad-label" data-icon="act"></canvas></button>
+		</div>
+	</div>
+	<script src="js/font.js"></script>
+	<!-- ★★この世界の色(26色)。**島さんの持ち場**。★ほかより先に読み込むこと -->
+	<script src="js/palette.js"></script>
+	<!-- ★★主役のスケーター(34コマ)。島さんの絵から自動生成 -->
+	<script src="js/ollie-art.js"></script>
+	<script src="js/kickflip-art.js"></script>
+	<script src="js/pop-art.js"></script>
+	<script src="js/standby-art.js"></script>
+	<script src="js/push-art.js"></script>
+	<!-- ★置くもの(三角コーン) -->
+	<script src="js/cone-art.js"></script>
+	<!-- ★1コマを何ミリ秒映すか(島さんの持ち場)。★ollie.js より先に読み込むこと -->
+	<script src="js/frames.js"></script>
+	<script src="js/sprites.js"></script>
+	<!-- ★★世界のかたち(種から作る「終わらない地面」)。★ollie.js より先に読み込むこと -->
+	<script src="js/world.js"></script>
+	<!-- ★★背景 —— 島さんの持ち場は parts.js(何を置くか) と tint.js(どれくらい淡くするか) -->
+	<script src="js/tint.js"></script>
+	<!-- ★仮の部品(四角と線)。**本物の絵が入ったら、この行ごと消せます** -->
+	<script src="js/parts-temp.js"></script>
+	<script src="js/parts.js"></script>
+	<script src="js/parts-draw.js"></script>
+	<!-- ★★2026-08-09、島さんの指定で景色(街・空・天気・障害物)をまるごと外した。
+	     背景は一色、スクロールも無し。戻すときは git の履歴から
+	     (docs/decisions.md 2026-08-09 に理由と戻し方) -->
+	<!-- 遊びは OLLIE 1本だけ(この作品では別ゲームを足さない) -->
+	<script src="js/ollie.js"></script>
+	<script src="js/shell.js"></script>
+	<script>
+		// オフライン対応の登録(https か localhost のときだけ動く)
+		if ("serviceWorker" in navigator) {
+			window.addEventListener("load", function () {
+				navigator.serviceWorker.register("sw.js").catch(function () { /* 未対応でも通常どおり遊べる */ });
+			});
+		}
+	</script>
+</body>
+</html>

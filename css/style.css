@@ -1,0 +1,131 @@
+/* ★★画面の色(26色)は CSS では決めない。`js/palette.js` が唯一の正。
+   ここに書いてある色は「筐体(液晶の外側)」の色だけ。
+
+   ■ 2026-08-09 島さんの指定でこの形にした
+     ・液晶は **240×160(ゲームボーイアドバンスと同じ)**
+     ・★**ボタンは液晶の外**に出す(絵の上に重ねない)
+     ・跳ぶのは**液晶を触る**。液晶ぜんぶが跳ぶボタン */
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html, body {
+	height: 100%;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+body {
+	background: #01020b;
+	display: flex;
+	align-items: stretch;
+	justify-content: center;
+	touch-action: none; /* ピンチ拡大・ダブルタップ拡大・パンを全部止める(ポインタ操作は生きる) */
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-tap-highlight-color: transparent;
+	font-family: monospace;
+}
+
+/* ★本体シェル: 上から順に「液晶 → ボタン」の二段。
+   ★ボタンは液晶に重ならない(2026-08-09 島さんの指定)。
+     重ねていたときは、液晶の右上にボタンが乗って**スコアが隠れていた** */
+#shell {
+	background: #01020b;
+	width: 100%;
+	max-width: 560px;            /* PCの広い画面で間延びしないための上限 */
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	image-rendering: pixelated;
+}
+
+/* ★液晶部: 枠(ふち)は付けない */
+#lcd-frame {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	width: 100%;
+	flex: 0 0 auto;
+}
+
+/* ★液晶そのもの: **240×160(ゲームボーイアドバンスと同じ)**。横長の 3:2。
+   幅いっぱいに広げる。横長の画面(PC)では、**高さからはみ出さないところで頭打ち**にする
+   (240 ÷ 160 = 1.5 なので、高さの1.5倍が幅の上限) */
+#lcd {
+	display: block;
+	width: 100%;
+	height: auto;
+	max-width: calc(100vh * 1.5);
+	image-rendering: pixelated;  /* 拡大してもドットをにじませない */
+	cursor: pointer;             /* ★液晶そのものが「跳ぶボタン」 */
+}
+
+/* ============================================================
+   ボタン —— ★液晶の外(下)に並べる
+   ============================================================ */
+
+button.key {
+	background: #83769c;
+	border: 0;
+	border-radius: 6px;
+	/* ドット風の段差(押し込み前) */
+	box-shadow:
+		inset -3px -3px 0 0 #1d2b53,
+		inset 3px 3px 0 0 #fff1e8;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: manipulation;
+}
+
+/* 押した瞬間に極端に(1フレームで沈む。出典: 押した瞬間に極端に) */
+button.key:active {
+	background: #1d2b53;
+	box-shadow:
+		inset 3px 3px 0 0 #01020b,
+		inset -3px -3px 0 0 #83769c;
+	transform: translateY(2px);
+}
+
+button.key:active canvas.pad-label {
+	filter: invert(1);
+}
+
+/* ★ボタンの置き場所: 液晶のすぐ下。液晶には1ドットも重ねない */
+#gamepad {
+	width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	gap: clamp(10px, 3vw, 20px);
+	padding: clamp(12px, 3vh, 26px) clamp(8px, 3vw, 20px);
+}
+
+#pad-sound, #pad-pause, #pad-exit {
+	width: clamp(46px, 14vw, 64px);
+	height: clamp(46px, 14vw, 64px);
+}
+
+/* ★★跳ぶボタンは「液晶そのもの」(2026-08-09 島さんの指定)。
+   ボタンの並びには出さない —— 液晶を触れば跳ぶ。
+   ここでは場所だけ取らないように隠しておく(js/shell.js は今までどおり act を配る) */
+#pad-act {
+	display: none;
+}
+
+canvas.pad-label {
+	width: 60%;
+	height: 70%;
+	image-rendering: pixelated;
+	pointer-events: none;
+}
