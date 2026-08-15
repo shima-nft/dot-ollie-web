@@ -40,9 +40,13 @@
 	var LCD_W = 240;
 	var LCD_H = 160;
 
-	var mode = "menu";            // menu(選択画面) / game(プレイ中)
+	// ★★2026-08-12、島さんの指定で画面を1つ増やした:
+	//   「START(画面タップ) → Seed ID〜(画面タップ) → プレイ画面 → READY/GO」
+	//   seed = ★これから入る世界の番号を見せる画面
+	var mode = "menu";            // menu(選択画面) / seed(世界の番号) / game(プレイ中)
 	var cursor = 0;               // 選択中の項目
 	var activeGame = null;
+	var pendingSeed = null;       // ★SEED ID 画面で見せた番号。そのままゲームへ渡す
 
 	var lcd = document.getElementById("lcd");
 	lcd.width = LCD_W;
@@ -53,7 +57,7 @@
 	var CURSOR = ["#..", "##.", "###", "##.", "#.."];
 
 	function drawSprite(ctx, rows, x, y) {
-		ctx.fillStyle = GB[0];
+		ctx.fillStyle = GB[9];   // ★9 = まっ黒（2026-08-13、25色化で 0→9 に付け替え）
 		for (var r = 0; r < rows.length; r++) {
 			for (var c = 0; c < rows[r].length; c++) {
 				if (rows[r][c] === "#") ctx.fillRect(x + c, y + r, 1, 1);
@@ -80,31 +84,50 @@
 		} catch (e) { /* 音が出せなくても操作は続行 */ }
 	}
 
+	// ============================================================
+	// ■ ★★2行の文字を、液晶のまん中に置く（選択画面と SEED ID 画面が共用）
+	// ============================================================
+	//   ★★2026-08-12、島さんの指定で作った:
+	//     > 「START(画面タップ) Seed画面同様中央にして」
+	//
+	//     前は選択画面だけ「カーソル＋文字のかたまり」を中央に置いていたので、
+	//     **文字だけ見ると4ドット右にずれていた**。
+	//     さらに2つの画面で**1行目が18ドット違い**、タップした瞬間に文字が飛んでいた。
+	//
+	//   ★**両方ここを通すので、行がぴったり重なる**（1行目71 / 2行目81）。
+	//     別々に計算していると、片方だけ直してまたずれる
+	var ROW_H = 10;               // 2行の間隔
+	var CUR_W = 5;                // カーソル分の幅(三角3+すき間2)
+
+	// 2行ぶんの1行目が来る行（★液晶のまん中）
+	function twoLineTop() {
+		return Math.floor((LCD_H - (ROW_H + DotFont.GLYPH_H)) / 2);
+	}
+
+	function drawCenterLine(text, y) {
+		DotFont.drawText(lctx, text,
+			Math.floor((LCD_W - DotFont.textWidth(text.length)) / 2), y, GB[9]);  // 9 = まっ黒
+	}
+
 	// ---- ゲーム選択画面 ----
-	// 位置は項目数と一番長い行から計算して中央にそろえる
-	// (項目を増減しても勝手に釣り合うので、ここの数字を直す必要はない)
 	function renderMenu() {
-		lctx.fillStyle = GB[9];                 // 選択画面の地の色(藤色)
+		lctx.fillStyle = GB[22];                // 選択画面の地の色(藤色)
 		lctx.fillRect(0, 0, LCD_W, LCD_H);
 
-		var ROW_H = 10;           // 行の間隔
-		var CUR_W = 5;            // カーソル分の幅(三角3+すき間2)
-		var maxLen = 0, i;
-		for (i = 0; i < GAMES.length; i++) maxLen = Math.max(maxLen, GAMES[i].label.length);
+		var top = twoLineTop();
+		if (TITLE) drawCenterLine(TITLE, top);
 
-		var blockW = CUR_W + 2 + DotFont.textWidth(maxLen);
-		var x = Math.floor((LCD_W - blockW) / 2);
-		var listH = (GAMES.length - 1) * ROW_H + DotFont.GLYPH_H;
-		var titleH = TITLE ? 10 : 0;
-		var top = Math.floor((LCD_H - (listH + titleH)) / 2) + titleH;
-
-		if (TITLE) {
-			DotFont.drawText(lctx, TITLE, Math.floor((LCD_W - DotFont.textWidth(TITLE.length)) / 2), top - titleH, GB[0]);
-		}
-		for (i = 0; i < GAMES.length; i++) {
-			var y = top + i * ROW_H;
-			if (i === cursor) drawSprite(lctx, CURSOR, x, y + 1);
-			DotFont.drawText(lctx, GAMES[i].label, x + CUR_W + 2, y, GB[0]);
+		for (var i = 0; i < GAMES.length; i++) {
+			var y = top + ROW_H + i * ROW_H;
+			// ★文字そのものを中央に置く（カーソルのぶんずらさない）
+			drawCenterLine(GAMES[i].label, y);
+			// ★★カーソル（▶の三角）は**必ず出す**（島さんの指定 2026-08-12）。
+			//   ★中央に置いた文字の**左**に出すので、**文字は中央のまま**
+			//   （前は「カーソル＋文字」をまとめて中央に置いていたので、文字が4ドット右にずれていた）
+			if (i === cursor) {
+				var lx = Math.floor((LCD_W - DotFont.textWidth(GAMES[i].label.length)) / 2);
+				drawSprite(lctx, CURSOR, lx - CUR_W - 2, y + 1);
+			}
 			// ★スケーターを一人、題名の下に立たせる(選択画面に出るのは0コマ目)
 			if (GAMES[i].skater !== undefined) drawSkaterFrame(GAMES[i].skater, y + 16);
 		}
@@ -126,6 +149,38 @@
 				c += run;
 			}
 		}
+	}
+
+	// ============================================================
+	// ■ ★★SEED ID 画面（2026-08-12 島さんの指定）
+	// ============================================================
+	//   「これからどの世界に入るのか」を見せるだけの画面。
+	//
+	//   ★★種を引くのは**ここ（シェル側）**。
+	//     ゲーム側で引き直すと、**見せた番号と実際に入った世界がずれる**余地が残る。
+	//     引いた番号は `pendingSeed` に持って、そのまま `start()` へ渡す。
+	//
+	//   ★プレイ中はこの番号を出さない（遊びの邪魔をしない）。
+	function renderSeed() {
+		lctx.fillStyle = GB[22];                // 選択画面と同じ地の色(藤色)
+		lctx.fillRect(0, 0, LCD_W, LCD_H);
+
+		// ★★選択画面とまったく同じ位置に2行を置く（1行目71 / 2行目81）。
+		//   だから **タップしても文字が飛ばない**（OLLIE→SEED ID / START→番号 と入れ替わるだけ）
+		var top = twoLineTop();
+		drawCenterLine("SEED ID", top);         // ★フォントに ! と # は無い。この字は全部ある
+		drawCenterLine(String(pendingSeed), top + ROW_H);
+
+		// ★スケーターは出さない（島さんの指定 2026-08-12）。番号だけを見せる画面にする
+	}
+
+	function enterSeed() {
+		pendingSeed = global.DotWorld.newSeed();   // ★ここで世界が決まる
+		mode = "seed";
+		beep(770, 0.05);
+		// ★[もどる]は出さない（島さんの指定）。タップすればプレイ画面へ進むので行き止まりにならない
+		showPad(["act"], false);
+		renderSeed();
 	}
 
 	function moveCursor(step) {
@@ -194,9 +249,18 @@
 		}
 	});
 
-	function endSwipe() { swipeFromY = null; }
-	shellEl.addEventListener("pointerup", endSwipe);
-	shellEl.addEventListener("pointercancel", endSwipe);
+	// ★★2026-08-16、**指を離したこと**もゲームに伝えるようにした。
+	//   遊んでいる最中は使わないが、**買い物の画面だけは「離したときに決める」**
+	//   （★押した瞬間に決めると、なぞろうとした瞬間に決まってしまい、
+	//     ★カーソルを動かすことが構造的に不可能だった —— 実機で見つかった）
+	//   ★`swiped` = このなぞりで、もうカーソルを動かしたか
+	shellEl.addEventListener("pointerup", function () {
+		if (swipeFromY === null) return;
+		var swiped = swipeFired;
+		swipeFromY = null;
+		padUp("act", swiped);
+	});
+	shellEl.addEventListener("pointercancel", function () { swipeFromY = null; });
 	shellEl.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
 	// RUN が出すボタン(特大の「跳ぶ」/ 右上の「音」「一時停止」「もどる」)
 	//   ★`sound` の絵は入り切りで変わるので、ゲーム側(DotOllie.padIcons)が上書きする
@@ -254,6 +318,9 @@
 		g.start(lctx, LCD_W, LCD_H, {
 			beep: beep,
 			level: entry.level,
+			// ★★SEED ID 画面で見せた番号を、そのままゲームへ渡す
+			//   （渡さないとゲーム側が引き直して、見せた番号と別の世界になる）
+			seed: pendingSeed,
 			// ゲーム側でボタンが増えたとき(例: 何かを習得)に呼んでもらう
 			refreshPad: function () { showPad(activeGame.pad || ["act"], true); }
 		});
@@ -261,6 +328,10 @@
 	}
 
 	function backToMenu() {
+		// ★★★扉ボタンを押したことをゲームに知らせる（2026-08-16。★島さんの指定）
+		//   ゲーム側が「ぜんぶ最初に戻す」などをやりたい場合の窓口。
+		//   ★止める前に呼ぶ（ゲームがまだ生きているうちに片づけができるように）
+		if (activeGame && activeGame.onExit) activeGame.onExit();
 		if (activeGame && activeGame.stop) activeGame.stop();
 		activeGame = null;
 		mode = "menu";
@@ -273,7 +344,13 @@
 		if (mode === "menu") {
 			if (action === "left") moveCursor(-1);
 			else if (action === "right") moveCursor(1);
-			else if (action === "act" && GAMES.length > 0) { beep(990, 0.06); startGame(GAMES[cursor]); }
+			// ★★決定 → いきなり遊ばず、まず SEED ID 画面へ（島さんの指定）
+			else if (action === "act" && GAMES.length > 0) { beep(990, 0.06); enterSeed(); }
+			return;
+		}
+		if (mode === "seed") {
+			// ★どこを触ってもプレイ画面へ（見せた種を持ったまま）
+			startGame(GAMES[cursor]);
 			return;
 		}
 		if (!activeGame) return;
@@ -281,9 +358,9 @@
 		else if (activeGame.input) activeGame.input();
 	}
 
-	function padUp(action) {
+	function padUp(action, swiped) {
 		if (mode !== "game" || !activeGame) return;
-		if (activeGame.inputUp) activeGame.inputUp(action);
+		if (activeGame.inputUp) activeGame.inputUp(action, swiped);
 	}
 
 	// ---- ボタンの配線 ----
@@ -357,6 +434,8 @@
 	global.SHELL = {
 		getMode: function () { return mode; },
 		getCursor: function () { return cursor; },
+		// ★SEED ID 画面で見せている番号（テスト・確認用）
+		getPendingSeed: function () { return pendingSeed; },
 		getGames: function () { return GAMES.map(function (g) { return g.label; }); },
 		padDown: padDown,
 		padUp: padUp,

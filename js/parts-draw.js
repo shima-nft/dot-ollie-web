@@ -58,6 +58,21 @@
 	//   ・仮の絵                    … { rows }
 	//   どちらも「足元を基準にした上端のずれ」に直して使う
 	// ------------------------------------------------------------
+	// ★★名前の決まり（2026-08-11 に実物で確かめた）
+	//
+	//   **1つの絵 = 1枚のPNG = 1本の js = 1つの名前**
+	//
+	//     assets/parts/flower.png  →  js/parts-flower-art.js  →  global.DotPartFlower
+	//     → `js/parts.js` には `art: "DotPartFlower"` と書く
+	//
+	//   ★★2026-08-12、島さんが「絵を1枚足すのに4か所さわる」で詰まったので、こう変えた:
+	//
+	//       **`assets/parts/` に保存する → 「絵を反映する.bat」 → `js/parts.js` に1行**
+	//
+	//     `tools/sheet2art.py` が `assets/parts/` を丸ごと見て、
+	//     **1つの箱 `DotPartsArt` にまとめて** `js/parts-art.js` を作る。
+	//     ★だから読み込みの行は最初の1回だけで済む（絵を足しても増えない）。
+	//     ★`js/parts.js` には **ファイル名（例 `"flower"`）**を書く
 	function artOf(name) {
 		var a = (global.DotPartsArt && global.DotPartsArt[name]) ||
 			(global.DotPartsTemp && global.DotPartsTemp[name]) ||
@@ -102,17 +117,68 @@
 		//   **一定間隔に並んだ「格子」に見えてしまう**（＝周期が見破られる）
 		var x = start + Math.floor(WD.rand(base + 1, salt) * CHUNK);
 		var n = 0;
-		while (x < end && n < MAX_PER_CHUNK) {
-			// 出やすさ（weight）で1つ選ぶ
-			var r = WD.rand(base + n * 3 + 2, salt) * total, pick = mine[0];
-			for (i = 0; i < mine.length; i++) {
-				r -= (P.PARTS[mine[i]].weight || 1);
-				if (r <= 0) { pick = mine[i]; break; }
+
+		// 出やすさ（weight）で部品を1つ選ぶ
+		function pickOne(seq) {
+			var r = WD.rand(base + seq, salt) * total, pick = mine[0];
+			for (var j = 0; j < mine.length; j++) {
+				r -= (P.PARTS[mine[j]].weight || 1);
+				if (r <= 0) { pick = mine[j]; break; }
 			}
-			out.push({ pi: pick, lx: x });
-			var g = P.PARTS[pick].gap;
-			x += Math.round(g[0] + WD.rand(base + n * 3 + 3, salt) * (g[1] - g[0]));
-			n++;
+			return pick;
+		}
+
+		// ============================================================
+		// ★★★「塊（クラスター）」で置く —— 島さんの指示（2026-08-13）
+		// ============================================================
+		//
+		//   島さん:
+		//   > 遠景は建物や森などを**単体で散らさず、複数の部品を組み合わせて景観の塊**を作る。
+		//   > 各距離のオブジェクトは、単独で均等に配置せず、**大小・間隔・重なりを変える**。
+		//   > 「**一定間隔でランダム配置**」を基本にしない。
+		//
+		//   ■ 何が変わるか
+		//     ふつうの置き方 …… 1つ置く → その部品の `gap` ぶん進む → 1つ置く（★等間隔）
+		//     ★**塊の置き方** …… **密に何個か固めて置く** → **大きく空ける** → また固める
+		//
+		//   ★★これで「森」「街」が**ひとかたまりの景観**になり、
+		//     間の空白が「ここには何も無い」を作る（＝疎密のリズムが生まれる）。
+		//
+		//   ■ ★塊の中を「部品の幅より狭い間隔」にすると**重なります**。
+		//     重なると輪郭が1つにつながって、**個々の部品に見えなくなります**（狙いどおり）
+		//
+		//   ■ ★★区画番号 k と種だけで決まる作りは崩していません
+		//     （前の区画を見に行かない＝無限・戻れば同じ・軽さはそのまま）
+		var C = L.cluster;
+		if (!C) {
+			// ---- ふつうの置き方（前景など、散らしたい層）----
+			while (x < end && n < MAX_PER_CHUNK) {
+				var pick = pickOne(n * 3 + 2);
+				out.push({ pi: pick, lx: x });
+				var g = P.PARTS[pick].gap;
+				x += Math.round(g[0] + WD.rand(base + n * 3 + 3, salt) * (g[1] - g[0]));
+				n++;
+			}
+			return out;
+		}
+
+		// ---- ★塊の置き方 ----
+		var cn = 0;
+		while (x < end && n < MAX_PER_CHUNK && cn < 40) {
+			// この塊に何個入れるか
+			var sz = Math.round(C.size[0] +
+				WD.rand(base + cn * 7 + 4101, salt) * (C.size[1] - C.size[0]));
+			for (var m = 0; m < sz && n < MAX_PER_CHUNK; m++) {
+				out.push({ pi: pickOne(n * 3 + 2), lx: x });
+				// ★塊の中は狭い間隔（＝重なる）
+				x += Math.round(C.inner[0] +
+					WD.rand(base + n * 3 + 3, salt) * (C.inner[1] - C.inner[0]));
+				n++;
+			}
+			// ★塊と塊の間は大きく空ける
+			x += Math.round(C.gap[0] +
+				WD.rand(base + cn * 7 + 4102, salt) * (C.gap[1] - C.gap[0]));
+			cn++;
 		}
 		return out;
 	}
@@ -160,27 +226,27 @@
 	// ------------------------------------------------------------
 	// ■ 1つの部品を、どの行に置くか
 	// ------------------------------------------------------------
+	//   ★★2026-08-13、**部品の `at` だけで決まる形に変えました**（島さんの指定）。
+	//
+	//     島さん「中景を地面から不自然に浮かせる安全帯ルールは撤廃し、
+	//             **オブジェクトごとに接地条件を定義する**」
+	//
+	//   前は `clear` の層をまるごと「いちばん高い丘のてっぺん＋10行」の上へ押し上げていた。
+	//   ★そのため**平らな場所では地面から21ドットも浮き**、山や木が空中に並んで見えていた。
+	//
+	// ★★2026-08-11 からの決まりはそのまま: 「マイナスの lift のぶん土台を自動で上げる」ことは
+	//   しません（層ごとにバラバラに土台がずれ、奥と手前の順番が逆転する原因だった）。
+	//   → **`horizon` に一本化**。はみ出しは `test/parts.test.js`【10】が理由を出して止める
 	function topRowOf(L, part, A, lx, pi) {
 		if (part.at === "空") return (part.y || 0) - liftOf(part, pi, lx);
-		var groundRow;
-		if (part.at === "地面" && L.speed === 1) {
-			// ★いまの地面の起伏に乗る（前景だけ。層の速さが1のときだけ意味を持つ）
+		if (part.at === "地面") {
+			// ★いまの地面の起伏に乗る（前景）
 			//   ★ここは `horizon` を使わない（地面そのものが基準なので）
 			return GROUND - WD.groundAt(lx) + A.topOff - liftOf(part, pi, lx);
 		}
-		// 遠くの地平線に立つ。
-		// ★★`clear` の層は、道のすぐ上を空けておく。
-		//   ★このとき **いちばん高い丘の分（AMP）も足して**空けること。
-		//     基準線からだけ数えると、丘のてっぺんで地面が上がってきたときに
-		//     **背景と地面がぴったり接してしまう**（テストが実際に見つけた）
-		//
-		// ★★2026-08-11: ここで前は「マイナスの lift の分だけ土台を自動で上げて」いた。
-		//   ★それが**層ごとにバラバラに土台をずらし、奥と手前の順番が逆転する原因**だった
-		//   （低い山より高い木ができて浮いて見えた）。
-		//   → 自動で直すのをやめ、**`horizon` に一本化**。
-		//     はみ出しは `test/parts.test.js` 【10】が**理由を出して止める**
-		groundRow = GROUND - (L.clear ? (WD.AMP + P.CLEAR_ROWS) : 0);
-		return groundRow + A.topOff - raiseOf(L, part, pi, lx);
+		// ★"地平" … **基準線に立つ**。
+		//   ★丘が上がってくれば地面に隠れます。**それが自然**（遠くの土地の見え方）
+		return GROUND + A.topOff - raiseOf(L, part, pi, lx);
 	}
 
 	// ------------------------------------------------------------
@@ -270,6 +336,25 @@
 		return cv;
 	}
 
+	// ------------------------------------------------------------
+	// ■ 層を1枚ぶん画面に置く（★焼いた紙があれば貼る／無ければその場で描く）
+	//   ★`draw()` と `drawBehind()` の**両方がここを通る**。
+	//     ★2か所に同じ処理を書くと、片方だけ直したときに見た目が割れる
+	// ------------------------------------------------------------
+	function paintLayer(ctx, li, worldX, sunk) {
+		var L = P.LAYERS[li];
+		var table = TI.tableFor(L.filter);
+		var lx0 = Math.round(worldX * L.speed);
+		var kFrom = Math.floor(lx0 / CHUNK), kTo = Math.floor((lx0 + W - 1) / CHUNK);
+		if (L.bake && canBake()) {
+			for (var k = kFrom; k <= kTo; k++) {
+				ctx.drawImage(chunkPaper(li, k, table, sunk), k * CHUNK - lx0, 0);
+			}
+		} else {
+			drawLayerRange(ctx, li, kFrom, kTo, lx0, table, H, sunk);
+		}
+	}
+
 	// 種や時間帯が変わったら、焼いた紙を捨てる
 	function checkStamp() {
 		var s = WD.getSeed() + "/" + TI.time + "/" + W + "x" + H + "/" + GROUND;
@@ -296,9 +381,12 @@
 		rebake: function () { caches = []; stamp = ""; },
 
 		// ★★画面に描く。段は3つ:
-		//     0 … 地面より**奥**
+		//     0 … 地面より**奥**（★ただし `behindBand` を持つ層は**ここでは描かない**）
 		//     1 … 地面より手前・**プレイヤーより奥**（沈んでいない前景）
 		//     2 … ★**プレイヤーより手前**（沈んだ前景。＝「下にあるものほど手前」）
+		//
+		//   ★★`behindBand` を持つ層は、`drawBehind()` が**その帯を塗る直前**に描きます
+		//     （→ すぐ下）。**ここで描くと二重になり、丘の奥に沈みません**
 		draw: function (ctx, worldX, stage) {
 			checkStamp();
 			for (var li = 0; li < P.LAYERS.length; li++) {
@@ -308,6 +396,7 @@
 				var sunk;
 				if (stage === 0) {
 					if (isFront) continue;
+					if (L.behindBand) continue;           // ★★この層は drawBehind が描く
 					sunk = null;                          // 奥の層はぜんぶ一緒に描く
 				} else if (stage === 1) {
 					if (!isFront) continue;
@@ -316,16 +405,28 @@
 					if (!isFront || !L.sinkInFront) continue;
 					sunk = true;                          // ★沈んだものだけ
 				}
-				var table = TI.tableFor(L.filter);
-				var lx0 = Math.round(worldX * L.speed);
-				var kFrom = Math.floor(lx0 / CHUNK), kTo = Math.floor((lx0 + W - 1) / CHUNK);
-				if (L.bake && canBake()) {
-					for (var k = kFrom; k <= kTo; k++) {
-						ctx.drawImage(chunkPaper(li, k, table, sunk), k * CHUNK - lx0, 0);
-					}
-				} else {
-					drawLayerRange(ctx, li, kFrom, kTo, lx0, table, H, sunk);
-				}
+				paintLayer(ctx, li, worldX, sunk);
+			}
+		},
+
+		// ------------------------------------------------------------
+		// ★★その帯の「奥」に置く層だけを描く（2026-08-15）
+		//
+		//   島さん「建物を『地面に立てる』のではなく、**丘の向こう側に存在させる**」
+		//
+		//   ★`js/ollie.js` の `draw()` が、**帯を塗る直前**にこれを呼びます。
+		//     → あとから塗られる帯が、建物の足元を隠す（**ランドマークと同じマスク方式**）。
+		//
+		//   ★★通る道は `draw()` の段0 とまったく同じ（`paintLayer`）。
+		//     **新しい描画の仕組みは作っていません。** 焼き付けもそのまま効きます
+		// ------------------------------------------------------------
+		drawBehind: function (ctx, worldX, bandName) {
+			checkStamp();
+			for (var li = 0; li < P.LAYERS.length; li++) {
+				var L = P.LAYERS[li];
+				if (!L.on || L.front) continue;
+				if (L.behindBand !== bandName) continue;
+				paintLayer(ctx, li, worldX, null);
 			}
 		},
 
