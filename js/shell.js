@@ -322,9 +322,17 @@
 			//   （渡さないとゲーム側が引き直して、見せた番号と別の世界になる）
 			seed: pendingSeed,
 			// ゲーム側でボタンが増えたとき(例: 何かを習得)に呼んでもらう
-			refreshPad: function () { showPad(activeGame.pad || ["act"], true); }
+			refreshPad: function () { showPad(activeGame.pad || ["act"], false); },
+			// ★★★ゲームから「メニューへ戻して」と言うための窓口（2026-08-16 / Phase D）
+			//   ★島さんの指定で **🚪 を一時停止メニューの中へ移した**ので、
+			//     ゲーム側から戻す道が要る（★液晶の外に 🚪 はもう出さない）
+			exitToMenu: function () { backToMenu(); }
 		});
-		showPad(g.pad || ["act"], true);
+		// ★★★2026-08-16、**液晶の外に 🚪 を出さない**（島さんの指定）。
+		//   ★理由: ⛺キャンプ（世界の中）と 🚪 終了（操作）を**記号として分ける**ため。
+		//     ★遊びの中心記号が「扉」になったので、外の扉と混同する
+		//   → 🚪 は**一時停止メニューの中**にある（→ `js/ollie.js` の `drawPauseScreen`）
+		showPad(g.pad || ["act"], false);
 	}
 
 	function backToMenu() {

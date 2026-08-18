@@ -50,21 +50,54 @@
 	//
 	//   id       … 中で使う名前（★`js/ollie.js` がこの名前で効かせる）
 	//   name     … 画面に出る名前（★フォントにある大文字だけ）
-	//   maxLevel … 何段まで上げられるか
+	//   maxLevel … 何段まで上げられるか。★★`null` = **上限なし**
+	//
+	//   ★★★2026-08-16、島さんの指定で**上限を無くした**:
+	//     > 「大量のアップグレード、数値のインフレ、数ある強化要素からどれを選ぶかによって
+	//     >   自分好みの強力な組み合わせを作る楽しさ」
+	//
+	//   ★実測で分かっていたこと: Lv3 までだと **24ラン・7.4分で買い切ってしまう**
+	//
+	//   ■ ★★あわせて直した数字（★全部**実測から**決めた。当てずっぽうではない）
+	//
+	//     `costGrowth` 2.2 → **2.7**
+	//        観測 … 稼ぎは **1レベルあたり 2.44倍**で伸びるのに、値段は 2.2倍しか伸びない
+	//               → ★**進むほど買いやすくなる**（＝加速して天井に着く）
+	//        変更 … 稼ぎの伸び(2.44) × 1.12 ≒ **2.7**。★進むほど1レベルが遠くなる
+	//
+	//     `STAMINA` の per 1.25 → **1.08**
+	//        観測 … 1.25 のままだと **Lv12 で1ランが 265秒（4.4分）**。★長すぎる
+	//        変更 … 1.08 なら Lv12 で 50秒ほど
+	//
+	//     `JUMP` の per 1.20 → **1.06**、★`maxLevel` の 2 を外した
+	//        観測 … 1.20 のままだと **Lv12 で技の拘束が 6.8秒**。★次が出せない
+	//        変更 … 1.06 なら Lv12 で 1.5秒ほど。★上限を外しても暴れない
+	//        ★★`maxLevel: 2` にしていた理由（拘束が伸びて逆効果）は、
+	//          **Step 0 で障害物の間隔が技の長さに追従するようになった**ので消えた
 	//   baseCost … Lv1 の値段
 	//   costGrowth … 1段ごとに値段が何倍になるか
 	//   per      … ★1段ごとに何倍強くなるか
 	var UPGRADES = [
 		// ★いちばん安い。**1ラン走れば買える**ので、最初の1個になりやすい
-		{ id: "speed",   name: "SPEED",   maxLevel: 3, baseCost: 150, costGrowth: 2.2, per: 1.15 },
+		{ id: "speed",   name: "SPEED",   maxLevel: null, baseCost: 150, costGrowth: 2.7, per: 1.15 },
 		// ★★これを上げると**越えられる幅が広がる**（＝前は無理だった障害物を越せる）
-		{ id: "jump",    name: "JUMP",    maxLevel: 3, baseCost: 200, costGrowth: 2.2, per: 1.20 },
+		//
+		// ★★★2026-08-16、上限を外した（★もとは `maxLevel: 2`）
+		//   ★2 にしていた理由: 技の拘束 ＝ **技ぜんぶの時間 × jumpDurationMul** なので、
+		//     上げるほど「次の技が出せるまで」が伸びて**逆効果**になっていた。
+		//   ★★その理由は **Step 0 で消えた**（障害物の間隔が技の長さに追従するようになった）。
+		//   ★あわせて `per` を 1.20 → 1.06 に下げてある（★上げすぎると拘束がまた伸びる）
+		//
+		//   ★★★JUMP は「安全」と引き換えに「稼ぎ」が減る:
+		//     滞空が伸びる → 障害物の間隔も広がる → **出会う障害物が減る** → 倍率が伸びにくい
+		//     ＝ ★これがビルドの選択になる（★安全を取るか、稼ぎを取るか）
+		{ id: "jump",    name: "JUMP",    maxLevel: null, baseCost: 200, costGrowth: 2.7, per: 1.06 },
 		// ★ランが長くなる ＝ 障害物に出会う数が増える ＝ 倍率も伸びる
-		{ id: "stamina", name: "STAMINA", maxLevel: 3, baseCost: 180, costGrowth: 2.2, per: 1.25 },
+		{ id: "stamina", name: "STAMINA", maxLevel: null, baseCost: 180, costGrowth: 2.7, per: 1.08 },
 		// ★障害物を越えたときの倍率の伸びが大きくなる
-		{ id: "mult",    name: "MULT",    maxLevel: 3, baseCost: 250, costGrowth: 2.2, per: 1.40 },
+		{ id: "mult",    name: "MULT",    maxLevel: null, baseCost: 250, costGrowth: 2.7, per: 1.40 },
 		// ★最後にもらうコインが増える（★他とちがい、走りそのものは変わらない）
-		{ id: "coin",    name: "COIN",    maxLevel: 3, baseCost: 300, costGrowth: 2.2, per: 1.30 }
+		{ id: "coin",    name: "COIN",    maxLevel: null, baseCost: 300, costGrowth: 2.7, per: 1.30 }
 		// ★足すならここ。例:
 		// { id: "magnet", name: "MAGNET", maxLevel: 3, baseCost: 400, costGrowth: 2.2, per: 1.2 },
 	];

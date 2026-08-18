@@ -152,7 +152,40 @@
 	var CONE_GAP_MAX  = 170;  //   ★ここまでの間でランダムに決まる
 	//   ★まっすぐな道は 220〜420ドットなので、これで**1本に だいたい2〜3個**。
 	//     ★詰めれば増え、広げれば減る（0個の道も増える）
-	//   ★間隔は**距離（ドット）**で数える。速さを変えても見た目の詰まり方が変わらない
+	//
+	// ============================================================
+	// ★★★2026-08-16、ここに**欠陥**が見つかったので直した（Step 0）
+	//
+	//   ■ 既存の決まり（`CLAUDE.md`）:
+	//     > ★オーリーの滞空で必ず越えられる間隔を保証する。
+	//     >   ★間隔の下限は **`js/frames.js` の合計から自動で決まる**（直書きしない）。
+	//     >   直書きすると、島さんがコマを速くした瞬間に間隔だけ取り残されて理不尽になる
+	//
+	//   ■ ★★破られていた。上の 80 は**直書き**だった。
+	//     ★決まりが心配していた「コマを速くしたとき」だけでなく、
+	//     ★★**アップグレードで速くなったときにも同じことが起きていた。**
+	//
+	//   ■ 実測（★障害物を見て跳ぶボット・20本）:
+	//
+	//       Lv  速さ  1回の技で進む距離  次の障害物まで  ぶつかり  距離   稼ぎ
+	//        0    70            53px          89px       0      136m    377
+	//        1    81            74px          89px      11      185m    904
+	//        2    93          ★101px          89px      37      230m   1853
+	//        3   106          ★117px          89px  ★★139      171m  ★507
+	//
+	//     ★★★**Lv2 から「1回の技で進む距離」が「次の障害物まで」を追い越す。**
+	//       技を出している間は次が出せない（`input()` の `if (st.air >= 0) return;`）ので、
+	//       ★**障害物が技の最中に来る＝避けようがない**。
+	//       ★Lv3 のぶつかり 139回は**全部これ**だった（＝買うほど弱くなっていた）。
+	//
+	//   ■ ★直し方: **間隔の下限を「1回の技で進む距離」から作る**（→ `coneGapMin()`）
+	//
+	//   ■ ★★★**障害物の「幅」は1ドットも変えていない。** 変えたのは**間隔**だけ。
+	//     ★だから `BASE_CLEAR` の決まりも
+	//       「前は越えられなかった壁を越せた」も、そのまま残る
+	// ============================================================
+	//   ★技が終わってから次を押すまでの余裕（★1.0 だとぴったりで押せない）
+	var GAP_SAFETY    = 1.15;
 	//
 	//   ★★置く場所は**種（シード）で決めない。** 決めると「覚えゲー」になる
 	//     （`SPEC.md` 5章）。**舞台（まっすぐな道）は種で決まるが、その上の配置は決まらない**
@@ -206,6 +239,161 @@
 	var ROCK_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
 
 	// ============================================================
+	// ■■■ ★★★扉と鍵 —— 「ルールの壁」（2026-08-16 / Phase C）■■■
+	// ============================================================
+	//
+	//   島さん（2026-08-16）:
+	//   > 「もう一回走りたいと感じましたが、**すぐに成長の限界値に達して**終わりました」
+	//
+	//   ★★実測で分かったこと: **数値では無限に難しくできない。**
+	//     ・越えられる幅 ＝ 空中の時間 × 走る速さ（＝ JUMP と SPEED の掛け算）
+	//     ・画面は 240ドット。障害物はどうやっても **190ドット**あたりが限界
+	//     ・★**JUMP を1つも買わなくても、SPEED だけで Lv11 で全部越えられる**
+	//
+	//   → ★★★**壁を「数値」ではなく「ルール」にする。**
+	//      **扉は、どれだけ強くなっても開かない。鍵を持っているときだけ開く。**
+	//
+	//   ★★作りたいのは、この輪:
+	//
+	//     ？？？ → 扉を発見 →「何だこれ？」→ 鍵を発見 →「これか！」
+	//     → 再び扉へ → ★突破 →「この先には何がある？」→ もっと走る
+	//
+	//   ★★★**画面に文字で説明を出さない**（島さん「プレイヤー自身が気付くことが重要」）。
+	//     扉の**鍵穴の絵**だけが手がかり。
+	//
+	// ■ ★★下の数字は「初期値」であって仕様ではない
+	//     ★実測（複数の種・複数ラン）を見てから決める。
+	//     ★★**1回の結果だけを根拠に動かさないこと**（→ `docs/decisions.md`）
+	// ============================================================
+	// ★★★2026-08-16、島さんの指定で**保留**にした:
+	//   > 「キャンプと異世界への扉は保留。非表示にして進めて」
+	//   ★★消したのではない。**0 にしてあるだけ**なので、1 に戻せばそのまま復活する
+	//   ★テストも `GATE_ON` を見て、保留中は飛ばすようにしてある
+	var GATE_ON   = 0;      // ★1 にすると扉と鍵が戻る
+	// ★★★扉の場所は**実測で決めた**（2026-08-16）。★当てずっぽうではない
+	//
+	//   観測事実 … 30ラン回して最大到達 257m。★アップグレードを買い切っても **230m で頭打ち**。
+	//               → ★初期値の 300m には**永久に届かなかった**（＝ 輪が閉じない）
+	//   仮説     … 300m が、いまの経済で到達できる距離を超えている
+	//   変更     … 8通りの遊び方 × 12ラン の到達距離を測り、そこから選んだ:
+	//
+	//                 扉120m … 8/8 が届く（初回は中央 4ラン目・最短1ラン目）
+	//               ★扉140m … 8/8 が届く（初回は中央 5ラン目）  ←★これにした
+	//                 扉160m … 6/8 しか届かない
+	//                 扉180m … 2/8 しか届かない
+	//
+	//   ★★140m にした理由: **1ラン目でいきなり当たらない**こと。
+	//     ★先に「走る → 稼ぐ → 買う → 強くなった」を数回味わってから、
+	//       **アップグレードでは開かない壁**に当たるほうが、対比が効く。
+	//   ★扉は 24m 手前から画面に見えてくる（＝ 116m まで走れば「あれは何だ？」が起きる）
+	var GATE_M    = 140;    // ★★扉はここに立っている（メートル）
+
+	// ============================================================
+	// ★★★鍵をいつ出すか —— **距離ではなく「扉を見たか」で決める**
+	//
+	//   ⚠ ★★2026-08-16、実装中に**確定仕様どうしの矛盾**が見つかった。
+	//
+	//     island さんの指定は2つあった:
+	//       ① 扉は**鍵が無ければ絶対に通れない**
+	//       ② 鍵は「**扉発見後**に探索できる距離帯」から出す
+	//
+	//     ★これを「扉より**先の距離**（400m〜）」と読んで作ったところ、
+	//       ★★★**扉で必ず止まるので 400m には永久に届かない ＝ 輪が閉じない**。
+	//       （★実測: 60本走らせて鍵が出たのは 10%。しかもそれは
+	//         テストでスタミナを無限にしていたから届いただけだった）
+	//
+	//   → ★★「**扉発見後に探索できる距離帯**」を素直に読み直すと、
+	//       それは **0〜300m（扉の手前）を、扉を見たあとのランで走るとき**。
+	//     ★これなら ①も②も両方守れる:
+	//       ・扉を見る前は鍵が出ない  → 「何だこれ？」が先に来る（輪は逆転しない）
+	//       ・扉を見たあとは手前に出る → 拾える（輪が閉じる）
+	//
+	//   ★★★この読み替えは**島さんに報告すること**（勝手に決めた線引きではないが、
+	//     仕様の文面そのままではないため）
+	// ============================================================
+	var KEY_MIN_M = 40;     // ★これより手前には出さない（★走り出してすぐは出さない）
+	// ★★これは「**鍵の候補を作る1回あたり**の抽選確率」。
+	//   ★★**ラン全体の遭遇率ではない**（★どこまで走れるかに依存する）。
+	//
+	// ★★★この値は**実測で決めた**（2026-08-16）。★当てずっぽうではない
+	//
+	//   観測事実 … 扉を見たあとのランで、抽選が回るのは **1ランに中央7回・平均6.3回**
+	//               （288ラン実測。40m〜扉140m の 100m ぶんしか有効区間が無いため）
+	//               → 2% だと1ランで出る確率は **12%**、拾うまで**中央6ラン**、
+	//                 ★**10回に1回は 19ラン以上**「扉に当たって終わる」を繰り返す
+	//   仮説     … 有効な抽選回数が少なすぎるので、1回あたりの確率が低すぎた
+	//   変更     … 2% → **6%**（1ランで出る確率 32% / 中央2ラン / 10回に9回は6ラン以内）
+	//   ★目標は「扉を見たあと**数ラン**」。★★1ラン目で必ず出るのは**濃すぎる**ので避けた
+	var KEY_RATE  = 0.06;
+	var KEY_TRY_GAP = 120;  // ★何ドット進むごとに1回抽選するか
+
+	// ============================================================
+	// ■■■ ★★★キャンプ・HP・死亡（2026-08-16 / Phase D）■■■
+	// ============================================================
+	//
+	//   島さん（2026-08-16）:
+	//   > 「⛺はUIボタンではなく、**ゲーム世界に存在するチェックポイント／キャンプ**」
+	//   > 「ここまでの旅を確定して安全を取るか、リスクを背負って先へ進むか」
+	//
+	// ■ ★★3つのゲージの役割を**はっきり分ける**（島さんの指定）
+	//
+	//     スタミナ … **どれだけ長く旅を続けられるか**  → 0 で「撤退」（★稼ぎは全部残る）
+	//     HP       … **どれだけミスに耐えられるか**    → 0 で「死亡」（★★未確定分を全部失う）
+	//     倍率     … **リスクを取ることで積み上がる収益**
+	//
+	//   ★★★だから **ぶつかってもスタミナは減らさない**（島さんの判断 2026-08-16）。
+	//     ★減らすと2つのゲージが同じ方向に動いて、**分けた意味が消える**
+	//
+	// ■ ★★キャンプに着いたら**世界が止まって選ぶ**
+	//
+	//     キャンプする   … ★**そこで旅を終えて店へ戻る**（成果確定）
+	//     このまま進む   … ★倍率もHPもそのまま。★さらに奥へ（★死ぬと全部失う）
+	//
+	//   ★★「キャンプ＝ランを終える」は島さんの判断（2026-08-16）。
+	//     ★スタミナを回復して走り続けられる形にすると、**無限に走れて店に戻らない**
+	//
+	// ■ ★★下の数字は「初期値」であって仕様ではない（★実測で決め直す）
+	// ============================================================
+	// ★★★2026-08-16、島さんの指定で**保留**にした（扉と同じ）。
+	//   ★★1 に戻すと キャンプ・HP・死亡 がまとめて復活する
+	//   ★0 のあいだは、ぶつかったときのスタミナ減（昔の形）に戻る
+	var CAMP_ON  = 0;     // ★1 にするとキャンプ・HP・死亡が戻る
+	var CAMP_M   = 100;   // ★★何メートルごとにキャンプがあるか。★**初期値**
+	//   ★実測: 1ランで届く距離は Lv0 で中央113m / Lv3 で中央231m
+	//     → 100m なら Lv0 で1つ目、Lv3 で2〜3つ目に出会う
+	//   ★★扉(140m)が「1つ目のキャンプの直後」に来る＝**確定してから壁に挑む**
+	var HP_MAX   = 5;     // ★★何回ぶつかったら死ぬか
+	//   ★★★これは**実測で決めた**（2026-08-16）。★当てずっぽうではない
+	//
+	//     観測事実 … HP3 だと Lv0 の死亡率が **21〜50%**。★遊び始めてすぐ、
+	//                 まだ HP の意味も分からないうちに全部失う
+	//     仮説     … 1ランに 1.8〜4.9回ぶつかるので、3 では最初の1本すら持たない
+	//     変更     … 3 → **5**
+	//     再測定   … 下（★24本ずつ・毎秒1.3連打）
+	//
+	//       HP   Lv0の死亡率   Lv3「HPが1でキャンプ」   Lv3「絶対キャンプしない」
+	//        3      21〜50%              682コイン                     0コイン
+	//        4       8〜33%              364コイン                     0コイン
+	//     ★  5       0〜 4%          ★★763コイン                   203コイン
+	//
+	//   ★★5 だと「遊び始めは死なない／育つと判断が要る」になる。
+	//     ★Lv3 で「HPが1になったらキャンプ」が **763** と、
+	//       毎回キャンプ(318)・絶対しない(203) の**どちらより明確に良い** ＝ 判断に意味がある
+	//   ★実測（気楽に遊ぶ人・毎秒1.3連打）: 1ランに Lv0 1.8回 / Lv3 4.9回 ぶつかる
+	//   ★★3 だと Lv1 あたりから「あと1回で死ぬ」が起きる＝**キャンプする理由になる**
+	//   ★5 にすると、ほぼ死なずスタミナ切れで終わる＝**キャンプが要らなくなる**
+	var CAMP_STOP_MS = 250;   // ★キャンプに着いてから選べるようになるまで（誤タップよけ）
+	// ★★死んだらどうなるか。★★これは「まだ決めない」と島さんが言った所（2026-08-16）
+	//   1 = ラン完全終了（★島さんの第一候補）／ 0 = 最後のキャンプから再開
+	//   ★★実機で確かめてから決める。**ここを1行変えれば切り替わる**
+	var DEATH_ENDS_RUN = 1;
+	// ★HP の表示（★スタミナバーのすぐ下に、HP_MAX 個の四角）
+	var HP_BLOCK_W = 5, HP_BLOCK_H = 3, HP_GAP = 1;
+	var C_HP_ON = 17, C_HP_OFF = 5;    // 17=赤 / 5=炭
+	// ★★扉で止められたとき、リザルトへ行く前に見せる時間（→ `blockedByGate()`）
+	var GATE_STOP_MS = 900;
+
+	// ============================================================
 	// ■■■ ★★報酬フィードバック（2026-08-15 島さんの実機フィードバック）■■■
 	// ============================================================
 	//
@@ -233,6 +421,8 @@
 	var C_MULT      = 16;     // ふだんの色。16=生成り
 	var C_MULT_UP   = 19;     // ★上がった瞬間。19=黄色
 	var C_MULT_DOWN = 17;     // ★下がった瞬間。17=赤
+	// ★★扉に止められたときに扉が光る色（2026-08-16）。16=生成り（いちばん明るい）
+	var C_GATE_FLASH = 16;
 
 	// ★★ぶつかったときの揺れ（★2026-08-09 に一度削ったものを、島さんの指定で戻した）
 	//   ★★**走行中は揺らさない**（ドット絵がにじんで読みにくくなるため）。ぶつかった瞬間だけ
@@ -399,9 +589,35 @@
 	var ROCK = global.DotRockArt;
 	var ROCK_W = ROCK.FRAMES[0].rows[0].length;
 
+	// ★★扉と鍵（2026-08-16 / Phase C）。★★いまは**仮の絵**（→ `js/gate-art.js`）
+	var GATE = global.DotGateArt;
+	var KEY  = global.DotKeyArt;
+	var CAMP = global.DotCampArt;
+	var CAMP_W = CAMP.FRAMES[0].rows[0].length;
+	var GATE_W = GATE.FRAMES[0].rows[0].length;
+	var KEY_W  = KEY.FRAMES[0].rows[0].length;
+
 	// ★障害物1つの絵と幅（★2か所に持たない）
-	function obArt(o) { return (o.kind === "rock") ? ROCK : CONE; }
-	function obWidth(o) { return (o.kind === "rock") ? ROCK_W : CONE_W; }
+	function obArt(o) {
+		if (o.kind === "rock") return ROCK;
+		if (o.kind === "key")  return KEY;
+		if (o.kind === "camp") return CAMP;
+		// ★★扉は「開いた姿」を持つ。★★**鍵を持っているだけでは開かない**
+		//   （★`o.opened` は「鍵を持った状態で**突破した瞬間**」に立つ。→ `passGate()`）
+		if (o.kind === "gate") {
+			return o.opened
+				? { FRAMES: GATE.OPEN_FRAMES, FEET_ROW: GATE.FEET_ROW }
+				: GATE;
+		}
+		return CONE;
+	}
+	function obWidth(o) {
+		if (o.kind === "rock") return ROCK_W;
+		if (o.kind === "gate") return GATE_W;
+		if (o.kind === "key")  return KEY_W;
+		if (o.kind === "camp") return CAMP_W;
+		return CONE_W;
+	}
 
 	// ============================================================
 	// ■■■ ★★障害物のパターン（2026-08-15 / Phase 2）■■■
@@ -483,21 +699,100 @@
 		return Math.max(1, Math.floor((dots - CONE_W) / CONE_W));
 	}
 
-	// ★★パターンの表。obs = [{ at: パターン先頭からの距離, n: コーンの個数 }]
+	// ★★パターンの表。★`ns` = コーンの個数の並び（★`at` は距離から作る）
+	//   ★★`at`（2個目以降の置き場所）を**表に直書きしない**。
+	//     直書きすると、下の「距離で太らせる」で**1個目と重なる**（太ったぶんを足し忘れる）
 	function buildPatterns() {
 		var nNarrow = conesForDots(BASE_CLEAR * 0.55);   // ★Lv0 でも余裕
 		var nMid    = conesForDots(BASE_CLEAR * 1.00);   // ★Lv0 でぎりぎり
 		var nWide   = conesForDots(BASE_CLEAR * 1.80);   // ★★Lv0 では越えられない
-		var gap = Math.round(BASE_CLEAR * 1.3);          // 連続のときの間
+		// ★★★`gap` は「**空いている幅**」（★2026-08-16 に直した）
+		//   もとの表は `at: 53`（＝パターンの先頭からの位置）を直書きしていた。
+		//   ★下の `patternAt()` で `at` を作り直すとき、うっかり
+		//     「1個目の幅 ＋ 53」にしてしまい、**空きが 44 → 53 に広がっていた**
+		//     ＝ 島さんに黙って **パターンC が少し易しくなっていた**（回帰）。
+		//   → ★`gap` を最初から「空いている幅」にして、意味を1つに固定する
+		var gap = Math.round(BASE_CLEAR * 1.3) - CONE_W;   // ★空き = 44ドット
 		return [
-			{ name: "A 狭い", obs: [{ at: 0, n: nNarrow }] },
-			{ name: "B 中",   obs: [{ at: 0, n: nMid }] },
-			{ name: "C 連続", obs: [{ at: 0, n: nNarrow }, { at: gap, n: nNarrow }] },
+			{ name: "A 狭い", ns: [nNarrow],          gap: gap },
+			{ name: "B 中",   ns: [nMid],             gap: gap },
+			{ name: "C 連続", ns: [nNarrow, nNarrow], gap: gap },
 			// ★★D は Lv0 では越えられない。**アップグレードで越えられるようになる壁**
-			{ name: "D 広い", obs: [{ at: 0, n: nWide }] }
+			{ name: "D 広い", ns: [nWide],            gap: gap }
 		];
 	}
 	var PATTERNS = buildPatterns();
+
+	// ============================================================
+	// ■ ★★★距離で障害物が広がる（2026-08-16 / Phase C）
+	//
+	//   ★★これは島さんが**選択肢から選んで承認したもの**（2026-08-16）:
+	//     「遠くへ行くほど障害物が広くなる」＋「この実装は残してコミットする」
+	//   ★★★**島さんが言葉で指示したのではない**（AIが案を出して選んでもらった）。
+	//     ★下の引用は「なぜこの案を出したか」の背景であって、指示そのものではない
+	//
+	//   > 島さん「もう一回走りたいと感じましたが、
+	//   >         すぐに成長の限界値に達してしまい終わりました」
+	//
+	//   ★★天井のひとつは「**立ちはだかるものが増えない**」ことだった。
+	//     障害物がずっと最大 63px なので、**JUMP は Lv2 で用済み**になっていた。
+	//
+	//   → **遠くへ行くほど障害物が広くなる。**
+	//
+	//   ⚠ ★★2026-08-16 のレビューで分かったこと:
+	//     **いまの到達距離（中央 161m）では、1段目（250m）にすら届かない。**
+	//     ＝ ★この仕組みは**まだ一度も発動していない**。
+	//     ★★扉と鍵が効くと分かってから、`TIER_M` を実測で決め直すこと
+	//
+	//       強くなる → より遠くへ行ける → そこは前より難しい → さらに強くなる必要がある
+	//
+	//   ★★★ここが「輪」になるので、レベルを無限に増やすだけのゲームにならない。
+	//
+	// ■ ★★崩してはいけない決まりは、これで守れる
+	//
+	//   ・広がるのは**距離**であって、**自分の強さではない**
+	//     → ★`BASE_CLEAR` は Lv0 のまま。★**ここを触らないこと**
+	//   ・★**同じ場所なら、誰が来ても同じ幅**
+	//     → 「前は越えられなかった壁を越せた」は**ちゃんと残る**
+	//   ・★種（シード）では決めていない
+	//     → 「1500m から急に難しい」は覚えられるが、★**覚えても回避できない**
+	//       （強くなるしかない）ので、**覚えゲーにはならない**
+	//
+	// ■ ★岩（丘の障害物）は広げない
+	//     絵が要るため。**小さい障害物**として、そのまま残す
+	// ============================================================
+	//
+	// ■ ★★★ここの数字は「実測で決めた」（2026-08-16。★当てずっぽうではない）
+	//
+	//   ★★画面は 240px。**障害物は最大でも 190px くらいまでしか作れない。**
+	//     → ★**幅では無限に難しくできない。** だから壁は**ルール**（扉と鍵）にした
+	//     → JUMP は `js/upgrades.js` で **`maxLevel: 2` に抑えてある**
+	//       （★`per` は 1.20 のまま。★変えたのは段数だけ）
+	var TIER_ON  = 1;     // ★0 にすると、昔どおり「ずっと同じ幅」に戻る
+	var TIER_M   = 250;   // ★何メートルごとに1段きつくなるか
+	var TIER_ADD = 1;     // ★1段ごとにコーンが何個増えるか（1個 = CONE_W = 9ドット）
+	// ★★増える上限。★D が最大 63 + 9×14 = **189px**（画面の79%）。
+	//   ★これ以上は「画面いっぱいのコーン」になって、避けようがなくなる
+	var TIER_MAX = 14;
+
+	// ★その場所の「段」（0 から。★上限で止まる）
+	function tierAt(distDots) {
+		if (!TIER_ON) return 0;
+		return Math.min(TIER_MAX, Math.floor(metersOf(distDots) / TIER_M) * TIER_ADD);
+	}
+
+	// ★★その場所で出すパターンを作る（★段のぶんだけ太らせて、`at` を作り直す）
+	function patternAt(index, distDots) {
+		var base = PATTERNS[index % PATTERNS.length];
+		var add = tierAt(distDots);
+		var obs = [], at = 0;
+		for (var i = 0; i < base.ns.length; i++) {
+			var n = base.ns[i] + add;
+			obs.push({ at: at, n: n });
+			at += n * CONE_W + base.gap;   // ★★太ったぶんを必ず足す（重なり防止）
+		}
+		return { name: base.name, obs: obs };
+	}
 
 	// そのパターンの全長（ドット）
 	function patternLen(p) {
@@ -600,28 +895,72 @@
 	function upgLevel(id) { return upgLv[id] || 0; }
 
 	// ============================================================
+	// ■ ★★★持ち物（2026-08-16 / Phase C）
+	//
+	//   ★★**永久に覚える。** 一度取った鍵は、次のランでも、次の日でも持っている。
+	//     ★これが無いと「探索 → **準備** → 再訪 → 突破」の**準備**が意味を持たない
+	//     （毎ラン取り直しなら、ただの拾い物になる）。
+	//
+	//   ★覚え方は 音・BEST・コイン・アップグレードと**まったく同じ**（`try/catch`）
+	//   ★★キーは `dotollie-items`。★既存の4つ（sound / best / upg / coins）と衝突しない
+	// ============================================================
+	var items = {};        // id → 持っているか
+
+	function loadItems() {
+		items = {};
+		try {
+			var raw = localStorage.getItem("dotollie-items");
+			var o = raw ? JSON.parse(raw) : null;
+			// ★★配列は弾く（★通すと `items` が配列になり、以後の保存が効かなくなる）
+			if (o && typeof o === "object" && !Array.isArray(o)) items = o;
+		} catch (e) { items = {}; }
+		return items;
+	}
+
+	function saveItems() {
+		try { localStorage.setItem("dotollie-items", JSON.stringify(items)); }
+		catch (e) { /* 保存できなくても遊べる */ }
+	}
+
+	function hasItem(id) { return !!items[id]; }
+
+	// ★拾った。★★**すでに持っていたら何も起きない**（音もポップも二重に出さない）
+	function giveItem(id) {
+		if (items[id]) return false;
+		items[id] = true;
+		saveItems();
+		return true;
+	}
+
+	// ============================================================
 	// ■ ★★★ぜんぶ最初に戻す（2026-08-16。★島さんの指定で**扉ボタン**に付けた）
 	//
 	//   > 島さん「扉ボタンですべてのステータスをリセット出来るようにして。(テストのため)」
 	//
 	//   ★消すのは**育ったもの**だけ:
-	//     コインの貯金 / アップグレードのレベル / 覚えた技 / いちばん進んだ距離
+	//     コインの貯金 / アップグレードのレベル / 覚えた技 / いちばん進んだ距離 /
+	//     ★**拾った持ち物（鍵）**（2026-08-16 / Phase C）
 	//   ★**音の入り切りは消さない**（育ったものではなく「設定」なので）
 	//
 	//   ★★これは**テストのための仕掛け**です。要らなくなったら
 	//     下の `RESET_ON_EXIT` を **0** にすれば、扉ボタンはただ「もどる」だけに戻ります。
 	// ============================================================
-	var RESET_ON_EXIT = 1;      // ★1 = 扉ボタンでぜんぶ消す / 0 = ただ「もどる」だけ
+	var RESET_ON_EXIT = 1;      // ★1 = ぜんぶ消す / 0 = ただ「もどる」だけ
+	//   ★★2026-08-16: 🚪 は**液晶の外から一時停止メニューの中へ移した**ので、
+	//     「遊びの中の扉」と押し間違える道は消えている
+	var exitToMenu = null;      // ★シェルが渡してくれる「メニューへ戻す」
 
 	function resetAll() {
 		coins = 0;
 		best = 0;
 		upgLv = {};
 		unlocked = {};
+		items = {};                 // ★★拾った鍵も忘れる（＝また「何だこれ？」から試せる）
 		try {
 			localStorage.setItem("dotollie-coins", "0");
 			localStorage.setItem("dotollie-best", "0");
 			localStorage.setItem("dotollie-upg", JSON.stringify({ lv: {}, un: {} }));
+			localStorage.setItem("dotollie-items", "{}");
 		} catch (e) { /* 消せなくても遊べる */ }
 		return true;
 	}
@@ -714,6 +1053,25 @@
 			nextRock: 0,   // ★次の岩（丘の障害物）を出すまでの残り距離
 			conesBorn: 0,  // ★これまでに出したコーンの数（テストが見張るためだけの数）
 			rocksBorn: 0,  // ★これまでに出した岩の数
+			// ★★扉と鍵（2026-08-16 / Phase C）
+			gateBorn: false,  // ★このランで扉をもう出したか（★決まった距離に**1回だけ**）
+			gateSeen: false,  // ★このランで扉が画面に出たか（★実測用）
+			gatePassed: false,// ★★このランで扉を**突破したか**
+			keysBorn: 0,      // ★このランで出した鍵の数（★実測用）
+			gotKeyNow: false, // ★★このランで鍵を拾ったか（★実測用）
+			nextKey: KEY_TRY_GAP,  // ★次に鍵を抽選するまでの残り距離
+			// ★★★キャンプ・HP・死亡（2026-08-16 / Phase D）
+			hp: HP_MAX,       // ★★0 になったら死亡（★未確定分を全部失う）
+			hpMax: HP_MAX,
+			died: false,      // ★★このランは「死んだ」か（★撤退とは違う）
+			campBorn: 0,      // ★次に出すキャンプは何個目か
+			campsSeen: 0,     // ★このランで出会ったキャンプの数（★実測用）
+			campSel: 0,       // ★キャンプの選択（0=キャンプする / 1=このまま進む）
+			pauseSel: 0,      // ★★一時停止メニューの選択（0=つづける / 1=やめる）
+			campStopMs: 0,    // ★キャンプに着いてから選べるようになるまで
+			campObj: null,    // ★いま選んでいるキャンプ
+			gateStopMs: 0,    // ★★扉で止められたあと、リザルトへ行くまでの残り（見せる時間）
+			gateFlashMs: 0,   // ★扉が光っている残り（★描画だけ）
 			// ★★次に置くパターン（A→B→C→D の巡回）。★種では決めない
 			patIndex: 0,
 			// ★★ラン終了のときに残す記録。over のときだけ意味を持つ
@@ -768,13 +1126,25 @@
 	function riderGroundRow() { return groundRowAt(RIDER_X + RIDER_FOOT); }
 
 	// 次のコーンまでの間隔をランダムに引く
+	// ★★1回の技のあいだに進む距離（★いまの速さとジャンプ倍率で**毎回計算する**）
+	//   ★直書きしないこと。★島さんが `js/frames.js` のコマを速くしたら、ここも自動で追従する
+	function trickTravelDots() {
+		return FR.totalMs(POSES[poseIndex("OLLIE")].ms) * jumpDurationMul() / 1000 * curSpeed();
+	}
+
+	// ★★★障害物どうしの最小の間隔（→ 上の「欠陥」の説明）
+	//   ★直書きの `CONE_GAP_MIN` は「下駄」として残す（★遅いときはこちらが効く）
+	function coneGapMin() { return Math.max(CONE_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
+	function rockGapMin() { return Math.max(ROCK_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
+
 	function nextConeGap() {
-		return CONE_GAP_MIN + Math.random() * (CONE_GAP_MAX - CONE_GAP_MIN);
+		// ★ばらつきの幅（170-80）はそのまま。**下限だけが速さについてくる**
+		return coneGapMin() + Math.random() * (CONE_GAP_MAX - CONE_GAP_MIN);
 	}
 
 	// ★丘の岩までの間隔をランダムに引く（★種で決めない ＝ 覚えゲーにしない）
 	function nextRockGap() {
-		return ROCK_GAP_MIN + Math.random() * (ROCK_GAP_MAX - ROCK_GAP_MIN);
+		return rockGapMin() + Math.random() * (ROCK_GAP_MAX - ROCK_GAP_MIN);
 	}
 
 	// 次にプッシュするまでの待ち時間をランダムに引く
@@ -956,8 +1326,17 @@
 		if (currentLift() > 0) return -1;                // ★跳んでいる＝当たらない
 		var foot = RIDER_X + RIDER_FOOT;                 // ★地面を読むのと同じ列
 		for (var i = 0; i < st.cones.length; i++) {
-			var cx = Math.round(st.cones[i].x);          // ★描くときと同じ丸め方
-			if (foot >= cx && foot < cx + obWidth(st.cones[i])) return i;
+			var o = st.cones[i];
+			// ★★★扉と鍵はここでは扱わない（2026-08-16 / Phase C）。
+			//   ★理由は2つ:
+			//     ① 扉は**跳んでも当たる**（ルールの壁）。上の `currentLift()` の
+			//        早い戻りに引っかかると、跳んだだけで通れてしまう
+			//     ② 速さが上がると1コマで扉の幅より進むので、**すり抜ける**
+			//   → どちらも「足の列に届いた最初のコマで決める」やり方で解いてある
+			//     （`update()` の中。`resolved` の印を見ること）
+			if (o.kind === "gate" || o.kind === "key" || o.kind === "camp") continue;
+			var cx = Math.round(o.x);                    // ★描くときと同じ丸め方
+			if (foot >= cx && foot < cx + obWidth(o)) return i;
 		}
 		return -1;
 	}
@@ -980,7 +1359,15 @@
 	function onHit(i) {
 		st.cones.splice(i, 1);          // ★当たったコーンは消す（毎コマ当たり続けないように）
 		st.hits++;
-		st.stamina -= HIT_STAMINA;      // ★スタミナが余分に減る
+		// ★★★2026-08-16（Phase D）: **ぶつかってもスタミナは減らさない**（島さんの判断）。
+		//   ★スタミナ＝「どれだけ長く旅を続けられるか」／ HP＝「どれだけミスに耐えられるか」
+		//   ★★両方減らすと、2つのゲージが同じ方向に動いて**分けた意味が消える**
+		if (CAMP_ON) {
+			st.hp -= 1;
+			if (st.hp <= 0) { st.hp = 0; onDeath(); return; }
+		} else {
+			st.stamina -= HIT_STAMINA;   // ★昔の形（CAMP_ON = 0 のとき）
+		}
 		// ★★倍率は**半分になる**（★0 には戻さない。積み上げが全部飛ぶと育たないため）
 		var before = st.mult;
 		st.mult = Math.max(MULT_BASE, st.mult * MULT_HIT_KEEP);
@@ -995,6 +1382,112 @@
 		sound(220, 0.12);
 	}
 
+	// ============================================================
+	// ■■■ ★★★扉と鍵の3つの出来事（2026-08-16 / Phase C）■■■
+	// ============================================================
+
+	// ★★鍵を拾った。★★**ぶつかりではない**（倍率も減らない・スタミナも減らない）
+	//   ★★**強い音**にする（島さん「普通のコインとは明らかに違うと身体的に分かること」）
+	function takeKey(c) {
+		var isNew = giveItem("key");
+		c.taken = 1;
+		if (!isNew) return;                 // ★すでに持っていたら、静かに素通り
+		st.gotKeyNow = true;
+		// ★★上がっていく音（★コインのチャリンとも、ぶつかりの低い音とも違う）
+		sound(880, 0.10);
+		setTimeout(function () { sound(1320, 0.10); }, 70);
+		setTimeout(function () { sound(1760, 0.22); }, 150);
+		addPop("KEY", "gain");
+		st.multFlashMs = MULT_FLASH_MS;
+		st.multFlashUp = 1;
+	}
+
+	// ★★★鍵を持って扉に届いた ＝ **使った瞬間**。ここで初めて開いた姿になる
+	//   ★★「持っているだけ」では開かない（島さんの指定）。
+	//     ★理由: 鍵取得 →「何に使うんだ？」→ 再訪 → 接触 → **開く** の
+	//       いちばん最後が体験の山だから
+	function passGate(c) {
+		var firstTime = !hasItem("gateOpened");
+		c.opened = true;
+		st.gatePassed = true;
+		// ★★**一度開けた扉は、次のランからも開いたまま**（★進歩の痕跡を残す）
+		giveItem("gateOpened");
+		if (!firstTime) return;                 // ★2回目からは静かに通る
+		sound(330, 0.14);
+		setTimeout(function () { sound(660, 0.22); }, 110);
+	}
+
+	// ★★鍵が無い ＝ **行き止まり**。★★跳んでも越えられない（＝ ルールの壁）
+	//   ★★**転んだのではない。** スタミナを使い切って、そのランが終わる
+	//   ★★★稼いだコインは**残る**（既存どおり。「全部失う」にはしない）
+	//
+	//   ⚠ ★★保留事項（島さんの指摘 2026-08-16）:
+	//     「初見で"何かわからないものに触ったら全部終了"は強すぎるかもしれない。
+	//       初回だけ強制停止＋少し後退＋扉演出のほうが検証しやすい」
+	//     → ★**今回は現仕様のまま実装し、実機評価で判断する**（★勝手に変えない）
+	function blockedByGate(c) {
+		st.stamina = 0;                 // ★★ここまで
+		st.slowMs = HIT_SLOW_MS;
+		st.shakeMs = SHAKE_MS;          // ★★揺れる（★描画だけ）
+		// ★★「止められた」を見せる時間（→ `update()` の説明）。★遊びには触らない
+		st.gateStopMs = GATE_STOP_MS;
+		st.gateFlashMs = GATE_STOP_MS;  // ★扉が光る（★描画だけ）
+		// ★★★音は「ぶつかった（220Hz）」とはっきり変える。
+		//   ★低いところから**下がっていく**＝「開かない・行き止まり」
+		sound(200, 0.16);
+		setTimeout(function () { sound(150, 0.16); }, 130);
+		setTimeout(function () { sound(110, 0.34); }, 260);
+	}
+
+	// ============================================================
+	// ■■■ ★★★死亡とキャンプ（2026-08-16 / Phase D）■■■
+	// ============================================================
+
+	// ★★★HP が 0 になった ＝ **死亡**。★★未確定分を全部失う
+	//   ★★「スタミナ切れ（撤退）」とはっきり別物にする:
+	//     撤退 … 疲れて旅を続けられなくなった → ★稼ぎは**全部残る**
+	//     死亡 … 危険に耐えられなくなった     → ★★稼ぎを**全部失う**
+	//   ★恒久アップグレード・覚えた技・拾った鍵は**失わない**（買った瞬間に保存済み）
+	function onDeath() {
+		st.died = true;
+		st.coin = 0;                    // ★★未確定分を失う（★積分をゼロに）
+		st.shakeMs = SHAKE_MS;
+		sound(180, 0.20);
+		setTimeout(function () { sound(120, 0.30); }, 150);
+		runOver();
+	}
+
+	// ★★キャンプに着いた ＝ **世界が止まって選ぶ**
+	function reachCamp(c) {
+		st.phase = "camp";
+		st.campObj = c;
+		st.campSel = 0;                 // ★★はじめは「キャンプする」（＝安全側）
+		st.campStopMs = CAMP_STOP_MS;   // ★誤タップよけ
+		st.campsSeen++;
+		sound(660, 0.10);
+		setTimeout(function () { sound(880, 0.14); }, 90);
+	}
+
+	// ★キャンプの選択を決めた
+	function campDecide() {
+		if (st.campSel === 0) {
+			// ★★キャンプする ＝ **そこで旅を終えて店へ戻る**（島さんの判断 2026-08-16）
+			//   ★スタミナを回復して走り続けられる形にすると、**無限に走れて店に戻らない**
+			sound(440, 0.12);
+			runOver();
+		} else {
+			// ★このまま進む ＝ 倍率も HP もそのまま。★さらに奥へ
+			sound(990, 0.08);
+			st.phase = "play";
+			st.campObj = null;
+		}
+	}
+
+	function campMove(d) {
+		st.campSel = (st.campSel + d + 2) % 2;
+		sound(880, 0.03);
+	}
+
 	// ★★ラン終了（スタミナが 0 になった）。★転んだのではない
 	function runOver() {
 		st.phase = "over";
@@ -1002,6 +1495,8 @@
 		st.reached = meters();
 		st.newBest = updateBest(st.reached);
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
+		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
+		//     （★「死亡＝未確定分を失う」を、ここに if を足さずに表す）
 		st.earned = Math.floor(st.coin * upgMul("coin"));
 		// ★★★**貯金に足すのは、ここ1か所だけ。**
 		//   カウントアップは「表示だけ」なので、省略しても二重に増えない
@@ -1045,7 +1540,8 @@
 			var lv = upgLevel(u.id);
 			rows.push({
 				kind: "upg", id: u.id, name: u.name, lv: lv, max: u.maxLevel,
-				cost: (lv >= u.maxLevel) ? 0 : UP.costOf(u, lv)
+				// ★★`maxLevel: null` = 上限なし。★そのときは必ず次の値段が出る
+				cost: (u.maxLevel !== null && lv >= u.maxLevel) ? 0 : UP.costOf(u, lv)
 			});
 		});
 		UP.UNLOCKS.forEach(function (u) {
@@ -1060,7 +1556,7 @@
 	// ★その行が買えるか（★買えないものは暗く出す）
 	function canBuy(r) {
 		if (r.kind === "start") return true;
-		if (r.kind === "upg") return r.lv < r.max && coins >= r.cost;
+		// ★★上限なし（`max === null`）なら、レベルでは止めない
 		return !r.got && coins >= r.cost;
 	}
 
@@ -1128,6 +1624,12 @@
 		if (st.paused) return;
 		// ★★ラン終了。★世界は止まったまま、コインの数え上げだけ進む
 		if (st.phase === "over") { updateCount(dt); return; }
+		// ★★★キャンプで選んでいるあいだは、世界が止まる（2026-08-16 / Phase D）
+		//   ★距離も倍率も増えない（★「止まって考える場所」なので）
+		if (st.phase === "camp") {
+			if (st.campStopMs > 0) st.campStopMs = Math.max(0, st.campStopMs - dt * 1000);
+			return;
+		}
 
 		updatePhase(dt);
 
@@ -1135,9 +1637,28 @@
 		//   ★スケーターは**立ちのまま待つ**（プッシュは GO の瞬間から）
 		if (isFrozen(st.phase)) { updateStandby(dt); return; }
 
+		// ★扉の光り（★描画だけ）。★**下の早い戻りより前に置くこと**。
+		//   後ろに置くと、スタミナ 0 のあいだ時間が進まず**点滅しない**
+		if (st.gateFlashMs > 0) st.gateFlashMs = Math.max(0, st.gateFlashMs - dt * 1000);
+		if (st.shakeMs > 0) st.shakeMs = Math.max(0, st.shakeMs - dt * 1000);
+
 		// ★★スタミナが減る。0 になったらラン終了（★転ぶのではない）
 		st.stamina -= dt;
-		if (st.stamina <= 0) { st.stamina = 0; runOver(); return; }
+		if (st.stamina <= 0) {
+			st.stamina = 0;
+			// ★★★扉で止められたときだけ「間」を置く（2026-08-16 のレビュー C-1）
+			//
+			//   ★問題だったこと: 扉に当たった瞬間にスタミナが 0 になり、
+			//     **その次の1コマ（約16ms）でリザルト画面が扉を塗りつぶしていた**。
+			//     ★しかも扉の13列のうち9列は**主役の体で隠れている**。
+			//     → **なぜ終わったのかが、画面のどこにも映らない**。
+			//
+			//   ★★だから扉のときだけ、リザルトへ行く前に**少し止まって見せる**。
+			//     ★遊びは1ドットも変わらない（★世界は止まっている。距離も増えない）
+			if (st.gateStopMs > 0) { st.gateStopMs -= dt * 1000; return; }
+			runOver();
+			return;
+		}
 
 		// ★ぶつかったあとの減速（残り時間が減っていく）
 		if (st.slowMs > 0) st.slowMs = Math.max(0, st.slowMs - dt * 1000);
@@ -1152,7 +1673,7 @@
 		// ★★見た目だけのもの（★遊びには触らない）を進める
 		updatePops(dt);
 		if (st.multFlashMs > 0) st.multFlashMs = Math.max(0, st.multFlashMs - dt * 1000);
-		if (st.shakeMs > 0) st.shakeMs = Math.max(0, st.shakeMs - dt * 1000);
+		// ★揺れと扉の光りは、**スタミナの判定より前**で進めてある（上を見ること）
 
 		// ★★倍率: 走っているだけでも少し上がる（★基礎成長）
 		//   ★ここはポップアップを出さない（毎コマ出たらうるさい）ので、直接足す
@@ -1170,6 +1691,8 @@
 		st.coin += (moved / SCORE_DOTS) * st.mult;
 
 		// ★三角コーン: 画面の右の外から出して、左へ流す
+		// ★★★注意: この `if` の中には**障害物ぜんぶ**（コーン・岩・扉・鍵・当たり判定）が入っている。
+		//   ★`CONE_ON = 0` にすると、コーンだけでなく**全部消える**（★昔からこの形）
 		if (CONE_ON) {
 			st.nextCone -= moved;
 			if (st.nextCone <= 0) {
@@ -1180,7 +1703,10 @@
 				// ★★2026-08-15（Phase 2）: 1個ずつではなく**パターンをまるごと**置く。
 				//   ★パターンの順番は A→B→C→D の巡回。**種（シード）では決めない**
 				//     （既存の決まり: 障害物を種で決めると「覚えゲー」になる）
-				var pat = PATTERN_ON ? PATTERNS[st.patIndex % PATTERNS.length] : null;
+				//   ★★2026-08-16（Phase C）: **出す場所の距離**でパターンを太らせる。
+				//     ★「いま何メートル走ったか」ではなく **`bornAt`（そのコーンが立つ場所）**
+				//       で決める。★そうしないと、同じ場所なのに来かたで幅が変わる
+				var pat = PATTERN_ON ? patternAt(st.patIndex, bornAt) : null;
 				var len = pat ? patternLen(pat) : 0;
 				// ★★パターンの**端から端まで**が平らな道の上に乗るときだけ置く
 				if (pat && WD.flatnessAt(bornAt) >= 1 && WD.flatnessAt(bornAt + len) >= 1) {
@@ -1195,7 +1721,9 @@
 						}
 					}
 					st.patIndex++;
-					st.nextCone = len + CONE_GAP_MIN; // ★次のパターンまで、ひと呼吸あける
+					// ★★次のパターンまで、ひと呼吸あける。
+					//   ★★**「1回の技で進む距離」より必ず広くする**（→ 上の「欠陥」の説明）
+					st.nextCone = len + coneGapMin();
 				} else {
 					st.nextCone = nextConeGap();      // すこし進んで、また試す
 				}
@@ -1215,16 +1743,109 @@
 				}
 			}
 
+			// ============================================================
+			// ★★★扉と鍵（2026-08-16 / Phase C）
+			//
+			//   ★★扉は「決まった距離」に**1回だけ**立っている。
+			//     ★種（シード）では決めない ＝ 既存の決まり「障害物は種で決めない」を守る。
+			//     ★★同じ場所なら誰が来ても同じなので、
+			//       **「前は開けられなかった扉を開けた」**がちゃんと残る
+			// ============================================================
+			if (GATE_ON) {
+				// --- 扉 ---
+				if (!st.gateBorn) {
+					var gateWx = GATE_M * SCORE_DOTS;      // ★世界のこの位置に立っている
+					var edge = worldX() + W + 4;           // ★画面の右の外
+					if (edge >= gateWx) {
+						st.gateBorn = true;                // ★この位置は一度きり
+						// ★★画面の右外に「まだ届いていない分」だけ右に置く
+						//   （★一気に近づいたときも、めり込まない）
+						var gx = W + 4 - (edge - gateWx);
+						// ★★★もう主役の足より左＝**通り過ぎている場所**になっていたら、
+						//   **画面の右端に寄せ直して必ず置く**（★捨てない）。
+						//   ★ふつうに走っていれば必ず右端から来るので、ここは通らない
+						//     （1コマ 208ドット以上進んだときだけ。★いまの最速は 5.3ドット）。
+						//   ★★捨ててしまうと**扉を素通りできてしまう**ので、
+						//     「置き場所がずれる」より「必ず立ちはだかる」を優先する
+						if (gx <= RIDER_X + RIDER_FOOT) gx = W + 4;
+						st.cones.push({
+							x: gx, wx: gateWx, kind: "gate",
+							// ★★**「持っているだけ」では開いた姿にしない。**
+							//   突破した瞬間に `opened` を立てる（→ 下の「越えた」判定）
+							// ★★★ただし**一度自分で開けた扉は、次のランからは開いたまま**。
+							//   ★これが無いと、毎ラン同じ壁に見えて**進歩の痕跡が残らない**
+							//   （2026-08-16 のレビュー H-2）
+							opened: hasItem("gateOpened")
+						});
+						st.gateSeen = true;
+						// ★★★「扉を見た」を**永久に覚える**。
+						//   ★これが鍵を出す門番になる（→ `KEY_MIN_M` の上の説明）
+						//   ★★覚えないと、毎ラン「見たことがない」に戻って鍵が出ない
+						giveItem("sawGate");
+					}
+				}
+					// --- ★★キャンプ（2026-08-16 / Phase D）---
+				//   ★★決まった距離ごとに立っている。★種では決めない（扉と同じ考え方）
+				if (CAMP_ON) {
+					var campWx = (st.campBorn + 1) * CAMP_M * SCORE_DOTS;
+					var cEdge = worldX() + W + 4;
+					if (cEdge >= campWx) {
+						st.campBorn++;
+						var cx2 = W + 4 - (cEdge - campWx);
+						// ★通り過ぎている場所なら置かない（★キャンプは「行き止まり」ではないので捨ててよい）
+						if (cx2 > RIDER_X + RIDER_FOOT) {
+							st.cones.push({ x: cx2, wx: campWx, kind: "camp" });
+						}
+					}
+				}
+
+				// --- 鍵 ---
+				//   ★★★**扉を見たことがある**ときだけ出る（→ 上の `KEY_MIN_M` の説明）
+				//     ・見る前は出ない → 「何だこれ？」が先に来る（★輪が逆転しない）
+				//     ・見たあとは手前に出る → 拾える（★輪が閉じる）
+				//   ★★まっすぐな道かどうかは**見ない**（鍵は障害物ではないので、丘にもある）
+				st.nextKey -= moved;
+				if (st.nextKey <= 0) {
+					var keyAt = worldX() + W + 4;
+					if (hasItem("sawGate") && !hasItem("key") &&
+						metersOf(keyAt) >= KEY_MIN_M && Math.random() < KEY_RATE) {
+						st.cones.push({ x: W + 4, wx: keyAt, kind: "key" });
+						st.keysBorn++;
+					}
+					st.nextKey = KEY_TRY_GAP;             // ★次に抽選するまでの距離
+				}
+			}
+
 			var foot = RIDER_X + RIDER_FOOT;
 			for (var i = st.cones.length - 1; i >= 0; i--) {
 				var c = st.cones[i];
 				var cw = obWidth(c);
 				c.x -= moved;
+
+				// ============================================================
+				// ★★★扉と鍵は「足に届いた瞬間」に決める（2026-08-16 / Phase C）
+				//
+				//   ★★なぜ `hitConeIndex()` に任せないのか:
+				//     あちらは「**いま重なっているか**」しか見ない。
+				//     ★速さが上がると 1コマで扉の幅（13ドット）以上進むので、
+				//       **重なったコマが1度も来ずにすり抜ける**。
+				//     ★★扉は「鍵が無ければ絶対に通れない」ものなので、すり抜けは致命的。
+				//   → **足の列に届いた最初のコマで、必ず1回だけ決める。**
+				// ============================================================
+				if (!c.resolved && (c.kind === "gate" || c.kind === "key" || c.kind === "camp") &&
+					Math.round(c.x) <= foot) {
+					c.resolved = 1;
+					if (c.kind === "camp") { reachCamp(c); return; }   // ★★世界を止める
+					if (c.kind === "key") takeKey(c);
+					else if (hasItem("key")) passGate(c);   // ★★鍵を**使った**瞬間
+					else blockedByGate(c);                  // ★行き止まり
+				}
+
 				// ★★足の位置を通り過ぎた ＝ 越えた（★倍率が上がる。★唯一の加速装置）
+				//   ★扉と鍵は上で決めてあるので、ここでは倍率を動かさない
 				if (!c.passed && Math.round(c.x) + cw < foot) {
 					c.passed = 1;
-					// ★★MULT のアップグレードはここで効く
-					addMult(curMultCone());
+					if (c.kind !== "gate" && c.kind !== "key" && c.kind !== "camp") addMult(curMultCone());
 				}
 				if (c.x + cw < 0) st.cones.splice(i, 1);
 			}
@@ -1328,11 +1949,40 @@
 	//   ★2026-08-11 から、コーンも**その場所の地面の高さ**に乗る（坂の上では高い）
 	//   ★★2026-08-15: コーン（まっすぐな道）と岩（丘）を**同じ道具で描く**
 	function drawCones() {
+		// ★★扉が光っているあいだ、点滅させる（★2026-08-16 のレビュー C-1）
+		//   ★描画だけ。★遊びには1ドットも触らない
+		var flash = (st.gateFlashMs > 0) && (Math.floor(st.gateFlashMs / 90) % 2 === 0);
 		for (var i = 0; i < st.cones.length; i++) {
-			var o = st.cones[i], A = obArt(o), f = A.FRAMES[0];
+			var o = st.cones[i];
+			if (o.taken) continue;            // ★拾った鍵は、もう描かない
+			var A = obArt(o), f = A.FRAMES[0];
 			var half = Math.floor(f.rows[0].length / 2);
 			var cx = Math.round(o.x);
-			drawArt(f, cx, groundRowAt(cx + half) - 1 - A.FEET_ROW + f.y);
+			var y = groundRowAt(cx + half) - 1 - A.FEET_ROW + f.y;
+			// ★★止められた扉だけ、白く塗って光らせる（★形はそのまま）
+			if (flash && o.kind === "gate" && o.resolved && !o.opened) {
+				drawArtFlat(f, cx, y, GB[C_GATE_FLASH]);
+				continue;
+			}
+			drawArt(f, cx, y);
+		}
+	}
+
+	// ★絵の形だけを使って、1色でベタ塗りする（★光らせるためだけの道具）
+	function drawArtFlat(f, ox, oy, color) {
+		var rows = f.rows;
+		ctx.fillStyle = color;
+		for (var r = 0; r < rows.length; r++) {
+			var line = rows[r], y = oy + r;
+			if (y < 0 || y >= H) continue;
+			var c = 0;
+			while (c < line.length) {
+				if (line.charAt(c) === ".") { c++; continue; }
+				var run = 1;
+				while (c + run < line.length && line.charAt(c + run) !== ".") run++;
+				ctx.fillRect(ox + c, y, run, 1);
+				c += run;
+			}
 		}
 	}
 
@@ -1459,11 +2109,23 @@
 		//   島さん「スタミナの見える化がないと、何故急に終了したのか分からない」
 		drawStaminaBar();
 
+		// ★★★HP（2026-08-16 / Phase D）。★スタミナバーのすぐ下に、HP_MAX 個の四角
+		//   ★★スタミナは「連続したバー」／HP は「数えられる四角」。**形で役割を分ける**
+		//     ★同じ形のバーを2本並べると、どちらが何か分からなくなる
+		//   ★★絵は使っていない（★四角なので `js/palette.js` の色だけで足りる）
+		if (CAMP_ON) {
+			var hpY = (BAR_ON ? BAR_H : 0) + 1;
+			for (var hi = 0; hi < st.hpMax; hi++) {
+				ctx.fillStyle = GB[(hi < st.hp) ? C_HP_ON : C_HP_OFF];
+				ctx.fillRect(2 + hi * (HP_BLOCK_W + HP_GAP), hpY, HP_BLOCK_W, HP_BLOCK_H);
+			}
+		}
+
 		// ⑨ 距離と倍率（左上に2行）。★右上は [音][一時停止][もどる] が重なるので使わない
 		//   ★単位の「m」つき（2026-08-12 島さんの指定）
 		//   ★★バーのぶんだけ下へずらす
 		var F = global.DotFont;
-		var hudY = (BAR_ON ? BAR_H : 0) + 2;
+		var hudY = (BAR_ON ? BAR_H : 0) + 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
 		F.drawText(ctx, meters() + "m", 2, hudY, GB[C_TEXT]);
 		// ★★倍率を画面の主役にする（2026-08-15 島さんの指定）。
 		//   ★上がった瞬間だけ **1ドット跳ねて色が変わる**（★2倍で描く仕組みは作らない）
@@ -1485,11 +2147,20 @@
 		}
 		F.drawText(ctx, "×" + st.mult.toFixed(1), multX, multY, GB[multCol]);
 
+			// ★★★持っている鍵を左上に出す（2026-08-16 のレビュー H-3）
+			//   ★数ラン前に拾っていると、**持っているかどうか確かめる場所がどこにも無かった**。
+			//   ★★文字は増やさない。**鍵の絵をそのまま出すだけ**
+			//     （★「扉の鍵穴」と「この絵」が結びつくのが手がかりになる）
+			if (GATE_ON && hasItem("key")) {
+				var kf = KEY.FRAMES[0];
+				drawArt(kf, 2, multY + F.GLYPH_H + 2);
+			}
+
 		// ★★頭上のポップアップ（+0.5 / -1.5 / +100m）。★1か所に集約してある
 		drawPops();
 
 		// ⑩ ★まん中に出す文字（READY / GO / PAUSE / ★転んだときの記録）
-		if (st.paused) drawCenterText("PAUSE");
+		if (st.paused) drawPauseScreen();
 		else if (st.phase === "ready") drawCenterText("READY");
 		else if (st.phase === "go") drawCenterText("GO");
 		// ★★ラン終了の画面（2026-08-15 / 成長型コア）。**3行だけ**
@@ -1504,6 +2175,80 @@
 		//   ★コンボ・倍率・SEED は出さない（あと）
 		else if (st.phase === "over") {
 			drawOverScreen();
+		}
+		// ★★★キャンプの選択（2026-08-16 / Phase D）
+		else if (st.phase === "camp") {
+			drawCampScreen();
+		}
+	}
+
+	// ============================================================
+	// ★★★一時停止メニュー（2026-08-16 / Phase D）
+	// ============================================================
+	//
+	//        PAUSE
+	//      → GO ON     ← 再開
+	//        EXIT      ← ★ここでゲームを終える（★液晶の外の 🚪 は無くした）
+	//
+	//   ★★島さんの指定: **⛺＝世界の中のキャンプ / 🚪＝ゲームを終える操作**
+	//     の役割を、記号として完全に分ける
+	//   ★操作は買い物・キャンプと**まったく同じ**（上へなぞる／下へなぞる／タップ）
+	function drawPauseScreen() {
+		var F = global.DotFont;
+		var rowH = F.GLYPH_H + 4;
+		var rows = ["GO ON", "EXIT"];
+		var top = Math.floor((H - F.GLYPH_H) / 2);
+		ctx.fillStyle = GB[C_SHOP_BACK];
+		ctx.fillRect(0, top - rowH - 6, W, (rows.length + 1) * rowH + 10);
+		var tw = F.textWidth(5);
+		F.drawText(ctx, "PAUSE", Math.floor((W - tw) / 2), top - rowH, GB[C_TEXT]);
+		for (var i = 0; i < rows.length; i++) {
+			var sel = (i === st.pauseSel);
+			var y = top + i * rowH;
+			var w = F.textWidth(rows[i].length);
+			var x = Math.floor((W - w) / 2);
+			if (sel) F.drawText(ctx, "→", x - 8, y, GB[C_SHOP_SEL]);
+			F.drawText(ctx, rows[i], x, y, GB[sel ? C_SHOP_SEL : C_SHOP_ROW]);
+		}
+	}
+
+	function pauseDecide() {
+		if (st.pauseSel === 0) { st.paused = false; sound(660, 0.06); return; }
+		// ★★やめる ＝ メニューへ戻る（★シェルが `onExit()` も呼ぶ）
+		sound(440, 0.10);
+		if (exitToMenu) exitToMenu();
+	}
+
+	function pauseMove(d) {
+		st.pauseSel = (st.pauseSel + d + 2) % 2;
+		sound(880, 0.03);
+	}
+
+	// ============================================================
+	// ★★★キャンプの画面（2026-08-16 / Phase D）
+	// ============================================================
+	//
+	//        CAMP        ← ★選ぶと、ここで旅を終えて店へ戻る（成果確定）
+	//        GO ON       ← ★選ぶと、倍率も HP もそのままで先へ進む
+	//
+	//   ★★操作は買い物画面と**まったく同じ**（上へなぞる／下へなぞる／タップ）。
+	//     ★新しいボタンも新しい操作も増やしていない
+	//   ★★世界は止まっている（距離も倍率も増えない）
+	function drawCampScreen() {
+		var F = global.DotFont;
+		var rowH = F.GLYPH_H + 4;
+		var rows = ["CAMP", "GO ON"];
+		var top = Math.floor((H - F.GLYPH_H) / 2) - rowH;
+		// ★★後ろに暗い帯（★景色の上だと読めないため。買い物画面と同じ考え方）
+		ctx.fillStyle = GB[C_SHOP_BACK];
+		ctx.fillRect(0, top - 4, W, rows.length * rowH + 8);
+		for (var i = 0; i < rows.length; i++) {
+			var sel = (i === st.campSel);
+			var y = top + i * rowH;
+			var w = F.textWidth(rows[i].length);
+			var x = Math.floor((W - w) / 2);
+			if (sel) F.drawText(ctx, "→", x - 8, y, GB[C_SHOP_SEL]);
+			F.drawText(ctx, rows[i], x, y, GB[sel ? C_SHOP_SEL : C_SHOP_ROW]);
 		}
 	}
 
@@ -1528,7 +2273,7 @@
 		//   ★記録そのものは覚えている（`localStorage` の `dotollie-best`）
 		drawCenterText(st.reached + "m", SHOP_TOP - 76 - rowH);
 		// ★★「COIN 0」から数字が伸びる。★ここに倍率は出さない（島さんの指定で外した）
-		drawCenterText("COIN " + countedCoin(), SHOP_TOP - 76 - 2);
+		drawCenterText("COIN " + shortNum(countedCoin()), SHOP_TOP - 76 - 2);
 
 		// ★★数え終わるまでは一覧を出さない（★結果を落ち着いて見せる）
 		if (!countDone()) return;
@@ -1540,7 +2285,7 @@
 		ctx.fillStyle = GB[C_SHOP_BACK];
 		ctx.fillRect(0, SHOP_TOP - 3, W, (moneyY + F.GLYPH_H + 3) - (SHOP_TOP - 3));
 
-		var money = "COIN " + coins;
+		var money = "COIN " + shortNum(coins);
 		for (var i = 0; i < rows.length; i++) {
 			var r = rows[i], y = SHOP_TOP + i * rowH;
 			var sel = (i === st.shopSel);
@@ -1552,13 +2297,37 @@
 		F.drawText(ctx, money, SHOP_X, moneyY, GB[C_SHOP_ROW]);
 	}
 
+	// ============================================================
+	// ★★★大きい数字を短く書く（2026-08-16。★上限を外したので要る）
+	// ============================================================
+	//   ★上限を外すと稼ぎが**7桁**になり、240ドットの画面に入らない。
+	//   ★★9999 までは**そのまま**（4桁は読める）。それ以上は K / M / B / T。
+	//   ★フォントに K M B T は全部ある（確認済み）
+	//
+	//     999 → "999"   /   12345 → "12.3K"   /   4500000 → "4.5M"
+	function shortNum(n) {
+		n = Math.floor(n);
+		if (n < 10000) return String(n);
+		var units = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
+		for (var i = 0; i < units.length; i++) {
+			if (n >= units[i][0]) {
+				var v = n / units[i][0];
+				// ★3桁になったら小数を出さない（"123.4K" は長いので "123K"）
+				return (v >= 100 ? String(Math.floor(v)) : (Math.floor(v * 10) / 10).toFixed(1))
+					+ units[i][1];
+			}
+		}
+		return String(n);
+	}
+
 	// ★1行ぶんの文字（★名前・レベル・値段を桁でそろえる）
 	function shopRowText(r) {
 		if (r.kind === "start") return "START";
 		var name = pad(r.name, 9);
 		if (r.kind === "unlock") return name + (r.got ? "OWNED" : pad("", 4) + r.cost);
-		if (r.lv >= r.max) return name + "LV" + r.lv + " MAX";
-		return name + "LV" + r.lv + " " + r.cost;
+		// ★★上限なし（`maxLevel: null`）のときは MAX にならない
+		if (r.max !== null && r.lv >= r.max) return name + "LV" + r.lv + " MAX";
+		return name + "LV" + r.lv + " " + shortNum(r.cost);
 	}
 
 	function pad(s, n) {
@@ -1661,6 +2430,9 @@
 			loadBest();                  // ★いちばん進んだ距離を思い出す（2026-08-15 / Phase 3）
 			loadCoins();                 // ★★貯めたコインを思い出す（2026-08-15 / 成長型コア）
 			loadUpg();                   // ★★アップグレードを思い出す（2026-08-15 / Phase B）
+			loadItems();                 // ★★拾った持ち物を思い出す（2026-08-16 / Phase C）
+			// ★★★メニューへ戻す窓口（2026-08-16 / Phase D。★一時停止メニューの「EXIT」で使う）
+			exitToMenu = (opts && opts.exitToMenu) || null;
 			// ★シェルが SEED ID 画面で見せた種を、そのまま受け取る
 			reset(opts && typeof opts.seed === "number" ? opts.seed : undefined);
 			// ★READY の音。★enter から始まるときは、enter が明けた瞬間に鳴る（updatePhase）
@@ -1692,6 +2464,15 @@
 				shopMove(action === "jump" ? -1 : 1);
 				return;
 			}
+			if (st && st.phase === "camp" && st.campStopMs <= 0 &&
+				(action === "jump" || action === "guard")) {
+				campMove(action === "jump" ? -1 : 1);
+				return;
+			}
+			if (st && st.paused && (action === "jump" || action === "guard")) {
+				pauseMove(action === "jump" ? -1 : 1);
+				return;
+			}
 			this.input();
 		},
 
@@ -1708,7 +2489,21 @@
 		//   ★`swiped` が真のときは決めない（なぞりは移動であって決定ではない）
 		inputUp: function (action, swiped) {
 			if (action !== "act") return;
-			if (st === null || st.paused) return;
+			if (st === null) return;
+			// ★★一時停止メニューも「離したときに決める」
+			if (st.paused) {
+				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
+				st.tapArmed = false;
+				pauseDecide();
+				return;
+			}
+			// ★★キャンプの選択も「離したときに決める」（買い物画面と同じ）
+			if (st.phase === "camp") {
+				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
+				st.tapArmed = false;
+				campDecide();
+				return;
+			}
 			if (st.phase !== "over") return;
 			if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
 			st.tapArmed = false;
@@ -1740,13 +2535,22 @@
 		// ★タップ = オーリー。**技の最中は受け付けない**(技の途中で技は出ない)
 		//   ★★READY 中のタップは「飛ばす」だけ（技は出ない）
 		input: function () {
-			if (st === null || st.paused) return;
+			if (st === null) return;
+			// ★★★一時停止メニュー（2026-08-16 / Phase D）。★押した瞬間は構えるだけ
+			if (st.paused) { st.tapArmed = true; return; }
 			// ★★ラン終了の画面（2026-08-15）。★タップは2段階:
 			//   ① 数えている途中 … **省略**（★誤タップで結果が消えない）
 			//   ② 数え終わったあと … ★**構えるだけ。決めるのは指を離したとき**（`inputUp`）
 			//      ★そうしないと、なぞろうとして指を置いた瞬間に決まってしまう
 			if (st.phase === "over") {
 				if (!countDone()) { st.countMs = COUNT_MS; return; }
+				st.tapArmed = true;
+				return;
+			}
+			// ★★★キャンプの選択（2026-08-16 / Phase D）。★買い物画面と**同じ操作**
+			//   ★押した瞬間は構えるだけ。離したときに決める（★なぞりと取り合わないように）
+			if (st.phase === "camp") {
+				if (st.campStopMs > 0) return;        // ★着いた直後の誤タップよけ
 				st.tapArmed = true;
 				return;
 			}
@@ -1771,13 +2575,22 @@
 		//   **出だしのうち(SWIPE_GRACE_MS 以内)なら、なぞった技に差し替える**。
 		//   どの技も出だしは「しゃがむ」なので、差し替わっても見た目が飛ばない
 		swipe: function (how) {
-			if (st === null || st.paused) return;
+			if (st === null) return;
+			// ★★一時停止メニューを、なぞって選ぶ
+			if (st.paused) { st.tapArmed = false; pauseMove(how === "swipeUp" ? -1 : 1); return; }
 			// ★★ラン終了の画面では、なぞりは**カーソルの上下**（2026-08-15 / Phase B）
 			//   ★数えている途中なら、まず省略
 			if (st.phase === "over") {
 				if (!countDone()) { st.countMs = COUNT_MS; return; }
 				st.tapArmed = false;      // ★なぞったので、離しても決定しない
 				shopMove(how === "swipeUp" ? -1 : 1);
+				return;
+			}
+			// ★★キャンプの選択（★買い物画面と同じ操作）
+			if (st.phase === "camp") {
+				if (st.campStopMs > 0) return;
+				st.tapArmed = false;
+				campMove(how === "swipeUp" ? -1 : 1);
 				return;
 			}
 			if (isFrozen(st.phase)) return;                  // ★走り出す前は何も起きない
@@ -1789,6 +2602,7 @@
 		togglePause: function () {
 			if (st === null) return;
 			st.paused = !st.paused;
+			if (st.paused) { st.pauseSel = 0; st.tapArmed = false; }   // ★★はじめは「つづける」
 			sound(st.paused ? 440 : 660, 0.06);
 		},
 
@@ -1817,6 +2631,8 @@
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
 		_shopRows: shopRows,
+		_shopRowText: shopRowText,
+		_shortNum: shortNum,
 		_shopPick: shopPick,
 		_upgLevel: upgLevel,
 		_knowsTrick: knowsTrick,
@@ -1827,6 +2643,15 @@
 		_curClearDots: curClearDots,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
+		// ★★キャンプ・HP・死亡の覗き窓（2026-08-16 / Phase D）
+		_campDecide: campDecide,
+		_pauseDecide: pauseDecide,
+		_pauseMove: pauseMove,
+		_campMove: campMove,
+		// ★★扉と鍵の覗き窓（2026-08-16 / Phase C）
+		_hasItem: hasItem,
+		_giveItem: giveItem,
+		_items: function () { return items; },
 		_draw: function () { draw(); },
 		_meters: meters,
 		_consts: function () {
@@ -1843,9 +2668,17 @@
 				// ★走り出しの加速（かける時間はプッシュの絵の長さ）
 				ACCEL_ON: ACCEL_ON, ACCEL_START: ACCEL_START, ACCEL_MS: accelSpan(),
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
+				// ★★間隔の下限は「1回の技で進む距離」から作る（2026-08-16 / Step 0）
+				GAP_SAFETY: GAP_SAFETY, trickTravelDots: trickTravelDots,
+				coneGapMin: coneGapMin, rockGapMin: rockGapMin,
 				// ★★障害物のパターン（2026-08-15 / Phase 2）。★テストが解いて見張る
-				PATTERN_ON: PATTERN_ON, PATTERNS: PATTERNS,
+				//   ★`PATTERNS` は**出だし（0m）の形**。★Phase C から先は距離で太る
+				PATTERN_ON: PATTERN_ON,
+				PATTERNS: PATTERNS.map(function (_, i) { return patternAt(i, 0); }),
 				patternLen: patternLen,
+				// ★★距離で障害物が広がる（2026-08-16 / Phase C）
+				TIER_ON: TIER_ON, TIER_M: TIER_M, TIER_ADD: TIER_ADD, TIER_MAX: TIER_MAX,
+				tierAt: tierAt, patternAt: patternAt, CONE_W: CONE_W,
 				// ★★いちばん進んだ距離（2026-08-15 / Phase 3）
 				BEST: best, SCORE_DOTS: SCORE_DOTS,
 				// ★★走行の経済（2026-08-15 / 成長型コア）
@@ -1871,9 +2704,23 @@
 				ROCK_W: ROCK_W, ROCK_H: ROCK.FRAMES[0].rows.length,
 				ROCK_SOURCE: ROCK.SOURCE,
 				// ★★障害物の絵ぜんぶ（★テストが「黒で縁取られているか」を見張る）
+				//   ★鍵は「ぶつかるもの」ではないが、**背景に溶けたら拾えない**ので同じ決まりを課す
 				OBSTACLE_ARTS: [
-					{ name: "コーン", art: CONE }, { name: "岩", art: ROCK }
+					{ name: "コーン", art: CONE }, { name: "岩", art: ROCK },
+					{ name: "扉", art: GATE },
+					{ name: "扉(開)", art: { FRAMES: GATE.OPEN_FRAMES, SOURCE: GATE.SOURCE } },
+					{ name: "鍵", art: KEY }, { name: "キャンプ", art: CAMP }
 				],
+				// ★★扉と鍵（2026-08-16 / Phase C）
+				// ★★キャンプ・HP・死亡（2026-08-16 / Phase D）
+				CAMP_ON: CAMP_ON, CAMP_M: CAMP_M, CAMP_W: CAMP_W,
+				CAMP_H: CAMP.FRAMES[0].rows.length, CAMP_STOP_MS: CAMP_STOP_MS,
+				HP_MAX: HP_MAX, DEATH_ENDS_RUN: DEATH_ENDS_RUN,
+				GATE_ON: GATE_ON, GATE_M: GATE_M, GATE_W: GATE_W,
+				GATE_H: GATE.FRAMES[0].rows.length,
+				KEY_MIN_M: KEY_MIN_M, KEY_RATE: KEY_RATE, KEY_TRY_GAP: KEY_TRY_GAP,
+				KEY_W: KEY_W,
+				ITEMS: items,
 				// ★技は数字ではなく「島さんが描いた動き」。テストもここから読む
 				POSES: POSES.map(function (P) {
 					return {
