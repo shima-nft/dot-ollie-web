@@ -218,7 +218,18 @@
 	//   → `docs/decisions.md` 2026-08-15(7)
 	var MULT_TRICK    = 0;     // ★技を出しただけでは上がらない
 	var MULT_CONE     = 0.5;   // ★★障害物を越えたら（★ここだけが「加速装置」）
-	var MULT_MAX      = 20;    // ★★上限（★暴走よけ）
+	// ★★★2026-08-16、島さんの指定で**上限を外した**:
+	//   > 「倍率上限levelは外して。倍率もっと育てたい」
+	//
+	//   ★実測で、上限 20 に**張り付いていた**:
+	//     Lv 6 … いちばん高い倍率 14.3 / 上限に張り付いた時間  0.8秒
+	//     Lv10 … いちばん高い倍率 20.0 / ★上限に張り付いた時間 14.6秒
+	//     Lv15 … いちばん高い倍率 20.0 / ★★張り付き 27.9秒（★ランのほぼ全部）
+	//   → ★★**Lv8 以降、MULT を買っても倍率がほとんど増えていなかった。**
+	//
+	//   ★★アップグレードの上限も外してあるので、ここだけ 20 で止める理由が無い。
+	//   ★画面は `shortNum` で K / M / B / T に短くするので、桁が増えても入る
+	var MULT_MAX      = Infinity;   // ★上限なし
 	// ★★★2026-08-15、島さんの指定で **「0 に戻す」→「半分になる」** に変えた。
 	//   ★障害物が約3.5秒に1個来るのに 0 に戻していたので、
 	//     **倍率が 1.2 前後から伸びなかった**（インフレの土台が育たない）。
@@ -2145,7 +2156,7 @@
 			drawArt(COIN_ICON, 2, multY);
 			multX = 2 + COIN_ICON.rows[0].length + 2;
 		}
-		F.drawText(ctx, "×" + st.mult.toFixed(1), multX, multY, GB[multCol]);
+		F.drawText(ctx, multText(st.mult), multX, multY, GB[multCol]);
 
 			// ★★★持っている鍵を左上に出す（2026-08-16 のレビュー H-3）
 			//   ★数ラン前に拾っていると、**持っているかどうか確かめる場所がどこにも無かった**。
@@ -2318,6 +2329,12 @@
 			}
 		}
 		return String(n);
+	}
+
+	// ★★倍率を画面に出す形（★上限を外したので、桁が増えても入るように）
+	//   ★999.9 までは小数1桁（★いままでどおりの見え方）。それ以上は K / M / B / T
+	function multText(m) {
+		return "×" + ((m < 1000) ? m.toFixed(1) : shortNum(m));
 	}
 
 	// ★1行ぶんの文字（★名前・レベル・値段を桁でそろえる）
@@ -2633,6 +2650,7 @@
 		_shopRows: shopRows,
 		_shopRowText: shopRowText,
 		_shortNum: shortNum,
+		_multText: multText,
 		_shopPick: shopPick,
 		_upgLevel: upgLevel,
 		_knowsTrick: knowsTrick,
