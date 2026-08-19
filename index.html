@@ -25,10 +25,15 @@
 		     ・exit  = 右上の小さな「もどる」ボタン(選択画面へ)
 		     キット付属の◀▶やA/Bは、RUN が使わないので置いていない -->
 		<div id="gamepad">
-			<button class="key pad" id="pad-sound" data-action="sound"><canvas class="pad-label" data-icon="sound"></canvas></button>
-			<button class="key pad" id="pad-pause" data-action="pause"><canvas class="pad-label" data-icon="pause"></canvas></button>
-			<button class="key pad" id="pad-exit"   data-action="exit"><canvas class="pad-label" data-icon="exit"></canvas></button>
+			<!-- ★★2026-08-16、島さんの指定で置き場を変えた:
+			       「一時停止ボタン一番右。スピーカーボタンは一時停止ボタンの真下。
+			         ショップボタンは真ん中(一時停止ボタンがあったところ)」
+			     ★★どこに出るかは css/style.css の #gamepad(格子)が決める。
+			       ここの並び順ではない -->
 			<button class="key pad" id="pad-shop"  data-action="shop"><canvas class="pad-label" data-icon="shop"></canvas></button>
+			<button class="key pad" id="pad-pause" data-action="pause"><canvas class="pad-label" data-icon="pause"></canvas></button>
+			<button class="key pad" id="pad-sound" data-action="sound"><canvas class="pad-label" data-icon="sound"></canvas></button>
+			<button class="key pad" id="pad-exit"   data-action="exit"><canvas class="pad-label" data-icon="exit"></canvas></button>
 			<button class="key pad ab" id="pad-act" data-action="act"><canvas class="pad-label" data-icon="act"></canvas></button>
 		</div>
 	</div>

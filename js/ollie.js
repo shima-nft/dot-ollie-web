@@ -876,28 +876,42 @@
 	}
 
 	// ============================================================
-	// ★★★★買えた瞬間の音（2026-08-16。★島さんの指定）
+	// ★★★★買えた瞬間の音（2026-08-16。★島さんの指定で**2度目の作り直し**）
 	// ============================================================
 	//
 	//   > 島さん「音はかわりに各能力が上がったときに(購入)気持ち良いのをお願いします。
 	//   >   脳汁でるような。」
+	//   > 島さん「購入時効果音はもう少し気持ち良くして」
 	//
-	//   ★★★「気持ちいい」を作っている中身は3つ:
-	//     ① **下から駆け上がる**（440 → 660 → 880 → 1320 → 1760）
-	//        ★★上がり続けると、脳が「まだ上がる」と期待する。★そこが快感の芯
-	//     ② **最後だけ長い**（0.28秒）＝ 着地。★短いまま終わると宙ぶらりんになる
-	//     ③ **重ねる**（最後にオクターブ下 880 を同時に鳴らす）＝ 厚みが出て「重い」
-	//   ★間隔 45ms は**速すぎず遅すぎず**（★遅いと間延びし、速いと1つの音に溶ける）
+	//   ★★前は「騆け上がって終わり」だけだった。★**4つ足した**:
+	//
+	//     ① ★★**低い一発で始める**（220）。★「ドン」と重みが出て、
+	//        ★★そのあとの上昇が**高く感じる**（★低いところから登るから）
+	//     ② ★★★**ドレミの和音で登る**（ド → ミ → ソ → ド）。
+	//        ★前は適当な高さだったので**外れて聞こえていた**。
+	//        ★★和音になっていると、耳が「次はここ」と**先を読める**＝気持ちいい
+	//     ③ ★★★着地を**3つ重ねて和音にする**（ミ＋ド＋ミ）。
+	//        ★単音だと細い。★★重ねると**厚くて「でかい」**音になる
+	//     ④ ★★**キラキラを後ろに付ける**（高い音を2つ）。
+	//        ★★終わったあとにもう一押しあると、★**余韻が残る**
+	//
+	//   ★★★**並べるのは `melody()` の1か所だけ**（★`setTimeout` を散らすと、
+	//     音を切ったあとも鳴り残る）。★全部で約 0.5 秒
 	function buySound() {
 		melody([
-			[440,  0.05,   0],
-			[660,  0.05,  45],
-			[880,  0.05,  90],
-			[1320, 0.06, 135],
-			[1760, 0.28, 180],   // ★★着地（★長い）
-			[880,  0.28, 180]    // ★★同時に鳴らして厚みを出す
+			[220,  0.07,   0],   // ★① 重み（ドン）
+			[523,  0.05,  45],   // ★② ド
+			[659,  0.05,  85],   //    ミ
+			[784,  0.05, 125],   //    ソ
+			[1047, 0.07, 165],   //    ド（上）
+			[1319, 0.38, 215],   // ★③ 着地の和音（ミ）
+			[1047, 0.38, 215],   //    ＋ド
+			[659,  0.38, 215],   //    ＋ミ（下）★これが厚み
+			[2093, 0.07, 310],   // ★④ キラキラ
+			[2637, 0.10, 375]
 		]);
 	}
+
 
 	function loadSound() {
 		try { soundOn = localStorage.getItem("dotollie-sound") !== "off"; } catch (e) { soundOn = true; }
@@ -1024,7 +1038,11 @@
 	//   ★★これは**テストのための仕掛け**です。要らなくなったら
 	//     下の `RESET_ON_EXIT` を **0** にすれば、扉ボタンはただ「もどる」だけに戻ります。
 	// ============================================================
-	var RESET_ON_EXIT = 1;      // ★1 = ぜんぶ消す / 0 = ただ「もどる」だけ
+	// ★★★2026-08-16、**0 にした**（島さんの指定で GAMEOVER から必ずタイトルへ戻るため）。
+	//   ★★1 のままだと、**死ぬたびにタイトルへ戻る → そのたびに BEST まで消える**。
+	//     ★育てたものは GAMEOVER でもう消えているので、ここで消す物は残っていない。
+	//     ★★消えてはいけない **BEST（唯一ランをまたぐ記録）だけが道連れ**になっていた
+	var RESET_ON_EXIT = 0;      // ★1 = ぜんぶ消す / 0 = ただ「もどる」だけ
 	//   ★★2026-08-16: 🚪 は**液晶の外から一時停止メニューの中へ移した**ので、
 	//     「遊びの中の扉」と押し間違える道は消えている
 	var exitToMenu = null;      // ★シェルが渡してくれる「メニューへ戻す」
@@ -1189,7 +1207,6 @@
 			campBorn: 0,      // ★次に出すキャンプは何個目か
 			campsSeen: 0,     // ★このランで出会ったキャンプの数（★実測用）
 			campSel: 0,       // ★キャンプの選択（0=キャンプする / 1=このまま進む）
-			pauseSel: 0,      // ★★一時停止メニューの選択（0=つづける / 1=やめる）
 			campStopMs: 0,    // ★キャンプに着いてから選べるようになるまで
 			campObj: null,    // ★いま選んでいるキャンプ
 			gateStopMs: 0,    // ★★扉で止められたあと、リザルトへ行くまでの残り（見せる時間）
@@ -1775,6 +1792,20 @@
 	//   ★倍率そのものが無くなったので、意味が残っていない
 	//   ★★かわりの目安は「稼ぎ ÷ 越えた数」＝ `curCoinPer()` そのもの
 
+	// ============================================================
+	// ★★★GAMEOVER からタイトルへ戻す（2026-08-16 島さんの指定）
+	// ============================================================
+	//   > 島さん「GAMEOVER画面から何か押したらタイトル画面へ。」
+	//
+	//   ★★**種を引き直すのはシェル側**（SEED ID 画面で見せた番号をそのまま渡す作り）。
+	//     ★ここでは「戻す」だけ。★★ゲーム側で引き直すと、見せた番号と世界がずれる
+	//   ★★`exitToMenu` が無い（テストなど）ときは、**その場でやり直す**（★固まらせない）
+	function toTitle() {
+		sound(440, 0.10);
+		if (exitToMenu) { exitToMenu(); return; }
+		restart();
+	}
+
 	// ★★やり直し。★**同じ種のまま**（「次はこの技を使おう」を起こしたいので）
 	//   ★★2026-08-15（Phase 3）: **待ち時間なしで走り出す**（`instant`）。
 	//     島さん「クラッシュ → タップ → 即スタート」
@@ -2359,46 +2390,20 @@
 	}
 
 	// ============================================================
-	// ★★★一時停止メニュー（2026-08-16 / Phase D）
+	// ★★★一時停止 —— ★★**まん中に PAUSE の1行だけ**（2026-08-16 島さんの指定）
 	// ============================================================
 	//
-	//        PAUSE
-	//      → GO ON     ← 再開
-	//        EXIT      ← ★ここでゲームを終える（★液晶の外の 🚪 は無くした）
+	//   > 島さん「では一時停止ボタンは中央にPAUSEのみ表示とします。」
 	//
-	//   ★★島さんの指定: **⛺＝世界の中のキャンプ / 🚪＝ゲームを終える操作**
-	//     の役割を、記号として完全に分ける
-	//   ★操作は買い物・キャンプと**まったく同じ**（上へなぞる／下へなぞる／タップ）
+	//   ★★前は `GO ON` / `EXIT` の2択メニューだった。★もう要らない:
+	//     ・**つづける** … ★一時停止ボタンをもう一度押すだけ
+	//     ・**やめる**   … ★★**GAMEOVER から必ずタイトルへ戻る**ようになった
+	//   ★★★選ぶものが無いので、**なぞりもカーソルも要らない**
+	//   ★文字は `drawCenterText()` 1か所を通す（★READY / GO と同じ決まり）
 	function drawPauseScreen() {
-		var F = global.DotFont;
-		var rowH = F.GLYPH_H + 4;
-		var rows = ["GO ON", "EXIT"];
-		var top = Math.floor((H - F.GLYPH_H) / 2);
-		ctx.fillStyle = GB[C_SHOP_BACK];
-		ctx.fillRect(0, top - rowH - 6, W, (rows.length + 1) * rowH + 10);
-		var tw = F.textWidth(5);
-		F.drawText(ctx, "PAUSE", Math.floor((W - tw) / 2), top - rowH, GB[C_TEXT]);
-		for (var i = 0; i < rows.length; i++) {
-			var sel = (i === st.pauseSel);
-			var y = top + i * rowH;
-			var w = F.textWidth(rows[i].length);
-			var x = Math.floor((W - w) / 2);
-			if (sel) F.drawText(ctx, "→", x - 8, y, GB[C_SHOP_SEL]);
-			F.drawText(ctx, rows[i], x, y, GB[sel ? C_SHOP_SEL : C_SHOP_ROW]);
-		}
+		drawCenterText("PAUSE", 0);
 	}
 
-	function pauseDecide() {
-		if (st.pauseSel === 0) { st.paused = false; sound(660, 0.06); return; }
-		// ★★やめる ＝ メニューへ戻る（★シェルが `onExit()` も呼ぶ）
-		sound(440, 0.10);
-		if (exitToMenu) exitToMenu();
-	}
-
-	function pauseMove(d) {
-		st.pauseSel = (st.pauseSel + d + 2) % 2;
-		sound(880, 0.03);
-	}
 
 	// ============================================================
 	// ★★★キャンプの画面（2026-08-16 / Phase D）
@@ -2686,6 +2691,21 @@
 		},
 
 		inputDown: function (action) {
+			// ============================================================
+			// ★★★GAMEOVER のあとは、**何を押してもタイトルへ**（2026-08-16 島さんの指定）
+			// ============================================================
+			//
+			//   > 島さん「GAMEOVER画面から何か押したらタイトル画面へ。」
+			//
+			//   ★★**いちばん先に見る**（★音・一時停止・ショップより前）。
+			//     ★そうしないと「GAMEOVER なのに音だけ切れる」が起きる。
+			//   ★★★暗転しきる前は**何も起きない**（★ここで `return` すること）。
+			//     ★`fadeDone()` だけを条件にすると、暗転中の1回が下へ落ちて
+			//       ★**ショップや一時停止が GAMEOVER の裏で開いてしまう**
+			if (st && st.phase === "over") {
+				if (fadeDone()) toTitle();
+				return;
+			}
 			if (action === "pause") { this.togglePause(); return; }
 			if (action === "sound") { this.toggleSound(); return; }
 			// ★★★ショップボタン（2026-08-16 島さんの指定）
@@ -2701,10 +2721,6 @@
 			if (st && st.phase === "camp" && st.campStopMs <= 0 &&
 				(action === "jump" || action === "guard")) {
 				campMove(action === "jump" ? -1 : 1);
-				return;
-			}
-			if (st && st.paused && (action === "jump" || action === "guard")) {
-				pauseMove(action === "jump" ? -1 : 1);
 				return;
 			}
 			this.input();
@@ -2731,13 +2747,11 @@
 				shopDecide();
 				return;
 			}
-			// ★★一時停止メニューも「離したときに決める」
-			if (st.paused) {
-				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
-				st.tapArmed = false;
-				pauseDecide();
-				return;
-			}
+			// ★★★一時停止のあいだは、画面を触っても何も起きない（2026-08-16）。
+			//   ★まん中に `PAUSE` が出るだけで、選ぶものが無い。
+			//   ★★戻すのは**一時停止ボタンをもう一度押す**だけ
+			//     （★画面タップで戻すと、その勢いで技が出てしまう）
+			if (st.paused) { st.tapArmed = false; return; }
 			// ★★キャンプの選択も「離したときに決める」（買い物画面と同じ）
 			if (st.phase === "camp") {
 				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
@@ -2745,11 +2759,12 @@
 				campDecide();
 				return;
 			}
-			// ★★★GAMEOVER の画面。★タップ1回で**もう一回**（★選ぶものは無い）
+			// ★★★GAMEOVER の画面。★★タップ1回で**タイトルへ**（2026-08-16 島さんの指定）
+			//   ★`inputDown` 側で押した瞬間にも戻すので、ここは**取りこぼしの受け皿**
 			if (st.phase !== "over") return;
-			if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
+			if (!fadeDone()) return;
 			st.tapArmed = false;
-			restart();
+			toTitle();
 		},
 
 		// ★★技を出す。`how` は "tap"(タップ) か "swipeUp"(上へなぞる)
@@ -2777,7 +2792,7 @@
 		input: function () {
 			if (st === null) return;
 			// ★★★一時停止メニュー（2026-08-16 / Phase D）。★押した瞬間は構えるだけ
-			if (st.paused) { st.tapArmed = true; return; }
+			if (st.paused) return;      // ★★一時停止中は何も起きない（2026-08-16）
 			// ★★★ショップ（2026-08-16）。★買い物画面と**まったく同じ操作**
 			if (st.shopOpen) { st.tapArmed = true; return; }
 			// ★★ラン終了の画面（2026-08-15）。★タップは2段階:
@@ -2785,11 +2800,11 @@
 			//   ② 数え終わったあと … ★**構えるだけ。決めるのは指を離したとき**（`inputUp`）
 			//      ★そうしないと、なぞろうとして指を置いた瞬間に決まってしまう
 			if (st.phase === "over") {
-				// ★★★暗転しきるまでは、タップで飛ばせない（2026-08-16）。
+				// ★★★暗転しきるまでは効かない（2026-08-16）。
 				//   ★ぶつかった勢いでタップしていると、**GAMEOVER を見ないまま**
-				//     次のランが始まってしまう（★何が起きたか分からない）
+				//     画面が切り替わってしまう（★何が起きたか分からない）
 				if (!fadeDone()) return;
-				st.tapArmed = true;
+				toTitle();          // ★★島さんの指定「何か押したらタイトル画面へ」
 				return;
 			}
 			// ★★★キャンプの選択（2026-08-16 / Phase D）。★買い物画面と**同じ操作**
@@ -2821,8 +2836,6 @@
 		//   どの技も出だしは「しゃがむ」なので、差し替わっても見た目が飛ばない
 		swipe: function (how) {
 			if (st === null) return;
-			// ★★一時停止メニューを、なぞって選ぶ
-			if (st.paused) { st.tapArmed = false; pauseMove(how === "swipeUp" ? -1 : 1); return; }
 			// ★★ショップを、なぞって選ぶ（★ラン終了の画面と同じ）
 			if (st.shopOpen) { st.tapArmed = false; shopMove(how === "swipeUp" ? -1 : 1); return; }
 			// ★★ラン終了の画面では、なぞりは**カーソルの上下**（2026-08-15 / Phase B）
@@ -2861,7 +2874,7 @@
 		togglePause: function () {
 			if (st === null) return;
 			st.paused = !st.paused;
-			if (st.paused) { st.shopOpen = false; st.pauseSel = 0; st.tapArmed = false; }   // ★★はじめは「つづける」
+			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
 			sound(st.paused ? 440 : 660, 0.06);
 		},
 
@@ -2887,6 +2900,7 @@
 		_countedCoin: countedCoin,
 		_countDone: countDone,
 		_fadeT: fadeT, _fadeDone: fadeDone,
+		_toTitle: toTitle,
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
 		_toggleShop: function () { global.DotOllie.toggleShop(); },
@@ -2909,8 +2923,6 @@
 		_resetStatus: resetStatus,
 		// ★★キャンプ・HP・死亡の覗き窓（2026-08-16 / Phase D）
 		_campDecide: campDecide,
-		_pauseDecide: pauseDecide,
-		_pauseMove: pauseMove,
 		_campMove: campMove,
 		// ★★扉と鍵の覗き窓（2026-08-16 / Phase C）
 		_hasItem: hasItem,

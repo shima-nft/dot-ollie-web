@@ -99,17 +99,43 @@ button.key:active canvas.pad-label {
 	filter: invert(1);
 }
 
-/* ★ボタンの置き場所: 液晶のすぐ下。液晶には1ドットも重ねない */
+/* ★ボタンの置き場所: 液晶のすぐ下。液晶には1ドットも重ねない
+   ★★2026-08-16、島さんの指定で並べ方を変えた:
+     > 「一時停止ボタン一番右。スピーカーボタンは一時停止ボタンの真下。
+     >   ショップボタンは真ん中(一時停止ボタンがあったところ)」
+
+       ┌──────┬──────┬──────┐
+       │      │ 🛍   │ ⏸   │   ← 1段目
+       ├──────┼──────┼──────┤
+       │      │      │ 🔊   │   ← 2段目（一時停止の真下）
+       └──────┴──────┴──────┘
+
+   ★★横に並べる(flex)ではなく**3列2段の格子(grid)**にした。
+     ★「真下」は、列がそろっていないと作れない。
+   ★★左の列はわざと空けてある。★★★これでショップが**画面の左右のまん中**に来る
+     （★島さんの「ショップボタンは真ん中」がそのまま出る） */
+/* ★★2026-08-16、島さん「液晶外のボタンは右端と真ん中で離してください。」
+   → ★★**3列を画面いっぱいに広げる**（`1fr` ずつ）。
+     ★前は `auto` で3つが**まん中にかたまって**いたので、離れて見えなかった。
+   ★★これで **ショップ＝画面のまん中 / 一時停止＝右端**が、そのまま出る */
 #gamepad {
 	width: 100%;
 	flex: 1 1 auto;
 	min-height: 0;
-	display: flex;
-	align-items: flex-start;
-	justify-content: center;
-	gap: clamp(10px, 3vw, 20px);
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	grid-template-rows: auto auto;
+	align-content: start;
+	row-gap: clamp(10px, 3vw, 20px);
 	padding: clamp(12px, 3vh, 26px) clamp(8px, 3vw, 20px);
 }
+
+/* ★どのボタンを、どのマスに置くか（★HTML の並び順ではなくここが決める） */
+/*   ★★`justify-self` が「その列の中で、どちら寄せか」を決める */
+#pad-shop  { grid-column: 2; grid-row: 1; justify-self: center; }  /* ★画面のまん中 */
+#pad-pause { grid-column: 3; grid-row: 1; justify-self: end; }     /* ★★右端 */
+#pad-sound { grid-column: 3; grid-row: 2; justify-self: end; }     /* ★一時停止の真下 */
+#pad-exit  { grid-column: 1; grid-row: 1; justify-self: start; }   /* ★ふだんは出していない */
 
 #pad-sound, #pad-pause, #pad-exit, #pad-shop {
 	width: clamp(46px, 14vw, 64px);
