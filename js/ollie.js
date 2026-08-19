@@ -486,6 +486,29 @@
 	//   ★★★**カウントアップは「表示だけ」。貯金（`coins`）には触らない。**
 	//     実コインの確定は `runOver()` の1か所だけ。
 	//     ★これで **省略／二重加算／ラン再開／localStorage のずれ**が構造的に起きない
+	// ============================================================
+	// ★★★GAMEOVER の暗転（2026-08-16。★島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「スタミナがなくなったら清算なし。」
+	//   > 「徐々に画面が真っ暗になり中央にGAMEOVERの文字表示。」
+	//   > 「距離半分もなし」
+	//
+	//   ★★**清算（コインの数え上げ）はもう出さない。**
+	//     ★理由がはっきりしている: **コインは越えた瞬間に財布へ入っている**ので、
+	//       ★★最後に清算する物が1枚も残っていない
+	//
+	//   ■ ★★どうやって「徐々に真っ暗」にするか（★ドット絵のまま・軽いまま）
+	//     ★★★**横の行を、少しずつ黒く塗りつぶしていく**（★昔のゲームの暗転）。
+	//       ・半透明を重ねない → ★**26色のまま**（`js/palette.js` の外の色が出ない）
+	//       ・塗るのは**最大160本の横線**だけ → ★★**1コマ2ミリ秒の決まりを壊さない**
+	//     ★★順番を `FADE_ORDER` でばらけさせてある。
+	//       ★0,1,2… の順に塗ると**上から4本ずつ固まって**落ちてきて、暗転に見えない
+	var OVER_FADE_MS  = 900;   // ★★真っ暗になるまでの時間
+	var FADE_ORDER    = [0, 4, 2, 6, 1, 5, 3, 7];   // ★8行を、この順で黒くしていく
+	var C_FADE        = 9;     // 9 = まっ黒
+	var C_GAMEOVER    = 17;    // ★GAMEOVER の文字。17=赤
+
 	var COUNT_MS      = 1200;  // ★0 から稼いだ額まで数えるのにかける時間
 	var COUNT_BEEP_MS = 80;    // ★チャリンの間隔（ミリ秒）
 	var COUNT_BEEP_HZ = 1760;  // ★チャリンの高さ
@@ -1006,6 +1029,36 @@
 	//     「遊びの中の扉」と押し間違える道は消えている
 	var exitToMenu = null;      // ★シェルが渡してくれる「メニューへ戻す」
 
+	// ============================================================
+	// ★★★★GAMEOVER で、育てたものを全部なくす（2026-08-16。★島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「なので死んだら(GAMEOVER)ステータスもリセットされる」
+	//
+	//   ★★★これで、この作品は**ランの中で育てて、死んだら消える**形になった。
+	//     ★★お店で買ったもの（レベル・技・コイン）は**そのランのあいだだけのもの**。
+	//
+	//   ■ ★★なぜこれで筋が通るのか（★他の決めごとと全部つながっている）
+	//     ・コインが**越えた瞬間に財布へ入る** … 走りながら使うため
+	//     ・**ショップボタンが液晶の外にある** … 走りながら開くため
+	//     ・**清算がない** … 持ち越す物が無いのだから、清算する物も無い
+	//
+	//   ■ ★★消さないもの（★「育てたもの」ではないから）
+	//     ・**BEST**（いちばん進んだ距離）… ★★記録。★これだけが唯一ランをまたぐ
+	//     ・**音の入り切り** … 設定
+	function resetStatus() {
+		coins = 0;
+		upgLv = {};
+		unlocked = {};
+		items = {};                 // ★拾った鍵も忘れる（★保留中の仕組み）
+		try {
+			localStorage.setItem("dotollie-coins", "0");
+			localStorage.setItem("dotollie-upg", JSON.stringify({ lv: {}, un: {} }));
+			localStorage.setItem("dotollie-items", "{}");
+		} catch (e) { /* 消せなくても遊べる */ }
+		return true;
+	}
+
 	function resetAll() {
 		coins = 0;
 		best = 0;
@@ -1152,6 +1205,7 @@
 			staminaMax: curStaminaMax(),  // ★★このランの満タン（★バーの割合に使う）
 			gainFlashMs: 0,        // ★コインが増えた瞬間の跳ね（★描画だけ）
 			shopOpen: false,       // ★★ショップボタンで開いているか（2026-08-16）
+			overFadeMs: 0,         // ★★GAMEOVER の暗転が、どこまで進んだか（2026-08-16）
 			coin: 0,               // ★★積分した稼ぎ（毎コマ「距離 × そのときの倍率」を足す）
 			slowMs: 0,             // ★ぶつかったあとの減速の残り
 			hits: 0,               // ★ぶつかった回数（★テストと実測が見る）
@@ -1567,7 +1621,9 @@
 	}
 
 	// ★★ラン終了（スタミナが 0 になった）。★転んだのではない
-	function runOver() {
+	//   ★★`opts.reset` = ★**GAMEOVER（育てたものを全部なくす）**（2026-08-16 島さんの指定）
+	//     ★キャンプで自分から終える道（保留中）は、これを立てない
+	function runOver(opts) {
 		st.phase = "over";
 		st.phaseMs = 0;
 		st.reached = meters();
@@ -1581,9 +1637,23 @@
 		st.earned = Math.floor(st.coin);
 		// ★★★2026-08-16、**ここでは貯金に足さない**（島さんの「買えない」報告の直し）。
 		//   ★貯金には `gainCoin()` が**越えた瞬間に入れている**ので、
-		//     ここで足すと**二重になる**。★`st.earned` は「このランの成果」の表示用
-		st.countMs = 0;                          // ★0 から数え始める
+		//     ここで足すと**二重になる**。★`st.earned` は記録用に残してあるだけ
+		// ★★★2026-08-16、島さんの指定で**清算（数え上げ）をやめた**。
+		//   ★`countMs` は最初から終わった状態にする（★仕組みは残してある）
+		st.countMs = COUNT_MS;
+		st.overFadeMs = 0;                       // ★★ここから暗転が始まる
+		// ★★★カーソルを `START` に戻す（2026-08-16。★実機で見つけた）。
+		//   ★走っている途中にショップを開いて `SPEED` を選んだまま死ぬと、
+		//     ★★GAMEOVER でもカーソルが `SPEED` に残り、**タップ1回でもう一回**が崩れる
+		st.shopSel = 0;
+		st.tapArmed = false;
+		st.shopOpen = false;                     // ★ショップを開いたまま死んでも閉じる
+		// ★★★育てたものを全部なくす（島さん「死んだら(GAMEOVER)ステータスもリセット」）。
+		//   ★★**BEST を数えたあとに消す**（★順番が逆だと記録も消える）
+		if (opts && opts.reset) { st.wiped = true; resetStatus(); }
+		// ★★低い音を2つ重ねて「落ちた」感じにする（★買った音の逆向き）
 		sound(330, 0.20);
+		setTimeout(function () { sound(165, 0.45); }, 180);
 	}
 
 	// ============================================================
@@ -1592,6 +1662,19 @@
 	//
 	//   島さん「`COIN 0 ×4.2` からチャリンチャリンの音と同時に数字が0から上昇する
 	//           （タップで省略可）」
+	// ★★★GAMEOVER の暗転を進める（2026-08-16）。★世界は止まったまま
+	function updateOver(dt) {
+		if (st.overFadeMs < OVER_FADE_MS) {
+			st.overFadeMs = Math.min(OVER_FADE_MS, st.overFadeMs + dt * 1000);
+		}
+		updateCount(dt);          // ★★清算は出していないが、仕組みは残してある
+	}
+
+	// ★暗転がどこまで進んだか（0 = まだ明るい / 1 = まっ暗）
+	function fadeT() { return Math.min(1, st.overFadeMs / OVER_FADE_MS); }
+	// ★★暗転が終わったか（★お店の一覧とタップを、ここより後ろにする）
+	function fadeDone() { return st.overFadeMs >= OVER_FADE_MS; }
+
 	function updateCount(dt) {
 		if (st.countMs >= COUNT_MS) return;
 		var before = st.countMs;
@@ -1706,7 +1789,7 @@
 		// ★★ショップを開いているあいだは世界が止まる（★一時停止と同じ扱い）
 		if (st.paused || st.shopOpen) return;
 		// ★★ラン終了。★世界は止まったまま、コインの数え上げだけ進む
-		if (st.phase === "over") { updateCount(dt); return; }
+		if (st.phase === "over") { updateOver(dt); return; }
 		// ★★★キャンプで選んでいるあいだは、世界が止まる（2026-08-16 / Phase D）
 		//   ★距離も倍率も増えない（★「止まって考える場所」なので）
 		if (st.phase === "camp") {
@@ -1740,7 +1823,7 @@
 			//   ★★だから扉のときだけ、リザルトへ行く前に**少し止まって見せる**。
 			//     ★遊びは1ドットも変わらない（★世界は止まっている。距離も増えない）
 			if (st.gateStopMs > 0) { st.gateStopMs -= dt * 1000; return; }
-			runOver();
+			runOver({ reset: true });   // ★★★GAMEOVER ＝ 育てたものを全部なくす
 			return;
 		}
 
@@ -2207,8 +2290,19 @@
 		var F = global.DotFont;
 		var hudY = (BAR_ON ? BAR_H : 0) + 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
 		F.drawText(ctx, meters() + "m", 2, hudY, GB[C_TEXT]);
-		// ★★★このランで稼いだコインを、画面の主役にする（2026-08-16）。
-		//   ★2026-08-15 はここが倍率だった。★★倍率が消えたので**コインそのもの**を出す。
+		// ============================================================
+		// ★★★左上のコイン ＝ **財布（いま持っている額）**（2026-08-16）
+		// ============================================================
+		//
+		//   > 島さん「残りコインが表示コインと合っていない」
+		//
+		//   ★★前はここが「**このランで稼いだ額**」だった。
+		//     ★お店に出るのは「**財布**」なので、★★**買った瞬間からずれる**
+		//     （★実機で確認: 左上 60 / お店 20）。
+		//   → ★★**左上もお店も、同じ「財布」を出す。**
+		//     ★★★コインは越えた瞬間に財布へ入るので、**増える気持ちよさはそのまま**。
+		//       ★買えば減る ＝ **使ったことも目に見える**（★前は減らなかった）
+		//   ★「このランでいくら稼いだか」は、★**ラン終了の画面の `+820`** が受け持つ
 		//   ★増えた瞬間だけ **1ドット跳ねて色が変わる**（★2倍で描く仕組みは作らない）
 		var coinY = hudY + F.GLYPH_H + 2;
 		var coinCol = C_COIN;
@@ -2225,7 +2319,7 @@
 			drawArt(COIN_ICON, 2, coinY);
 			coinX = 2 + COIN_ICON.rows[0].length + 2;
 		}
-		F.drawText(ctx, shortNum(st.coin), coinX, coinY, GB[coinCol]);
+		F.drawText(ctx, shortNum(coins), coinX, coinY, GB[coinCol]);
 
 			// ★★★持っている鍵を左上に出す（2026-08-16 のレビュー H-3）
 			//   ★数ラン前に拾っていると、**持っているかどうか確かめる場所がどこにも無かった**。
@@ -2348,18 +2442,50 @@
 	//   ★★**新しい操作もボタンも増やしていない**（上へなぞる／下へなぞる／タップ だけ）
 	function drawOverScreen() {
 		var F = global.DotFont;
-		var rowH = F.GLYPH_H + 3;
-		var rows = shopRows();
+		var t = fadeT();
 
-		// ★★2026-08-15、島さんの指定で **BEST の行は出さない**。
-		//   ★記録そのものは覚えている（`localStorage` の `dotollie-best`）
-		drawCenterText(st.reached + "m", SHOP_TOP - 76 - rowH);
-		// ★★「COIN 0」から数字が伸びる。★ここに倍率は出さない（島さんの指定で外した）
-		drawCenterText("COIN " + shortNum(countedCoin()), SHOP_TOP - 76 - 2);
+		// ============================================================
+		// ★★★① 徐々に真っ暗にする（2026-08-16 島さんの指定）
+		// ============================================================
+		//   ★★**横の行を、少しずつ黒く塗る**（→ `OVER_FADE_MS` の説明）。
+		//   ★半透明を重ねないので**26色のまま**。★塗るのは最大160本なので軽い
+		var lit = Math.round(t * 8);              // ★8段のうち、何段ぶん黒くしたか
+		if (lit > 0) {
+			ctx.fillStyle = GB[C_FADE];
+			if (lit >= 8) ctx.fillRect(0, 0, W, H);   // ★まっ暗（★1回で済ませる）
+			else {
+				for (var y = 0; y < H; y++) {
+					if (FADE_ORDER.indexOf(y % 8) < lit) ctx.fillRect(0, y, W, 1);
+				}
+			}
+		}
 
-		// ★★数え終わるまでは一覧を出さない（★結果を落ち着いて見せる）
-		if (!countDone()) return;
-		drawShopList();
+		// ★★暗転しきるまでは、文字を出さない（★暗くなる様子だけを見せる）
+		if (!fadeDone()) return;
+
+		// ============================================================
+		// ★★★② まっ暗な画面のまん中に、2行だけ（2026-08-16 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「GAMEOVERの文字と達成した距離のみの表示かつ中央」
+		//
+		//        GAMEOVER
+		//          358m
+		//
+		//   ★★★**これ以外は何も出さない。**
+		//     ・清算（コインの数え上げ）… ★出さない（島さん「清算なし」）
+		//     ・★★お店の一覧 … ★**出さない**。★買うのは**ショップボタン**（走っている途中）
+		//     ・BEST … 出さない（★記録そのものは覚えている）
+		//   ★タップ1回で、そのまま**もう一回**（★カーソルも選ぶものも無い）
+		//
+		//   ★★**2行のかたまりを、液晶の上下のまん中に置く**（★行の高さから計算する。
+		//     ★直書きすると、文字の大きさを変えたときに黙ってずれる）
+		var gap = 4;
+		var blockH = F.GLYPH_H * 2 + gap;
+		var top = Math.floor((H - blockH) / 2);
+		F.drawText(ctx, "GAMEOVER",
+			Math.floor((W - F.textWidth(8)) / 2), top, GB[C_GAMEOVER]);
+		drawCenterAt(st.reached + "m", top + F.GLYPH_H + gap);
 	}
 
 	// ============================================================
@@ -2448,11 +2574,15 @@
 	//   ★`dy` は中央からの上下のずらし（ふだんは 0）
 	// ------------------------------------------------------------
 	function drawCenterText(text, dy) {
+		drawCenterAt(text, Math.floor((H - global.DotFont.GLYPH_H) / 2) + (dy || 0));
+	}
+
+	// ★★横のまん中に、**行の高さを指定して**出す（2026-08-16）。
+	//   ★★★横の中央ぞろえは**ここ1か所だけ**（`drawCenterText` もここを通る）。
+	//     ★別々に計算すると「片方だけ横にずれる」が起きる
+	function drawCenterAt(text, y) {
 		var F = global.DotFont;
-		F.drawText(ctx, text,
-			Math.floor((W - F.textWidth(text.length)) / 2),
-			Math.floor((H - F.GLYPH_H) / 2) + (dy || 0),
-			GB[C_TEXT]);
+		F.drawText(ctx, text, Math.floor((W - F.textWidth(text.length)) / 2), y, GB[C_TEXT]);
 	}
 
 	// ============================================================
@@ -2567,11 +2697,7 @@
 			}
 			// ★お店では、パソコンの上下キーでもカーソルが動くようにする
 			//   （★スマホは「なぞる」。★操作は増やしていない）
-			if (st && st.phase === "over" && countDone() &&
-				(action === "jump" || action === "guard")) {
-				shopMove(action === "jump" ? -1 : 1);
-				return;
-			}
+			//   ★★★GAMEOVER の画面は**2行だけ**なので、動かすものが無い（2026-08-16）
 			if (st && st.phase === "camp" && st.campStopMs <= 0 &&
 				(action === "jump" || action === "guard")) {
 				campMove(action === "jump" ? -1 : 1);
@@ -2619,10 +2745,11 @@
 				campDecide();
 				return;
 			}
+			// ★★★GAMEOVER の画面。★タップ1回で**もう一回**（★選ぶものは無い）
 			if (st.phase !== "over") return;
 			if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
 			st.tapArmed = false;
-			shopDecide();
+			restart();
 		},
 
 		// ★★技を出す。`how` は "tap"(タップ) か "swipeUp"(上へなぞる)
@@ -2658,7 +2785,10 @@
 			//   ② 数え終わったあと … ★**構えるだけ。決めるのは指を離したとき**（`inputUp`）
 			//      ★そうしないと、なぞろうとして指を置いた瞬間に決まってしまう
 			if (st.phase === "over") {
-				if (!countDone()) { st.countMs = COUNT_MS; return; }
+				// ★★★暗転しきるまでは、タップで飛ばせない（2026-08-16）。
+				//   ★ぶつかった勢いでタップしていると、**GAMEOVER を見ないまま**
+				//     次のランが始まってしまう（★何が起きたか分からない）
+				if (!fadeDone()) return;
 				st.tapArmed = true;
 				return;
 			}
@@ -2697,12 +2827,9 @@
 			if (st.shopOpen) { st.tapArmed = false; shopMove(how === "swipeUp" ? -1 : 1); return; }
 			// ★★ラン終了の画面では、なぞりは**カーソルの上下**（2026-08-15 / Phase B）
 			//   ★数えている途中なら、まず省略
-			if (st.phase === "over") {
-				if (!countDone()) { st.countMs = COUNT_MS; return; }
-				st.tapArmed = false;      // ★なぞったので、離しても決定しない
-				shopMove(how === "swipeUp" ? -1 : 1);
-				return;
-			}
+			// ★★★GAMEOVER の画面では、なぞっても何も起きない（2026-08-16）。
+			//   ★一覧を出さなくなったので、**動かすカーソルが無い**
+			if (st.phase === "over") { st.tapArmed = false; return; }
 			// ★★キャンプの選択（★買い物画面と同じ操作）
 			if (st.phase === "camp") {
 				if (st.campStopMs > 0) return;
@@ -2759,6 +2886,7 @@
 		// ★★カウントアップの覗き窓（★テストが「表示だけ」を確かめるため）
 		_countedCoin: countedCoin,
 		_countDone: countDone,
+		_fadeT: fadeT, _fadeDone: fadeDone,
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
 		_toggleShop: function () { global.DotOllie.toggleShop(); },
@@ -2772,10 +2900,13 @@
 		_jumpMul: jumpDurationMul,
 		_curStaminaMax: curStaminaMax,
 		_curCoinPer: curCoinPer,
+		// ★★左上に出しているコイン（★テストが「お店と一致するか」を見張る）
+		_hudCoin: function () { return coins; },
 		_gainCoin: gainCoin,
 		_curClearDots: curClearDots,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
+		_resetStatus: resetStatus,
 		// ★★キャンプ・HP・死亡の覗き窓（2026-08-16 / Phase D）
 		_campDecide: campDecide,
 		_pauseDecide: pauseDecide,
@@ -2826,6 +2957,7 @@
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
 				BAR_ON: BAR_ON, BAR_H: BAR_H, BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
+				OVER_FADE_MS: OVER_FADE_MS, C_GAMEOVER: C_GAMEOVER,
 				COUNT_MS: COUNT_MS, COUNT_BEEP_MS: COUNT_BEEP_MS,
 				CONE_W: CONE.FRAMES[0].rows[0].length,
 				CONE_H: CONE.FRAMES[0].rows.length,
