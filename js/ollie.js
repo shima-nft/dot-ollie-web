@@ -204,50 +204,55 @@
 	//     だから走行ぶんは**ごく少し**、技とコーンは**はっきり**上げる
 	//
 	//   ★★数値はまだ「仮」。**A-4 の実測を見てから決める**（先に決めない）
-	var STAMINA_MAX   = 20;    // ★1ランのスタミナ（秒）。★アップグレードで伸びる
-	var HIT_STAMINA   = 3;     // ★ぶつかると余分に減る（秒）
+	// ============================================================
+	// ■■■ ★★★2026-08-16、スタミナの意味が変わった（島さんの指定）■■■
+	// ============================================================
+	//
+	//   > 「スタミナの仕様を変更したい。**障害物に当たったら減ることとする。**」
+	//
+	//   |            | 前                   | ★後                        |
+	//   |---         |---                   |---                         |
+	//   | 減り方     | ★**時間で減る**      | ★★**ぶつかったときだけ**  |
+	//   | 意味       | どれだけ長く走れるか | ★★**あと何回ミスできるか** |
+	//
+	//   ★★これで「何もしていないのに終わった」が構造的に無くなる。
+	//     ★**避けられないなら早く終わる／避けられるなら長く走れる**
+	//   ★★★引き換えに「**一度もぶつからなければ、いつまでも終わらない**」。
+	//     ★島さんの指定どおりだが、★★**ここは体感で見てもらう点**（→ `TODO.md`）
+	var STAMINA_MAX   = 5;     // ★★1ランで耐えられる回数。★STAMINA Lv で増える
+	var HIT_STAMINA   = 1;     // ★ぶつかると減る量（回）
 	var HIT_SLOW_MS   = 700;   // ★ぶつかったあと、遅くなっている長さ（ミリ秒）
 	var HIT_SLOW      = 0.45;  // ★そのあいだの速さ（トップの何割か）
 
-	var MULT_BASE     = 1.0;   // ★倍率の出発点。★ぶつかるとここへ戻る
-	var MULT_PER_SEC  = 0.05;  // ★走っているだけで上がるぶん（★ごく少し）
-	// ★★★2026-08-15、**「技を出しただけ」のボーナスを 0 にした**（島さんの指定）。
-	//   実測で「**ひたすら連打がいちばん強い**」になっていたため
-	//   （何もしない 159 → ひたすら連打 479 コイン）。
-	//   ★空打ちに意味が無くなり、**障害物を越える意味が正しく出る**。
-	//   → `docs/decisions.md` 2026-08-15(7)
-	var MULT_TRICK    = 0;     // ★技を出しただけでは上がらない
-	var MULT_CONE     = 0.5;   // ★★障害物を越えたら（★ここだけが「加速装置」）
-	// ★★★2026-08-16、島さんの指定で**上限を外した**:
-	//   > 「倍率上限levelは外して。倍率もっと育てたい」
+	// ============================================================
+	// ■■■ ★★★2026-08-16、倍率は仕組みごと消えた（島さんの指定）■■■
+	// ============================================================
 	//
-	//   ★実測で、上限 20 に**張り付いていた**:
-	//     Lv 6 … いちばん高い倍率 14.3 / 上限に張り付いた時間  0.8秒
-	//     Lv10 … いちばん高い倍率 20.0 / ★上限に張り付いた時間 14.6秒
-	//     Lv15 … いちばん高い倍率 20.0 / ★★張り付き 27.9秒（★ランのほぼ全部）
-	//   → ★★**Lv8 以降、MULT を買っても倍率がほとんど増えていなかった。**
+	//   > 「**倍率のレベルを廃止して。障害物を飛び越え直接コイン獲得するようにします。**
+	//   >   コインレベルはコイン獲得枚数が上がるように。」
 	//
-	//   ★★アップグレードの上限も外してあるので、ここだけ 20 で止める理由が無い。
-	//   ★画面は `shortNum` で K / M / B / T に短くするので、桁が増えても入る
-	var MULT_MAX      = Infinity;   // ★上限なし
-	// ★★★2026-08-15、島さんの指定で **「0 に戻す」→「半分になる」** に変えた。
-	//   ★障害物が約3.5秒に1個来るのに 0 に戻していたので、
-	//     **倍率が 1.2 前後から伸びなかった**（インフレの土台が育たない）。
-	//   ★半分なら**山なりに育つ**うえ、失敗の痛みも残る
-	var MULT_HIT_KEEP = 0.5;   // ★ぶつかったときに残る割合
+	//   ★前 … 「距離 × そのときの倍率」を積分。★越えても**すぐには何も増えない**
+	//   ★後 … ★★**障害物を1つ越えるたびに、その場でコインが入る**
+	//
+	//   ★★分かりやすさが理由: 越えた瞬間に「+12」と出るので、
+	//     **何をすると増えるのかが1回で分かる**（倍率は「3手先」の話だった）。
+	//   ★★★消したもの: `st.mult` / 左上の `×1.0` / 頭上の `+0.5` `-1.5` /
+	//     MULT のアップグレード / 走っているだけで上がるぶん。
+	//     ★**消したのではなく git の履歴にある**（★AIは気を利かせて戻さないこと）
+	var COIN_PER      = 12;    // ★★障害物を1つ越えたときのコイン。★COIN Lv で増える
 
 	// ============================================================
-	// ■ ★★丘の障害物（岩）—— 2026-08-15、島さんの指定で新設
+	// ■ ★★丘の敵—— 2026-08-15、島さんの指定で新設
 	// ============================================================
 	//
 	//   ★★これまで「丘には何も置かない」だったが、**方針転換で変わった**。
 	//     成長型では**障害物は「稼ぎの機会」**なので、**いつも来る**のが正しい。
 	//     ★実測で「1ランに約0.68パターンしか来ない」＝ 倍率が伸びる機会がほぼ無かった
 	//
-	//   ★★コーンは「まっすぐな道」に、岩は「丘」に。**場所で住み分ける**
-	var ROCK_ON      = 1;    // 1=出す / 0=出さない
-	var ROCK_GAP_MIN = 140;  // ★丘での間隔（ドット）。★ここから
-	var ROCK_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
+	//   ★★コーンは「まっすぐな道」に、敵は「丘」に。**場所で住み分ける**
+	var ENEMY_ON      = 1;    // 1=出す / 0=出さない
+	var ENEMY_GAP_MIN = 140;  // ★丘での間隔（ドット）。★ここから
+	var ENEMY_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
 
 	// ============================================================
 	// ■■■ ★★★扉と鍵 —— 「ルールの壁」（2026-08-16 / Phase C）■■■
@@ -427,11 +432,11 @@
 	var C_POP_LOSS   = 17;    // 損の色。17=赤
 	var C_POP_LOSS_D = 11;    // ★損が消える直前の色。11=暗い赤
 
-	// ★★倍率の表示（左上2行目）。★上がった瞬間だけ「跳ねて色が変わる」
-	var MULT_FLASH_MS = 260;  // 跳ねている長さ
-	var C_MULT      = 16;     // ふだんの色。16=生成り
-	var C_MULT_UP   = 19;     // ★上がった瞬間。19=黄色
-	var C_MULT_DOWN = 17;     // ★下がった瞬間。17=赤
+	// ★★★このランで稼いだコインの表示（左上2行目）。★増えた瞬間だけ「跳ねて色が変わる」
+	//   ★2026-08-16、ここは倍率だった。★★倍率が消えたので**コインそのもの**を出す
+	var GAIN_FLASH_MS = 260;  // 跳ねている長さ
+	var C_COIN      = 16;     // ふだんの色。16=生成り
+	var C_COIN_UP   = 19;     // ★増えた瞬間。19=黄色
 	// ★★扉に止められたときに扉が光る色（2026-08-16）。16=生成り（いちばん明るい）
 	var C_GATE_FLASH = 16;
 
@@ -594,11 +599,12 @@
 	var COIN_ICON = (global.DotPartsArt && global.DotPartsArt.coin)
 		? global.DotPartsArt.coin.FRAMES[0] : null;
 
-	// ★★丘の障害物（岩）。2026-08-15、島さんの指定で新設
+	// ★★丘の敵。2026-08-15、島さんの指定で新設
 	//   > 「丘に新しい障害物を新設してください。背景部品と差別化するため、コーン同様、縁取り黒で」
-	//   ★★いまは**仮の絵**（→ `js/rock-art.js`）。島さんが描いたら差し替える
-	var ROCK = global.DotRockArt;
-	var ROCK_W = ROCK.FRAMES[0].rows[0].length;
+	//   ★★2026-08-16、島さんの指定で**島さんが描いた絵に差し替えた**（→ `js/enemy-art.js`）
+	//   > 「障害物の岩を敵01に差し替えて」
+	var ENEMY = global.DotEnemyArt;
+	var ENEMY_W = ENEMY.FRAMES[0].rows[0].length;
 
 	// ★★扉と鍵（2026-08-16 / Phase C）。★★いまは**仮の絵**（→ `js/gate-art.js`）
 	var GATE = global.DotGateArt;
@@ -610,7 +616,7 @@
 
 	// ★障害物1つの絵と幅（★2か所に持たない）
 	function obArt(o) {
-		if (o.kind === "rock") return ROCK;
+		if (o.kind === "enemy") return ENEMY;
 		if (o.kind === "key")  return KEY;
 		if (o.kind === "camp") return CAMP;
 		// ★★扉は「開いた姿」を持つ。★★**鍵を持っているだけでは開かない**
@@ -623,7 +629,7 @@
 		return CONE;
 	}
 	function obWidth(o) {
-		if (o.kind === "rock") return ROCK_W;
+		if (o.kind === "enemy") return ENEMY_W;
 		if (o.kind === "gate") return GATE_W;
 		if (o.kind === "key")  return KEY_W;
 		if (o.kind === "camp") return CAMP_W;
@@ -769,7 +775,7 @@
 	//     → 「1500m から急に難しい」は覚えられるが、★**覚えても回避できない**
 	//       （強くなるしかない）ので、**覚えゲーにはならない**
 	//
-	// ■ ★岩（丘の障害物）は広げない
+	// ■ ★敵（丘の障害物）は広げない
 	//     絵が要るため。**小さい障害物**として、そのまま残す
 	// ============================================================
 	//
@@ -982,15 +988,24 @@
 	//   SPEED   … 速さ           → 距離が伸びる
 	//   JUMP    … ★コマの進みを遅くする → 滞空が伸びる → ★越えられる幅が広がる
 	//   STAMINA … ランの長さ
-	//   MULT    … 障害物を越えたときの倍率の伸び
-	//   COIN    … 最後にもらうコイン
+	//   COIN    … ★★障害物1個あたりのコイン（2026-08-16。★前は「最後に掛ける倍率」）
 	function curSpeed()   { return SPEED * upgMul("speed"); }
 	// ★★「ジャンプ力」ではなく「**ジャンプ持続倍率**」。
 	//   ★★★絵を引き伸ばして高さを変えるのではなく、**同じ絵をゆっくり再生する**。
 	//     → `CLAUDE.md` の「高さは絵が決める／物理を足し戻さない」を守っている
+	// ★★★2026-08-16、島さんの指定で **JUMP のアップグレードは廃止**した。
+	//   > 「ジャンプレベルは廃止。」
+	//
+	//   ★★仕組みはここに残してある（★`js/upgrades.js` に "jump" が無いので、いまは必ず 1）。
+	//     ★1 ＝ **島さんが描いた絵のコマを、そのままの速さで送る**
+	//     ＝ 滞空も越えられる幅も、`js/frames.js` の時間がそのまま出る
+	//   ★戻したいときは `js/upgrades.js` に "jump" の行を足すだけ（★ここは触らない）
 	function jumpDurationMul() { return upgMul("jump"); }
 	function curStaminaMax()   { return STAMINA_MAX * upgMul("stamina"); }
-	function curMultCone()     { return MULT_CONE * upgMul("mult"); }
+	// ★★障害物を1つ越えたときのコイン（★COIN Lv で増える）。
+	//   ★2026-08-16、COIN は「最後にまとめて掛ける倍率」だった。
+	//     ★★**1個あたりの枚数**に変えた（島さん「コイン獲得枚数が上がるように」）
+	function curCoinPer()      { return COIN_PER * upgMul("coin"); }
 
 	// ★★その技を覚えているか。★オーリー（tap）は最初から使える
 	function knowsTrick(name) {
@@ -1061,9 +1076,9 @@
 			// ★三角コーン。画面の右から流れてくる。中身は { x } だけ
 			cones: [],
 			nextCone: 0,   // 次のコーンを出すまでの残り距離（ドット）
-			nextRock: 0,   // ★次の岩（丘の障害物）を出すまでの残り距離
+			nextEnemy: 0,   // ★次の敵（丘の障害物）を出すまでの残り距離
 			conesBorn: 0,  // ★これまでに出したコーンの数（テストが見張るためだけの数）
-			rocksBorn: 0,  // ★これまでに出した岩の数
+			enemiesBorn: 0,  // ★これまでに出した敵の数
 			// ★★扉と鍵（2026-08-16 / Phase C）
 			gateBorn: false,  // ★このランで扉をもう出したか（★決まった距離に**1回だけ**）
 			gateSeen: false,  // ★このランで扉が画面に出たか（★実測用）
@@ -1092,14 +1107,13 @@
 			// ★★走行の経済（2026-08-15 / 成長型コア）
 			stamina: curStaminaMax(),     // ★0 になったらラン終了
 			staminaMax: curStaminaMax(),  // ★★このランの満タン（★バーの割合に使う）
-			mult: MULT_BASE,       // ★いまの倍率
+			gainFlashMs: 0,        // ★コインが増えた瞬間の跳ね（★描画だけ）
+			shopOpen: false,       // ★★ショップボタンで開いているか（2026-08-16）
 			coin: 0,               // ★★積分した稼ぎ（毎コマ「距離 × そのときの倍率」を足す）
 			slowMs: 0,             // ★ぶつかったあとの減速の残り
 			hits: 0,               // ★ぶつかった回数（★テストと実測が見る）
 			// ★★報酬フィードバック（2026-08-15）
 			pops: [],              // ★頭上に出る数字（★1か所に集約）
-			multFlashMs: 0,        // ★倍率が跳ねている残り
-			multFlashUp: 1,        // ★1=上がった / 0=下がった
 			shakeMs: 0,            // ★★揺れの残り（★描画だけ）
 			mileIndex: 0,          // ★次に出す距離の節目
 			// ★★コインのカウントアップ（★表示だけ。貯金には触らない）
@@ -1110,7 +1124,7 @@
 			tapArmed: false
 		};
 		st.nextCone = nextConeGap();
-		st.nextRock = nextRockGap();
+		st.nextEnemy = nextEnemyGap();
 		st.nextPush = nextPushWait();
 		// ★★やり直しは「もう走り出している」ところから始める。
 		//   ★プッシュ（蹴り出し）も GO のときと同じように入れる（`goNow()` と同じ形）
@@ -1146,16 +1160,16 @@
 	// ★★★障害物どうしの最小の間隔（→ 上の「欠陥」の説明）
 	//   ★直書きの `CONE_GAP_MIN` は「下駄」として残す（★遅いときはこちらが効く）
 	function coneGapMin() { return Math.max(CONE_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
-	function rockGapMin() { return Math.max(ROCK_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
+	function enemyGapMin() { return Math.max(ENEMY_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
 
 	function nextConeGap() {
 		// ★ばらつきの幅（170-80）はそのまま。**下限だけが速さについてくる**
 		return coneGapMin() + Math.random() * (CONE_GAP_MAX - CONE_GAP_MIN);
 	}
 
-	// ★丘の岩までの間隔をランダムに引く（★種で決めない ＝ 覚えゲーにしない）
-	function nextRockGap() {
-		return rockGapMin() + Math.random() * (ROCK_GAP_MAX - ROCK_GAP_MIN);
+	// ★丘の敵までの間隔をランダムに引く（★種で決めない ＝ 覚えゲーにしない）
+	function nextEnemyGap() {
+		return enemyGapMin() + Math.random() * (ENEMY_GAP_MAX - ENEMY_GAP_MIN);
 	}
 
 	// 次にプッシュするまでの待ち時間をランダムに引く
@@ -1312,23 +1326,15 @@
 		}
 	}
 
-	// ★★小数を「見せる形」にする（0.5 → "0.5" / 1 → "1"）。
-	//   ★★必ず**実際に変わった量**を渡すこと（表示だけ直書きしない）
-	function popNum(v) {
-		var r = Math.round(v * 10) / 10;
-		return (r === Math.floor(r)) ? String(r) : r.toFixed(1);
-	}
-
-	// ★★倍率を上げる（★上限で頭打ち。暴走よけ）
-	//   ★★順序を崩さないこと: **倍率を変える → ポップを出す → 左上の倍率が反応**
-	function addMult(n) {
-		var before = st.mult;
-		st.mult = Math.min(MULT_MAX, st.mult + n);
-		var got = st.mult - before;                       // ★実際に増えた量
-		if (got <= 0) return;
-		addPop("+" + popNum(got), "gain");
-		st.multFlashMs = MULT_FLASH_MS;
-		st.multFlashUp = 1;
+	// ★★★コインを増やす（2026-08-16。★倍率のかわり）
+	//   ★★順序を崩さないこと: **コインを増やす → ポップを出す → 左上が反応**
+	//   ★★★出す数字は**実際に増えた量**から作る（★表示だけ直書きしない）
+	function gainCoin(n) {
+		n = Math.floor(n);
+		if (n <= 0) return;
+		st.coin += n;
+		addPop("+" + shortNum(n), "gain");
+		st.gainFlashMs = GAIN_FLASH_MS;
 	}
 
 	// ★いまぶつかっているコーンの番号（無ければ -1）
@@ -1370,24 +1376,17 @@
 	function onHit(i) {
 		st.cones.splice(i, 1);          // ★当たったコーンは消す（毎コマ当たり続けないように）
 		st.hits++;
-		// ★★★2026-08-16（Phase D）: **ぶつかってもスタミナは減らさない**（島さんの判断）。
-		//   ★スタミナ＝「どれだけ長く旅を続けられるか」／ HP＝「どれだけミスに耐えられるか」
-		//   ★★両方減らすと、2つのゲージが同じ方向に動いて**分けた意味が消える**
+		// ★★★2026-08-16、島さんの指定で**ぶつかるとスタミナが減る**ようになった。
+		//   ★スタミナ ＝ 「**あと何回ミスできるか**」（★時間では減らない）
+		//   ★CAMP_ON のときだけ HP がその役目を持つ（★いまは保留中）
 		if (CAMP_ON) {
 			st.hp -= 1;
 			if (st.hp <= 0) { st.hp = 0; onDeath(); return; }
 		} else {
-			st.stamina -= HIT_STAMINA;   // ★昔の形（CAMP_ON = 0 のとき）
+			st.stamina -= HIT_STAMINA;
 		}
-		// ★★倍率は**半分になる**（★0 には戻さない。積み上げが全部飛ぶと育たないため）
-		var before = st.mult;
-		st.mult = Math.max(MULT_BASE, st.mult * MULT_HIT_KEEP);
-		var lost = before - st.mult;    // ★★**実際に失った量**から表示を作る
-		if (lost > 0) {
-			addPop("-" + popNum(lost), "loss");
-			st.multFlashMs = MULT_FLASH_MS;
-			st.multFlashUp = 0;
-		}
+		// ★★★倍率は消えたので、ぶつかっても**失うものは「回数」と「越えられなかったコイン」**。
+		//   ★越えられなかった ＝ `gainCoin` が呼ばれない ＝ **稼ぎ損ねる**のが損
 		st.slowMs = HIT_SLOW_MS;        // ★しばらく減速する
 		st.shakeMs = SHAKE_MS;          // ★★揺れる（★描画だけ。遊びには触らない）
 		sound(220, 0.12);
@@ -1409,8 +1408,7 @@
 		setTimeout(function () { sound(1320, 0.10); }, 70);
 		setTimeout(function () { sound(1760, 0.22); }, 150);
 		addPop("KEY", "gain");
-		st.multFlashMs = MULT_FLASH_MS;
-		st.multFlashUp = 1;
+		st.gainFlashMs = GAIN_FLASH_MS;
 	}
 
 	// ★★★鍵を持って扉に届いた ＝ **使った瞬間**。ここで初めて開いた姿になる
@@ -1508,7 +1506,10 @@
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
 		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
 		//     （★「死亡＝未確定分を失う」を、ここに if を足さずに表す）
-		st.earned = Math.floor(st.coin * upgMul("coin"));
+		// ★★★2026-08-16、ここで COIN 倍率を掛けるのをやめた。
+		//   ★COIN は「**1個あたりの枚数**」に変わったので、
+		//     `gainCoin()` の時点でもう掛かっている（★二重に掛けない）
+		st.earned = Math.floor(st.coin);
 		// ★★★**貯金に足すのは、ここ1か所だけ。**
 		//   カウントアップは「表示だけ」なので、省略しても二重に増えない
 		addCoins(st.earned);
@@ -1544,8 +1545,11 @@
 	//   ★操作はいまの3つだけ: 上へなぞる＝↑ / 下へなぞる＝↓ / タップ＝決定
 	//
 	//   ★一覧は毎回その場で作る（★項目数を決め打ちにしない ＝ 表に1行足せば増える）
+	//   ★★★2026-08-16、ショップボタンから開いたときは先頭が `CLOSE`（＝閉じる）。
+	//     ★ラン終了の画面から見たときは `START`（＝タップ1回で即もう一回）のまま
 	function shopRows() {
-		var rows = [{ kind: "start", name: "START" }];
+		var opened = !!(st && st.shopOpen);
+		var rows = [{ kind: "start", name: opened ? "CLOSE" : "START" }];
 		if (!UP) return rows;
 		UP.UPGRADES.forEach(function (u) {
 			var lv = upgLevel(u.id);
@@ -1599,7 +1603,12 @@
 	// ★★いま選んでいる行を決める（★呼ぶのは「指を離したとき」＝ `inputUp`）
 	function shopDecide() {
 		var rows = shopRows();
-		if (rows[st.shopSel] && rows[st.shopSel].kind === "start") { restart(); return; }
+		if (rows[st.shopSel] && rows[st.shopSel].kind === "start") {
+			// ★★ショップボタンから開いていたら「閉じる」／ラン終了の画面なら「もう一回」
+			if (st.shopOpen) { global.DotOllie.toggleShop(); return; }
+			restart();
+			return;
+		}
 		shopPick();
 	}
 
@@ -1610,16 +1619,9 @@
 		return Math.floor(st.earned * (1 - Math.pow(1 - t, 3)));
 	}
 
-	// ★そのランで**実際に効いた倍率**（★距離で重みづけした平均）。
-	//   ★★2026-08-15、**画面には出していない**（島さんの指定）。
-	//     一度ラン終了の画面に出したが、**左上の「いまの倍率」と食い違って見えた**ため外した。
-	//   ★★`st.mult`（いまの倍率）とは**別物**。混ぜないこと。
-	//     コインは「距離 × そのときの倍率」を積分したものなので、
-	//     **稼ぎ ÷ 距離** が「1mあたり平均して何倍が効いたか」になる。
-	//   ★テストと実測が使う（★戻したくなったらここを呼ぶ）
-	function runAvgMult() {
-		return (st.reached > 0) ? (st.earned / st.reached) : 1;
-	}
+	// ★★★2026-08-16、`runAvgMult()`（そのランで効いた平均倍率）は消した。
+	//   ★倍率そのものが無くなったので、意味が残っていない
+	//   ★★かわりの目安は「稼ぎ ÷ 越えた数」＝ `curCoinPer()` そのもの
 
 	// ★★やり直し。★**同じ種のまま**（「次はこの技を使おう」を起こしたいので）
 	//   ★★2026-08-15（Phase 3）: **待ち時間なしで走り出す**（`instant`）。
@@ -1632,7 +1634,8 @@
 	}
 
 	function update(dt) {
-		if (st.paused) return;
+		// ★★ショップを開いているあいだは世界が止まる（★一時停止と同じ扱い）
+		if (st.paused || st.shopOpen) return;
 		// ★★ラン終了。★世界は止まったまま、コインの数え上げだけ進む
 		if (st.phase === "over") { updateCount(dt); return; }
 		// ★★★キャンプで選んでいるあいだは、世界が止まる（2026-08-16 / Phase D）
@@ -1653,8 +1656,9 @@
 		if (st.gateFlashMs > 0) st.gateFlashMs = Math.max(0, st.gateFlashMs - dt * 1000);
 		if (st.shakeMs > 0) st.shakeMs = Math.max(0, st.shakeMs - dt * 1000);
 
-		// ★★スタミナが減る。0 になったらラン終了（★転ぶのではない）
-		st.stamina -= dt;
+		// ★★★2026-08-16、**スタミナは時間では減らない**（島さんの指定）。
+		//   ★減るのは `onHit()` の中だけ ＝ **ぶつかった回数ぶん**。
+		//   ★ここは「0 になったら終わり」の見張りだけが残っている
 		if (st.stamina <= 0) {
 			st.stamina = 0;
 			// ★★★扉で止められたときだけ「間」を置く（2026-08-16 のレビュー C-1）
@@ -1683,12 +1687,8 @@
 
 		// ★★見た目だけのもの（★遊びには触らない）を進める
 		updatePops(dt);
-		if (st.multFlashMs > 0) st.multFlashMs = Math.max(0, st.multFlashMs - dt * 1000);
+		if (st.gainFlashMs > 0) st.gainFlashMs = Math.max(0, st.gainFlashMs - dt * 1000);
 		// ★揺れと扉の光りは、**スタミナの判定より前**で進めてある（上を見ること）
-
-		// ★★倍率: 走っているだけでも少し上がる（★基礎成長）
-		//   ★ここはポップアップを出さない（毎コマ出たらうるさい）ので、直接足す
-		st.mult = Math.min(MULT_MAX, st.mult + MULT_PER_SEC * dt);
 
 		// ★★距離の節目（★進むほど間隔が広がる。★距離は報酬の主役ではない）
 		//   ★★2026-08-15、島さんの指定で **いったん出さない**（`MILESTONE_POP_ON = 0`）
@@ -1697,12 +1697,12 @@
 			if (MILESTONE_POP_ON) addPop("+" + mile + "m", "gain");
 			st.mileIndex++;
 		}
-		// ★★稼ぎは「積分」。**そのときの倍率**で足していく（→ docs/decisions.md 2026-08-15(7)）
-		//   ★「距離 × 終了時の倍率」にすると、**最後に倍率を上げたことだけが効いてしまう**
-		st.coin += (moved / SCORE_DOTS) * st.mult;
+		// ★★★2026-08-16、**走っているだけではコインが増えない**（島さんの指定）。
+		//   ★増えるのは「障害物を1つ越えた瞬間」だけ（→ `gainCoin()`）。
+		//   ★★これで**距離は「どこまで行けたか」だけの意味**になり、稼ぎと役割が分かれた
 
 		// ★三角コーン: 画面の右の外から出して、左へ流す
-		// ★★★注意: この `if` の中には**障害物ぜんぶ**（コーン・岩・扉・鍵・当たり判定）が入っている。
+		// ★★★注意: この `if` の中には**障害物ぜんぶ**（コーン・敵・扉・鍵・当たり判定）が入っている。
 		//   ★`CONE_ON = 0` にすると、コーンだけでなく**全部消える**（★昔からこの形）
 		if (CONE_ON) {
 			st.nextCone -= moved;
@@ -1739,18 +1739,18 @@
 					st.nextCone = nextConeGap();      // すこし進んで、また試す
 				}
 			}
-			// ★★丘の岩（2026-08-15、島さんの指定で新設）。
-			//   ★コーンは「まっすぐな道」、岩は「丘」。**場所で住み分ける**
-			if (ROCK_ON) {
-				st.nextRock -= moved;
-				if (st.nextRock <= 0) {
-					var rockAt = worldX() + W + 4;
+			// ★★丘の敵（2026-08-15、島さんの指定で新設）。
+			//   ★コーンは「まっすぐな道」、敵は「丘」。**場所で住み分ける**
+			if (ENEMY_ON) {
+				st.nextEnemy -= moved;
+				if (st.nextEnemy <= 0) {
+					var enemyAt = worldX() + W + 4;
 					// ★丘のときだけ（＝まっすぐな道ではないとき）
-					if (WD.flatnessAt(rockAt) <= 0) {
-						st.cones.push({ x: W + 4, wx: rockAt, kind: "rock" });
-						st.rocksBorn++;
+					if (WD.flatnessAt(enemyAt) <= 0) {
+						st.cones.push({ x: W + 4, wx: enemyAt, kind: "enemy" });
+						st.enemiesBorn++;
 					}
-					st.nextRock = nextRockGap();
+					st.nextEnemy = nextEnemyGap();
 				}
 			}
 
@@ -1856,7 +1856,7 @@
 				//   ★扉と鍵は上で決めてあるので、ここでは倍率を動かさない
 				if (!c.passed && Math.round(c.x) + cw < foot) {
 					c.passed = 1;
-					if (c.kind !== "gate" && c.kind !== "key" && c.kind !== "camp") addMult(curMultCone());
+					if (c.kind !== "gate" && c.kind !== "key" && c.kind !== "camp") gainCoin(curCoinPer());
 				}
 				if (c.x + cw < 0) st.cones.splice(i, 1);
 			}
@@ -1958,7 +1958,7 @@
 
 	// ★三角コーン。**絵のいちばん下が地面に乗る**（島さんが描いたまま）
 	//   ★2026-08-11 から、コーンも**その場所の地面の高さ**に乗る（坂の上では高い）
-	//   ★★2026-08-15: コーン（まっすぐな道）と岩（丘）を**同じ道具で描く**
+	//   ★★2026-08-15: コーン（まっすぐな道）と敵（丘）を**同じ道具で描く**
 	function drawCones() {
 		// ★★扉が光っているあいだ、点滅させる（★2026-08-16 のレビュー C-1）
 		//   ★描画だけ。★遊びには1ドットも触らない
@@ -2138,25 +2138,25 @@
 		var F = global.DotFont;
 		var hudY = (BAR_ON ? BAR_H : 0) + 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
 		F.drawText(ctx, meters() + "m", 2, hudY, GB[C_TEXT]);
-		// ★★倍率を画面の主役にする（2026-08-15 島さんの指定）。
-		//   ★上がった瞬間だけ **1ドット跳ねて色が変わる**（★2倍で描く仕組みは作らない）
-		var multY = hudY + F.GLYPH_H + 2;
-		var multCol = C_MULT;
-		if (st.multFlashMs > 0) {
-			multY -= 1;                                  // ★ぴょこっと跳ねる
-			multCol = st.multFlashUp ? C_MULT_UP : C_MULT_DOWN;
+		// ★★★このランで稼いだコインを、画面の主役にする（2026-08-16）。
+		//   ★2026-08-15 はここが倍率だった。★★倍率が消えたので**コインそのもの**を出す。
+		//   ★増えた瞬間だけ **1ドット跳ねて色が変わる**（★2倍で描く仕組みは作らない）
+		var coinY = hudY + F.GLYPH_H + 2;
+		var coinCol = C_COIN;
+		if (st.gainFlashMs > 0) {
+			coinY -= 1;                                  // ★ぴょこっと跳ねる
+			coinCol = C_COIN_UP;
 		}
-		// ★★コインの絵を倍率の左に置く（2026-08-15 島さんの指定）。
+		// ★★コインの絵を数字の左に置く（2026-08-15 島さんの指定）。
 		//   ★★★**島さんが描いた絵**（`assets/parts/coin.aseprite` → `js/parts-art.js`）。
 		//     AIは置く場所を決めるだけで、**絵は1ドットも触らない**
-		//   ★「この × はコインに効くんですよ」を、文字を増やさずに伝える
-		//   ★倍率と**同じ行**なので、跳ねるときは一緒に跳ねる
-		var multX = 2;
+		//   ★数字と**同じ行**なので、跳ねるときは一緒に跳ねる
+		var coinX = 2;
 		if (COIN_ICON) {
-			drawArt(COIN_ICON, 2, multY);
-			multX = 2 + COIN_ICON.rows[0].length + 2;
+			drawArt(COIN_ICON, 2, coinY);
+			coinX = 2 + COIN_ICON.rows[0].length + 2;
 		}
-		F.drawText(ctx, multText(st.mult), multX, multY, GB[multCol]);
+		F.drawText(ctx, shortNum(st.coin), coinX, coinY, GB[coinCol]);
 
 			// ★★★持っている鍵を左上に出す（2026-08-16 のレビュー H-3）
 			//   ★数ラン前に拾っていると、**持っているかどうか確かめる場所がどこにも無かった**。
@@ -2164,7 +2164,7 @@
 			//     （★「扉の鍵穴」と「この絵」が結びつくのが手がかりになる）
 			if (GATE_ON && hasItem("key")) {
 				var kf = KEY.FRAMES[0];
-				drawArt(kf, 2, multY + F.GLYPH_H + 2);
+				drawArt(kf, 2, coinY + F.GLYPH_H + 2);
 			}
 
 		// ★★頭上のポップアップ（+0.5 / -1.5 / +100m）。★1か所に集約してある
@@ -2172,6 +2172,8 @@
 
 		// ⑩ ★まん中に出す文字（READY / GO / PAUSE / ★転んだときの記録）
 		if (st.paused) drawPauseScreen();
+		// ★★★ショップ（液晶の外のボタンで開く）。★ラン終了の画面と**同じ一覧**を使う
+		else if (st.shopOpen) drawShopScreen();
 		else if (st.phase === "ready") drawCenterText("READY");
 		else if (st.phase === "go") drawCenterText("GO");
 		// ★★ラン終了の画面（2026-08-15 / 成長型コア）。**3行だけ**
@@ -2288,7 +2290,18 @@
 
 		// ★★数え終わるまでは一覧を出さない（★結果を落ち着いて見せる）
 		if (!countDone()) return;
+		drawShopList();
+	}
 
+	// ============================================================
+	// ★★★お店の一覧そのもの（2026-08-16）
+	// ============================================================
+	//   ★★**ラン終了の画面と、ショップボタンの両方がここを通る。**
+	//     ★別々に描くと「片方だけ列がずれる」が必ず起きる（READY/GO/PAUSE と同じ理由）
+	function drawShopList() {
+		var F = global.DotFont;
+		var rowH = F.GLYPH_H + 3;
+		var rows = shopRows();
 		// ★★一覧の後ろに暗い帯を敷く（★景色の上だと読めないため）
 		//   ★★帯は**いちばん下の「COIN いくつ」の行まで**覆うこと。
 		//     覆い忘れると持ち金の字だけ地面の上に乗って読めなくなる（2026-08-15 に一度そうなった）
@@ -2307,6 +2320,10 @@
 		// ★いくら持っているか（★一覧のいちばん下）
 		F.drawText(ctx, money, SHOP_X, moneyY, GB[C_SHOP_ROW]);
 	}
+
+	// ★★★ショップボタンで開いたときの画面（2026-08-16 島さんの指定）
+	//   ★上の「稼ぎの数え上げ」は出さない（★ランの結果ではないので）。★一覧だけ
+	function drawShopScreen() { drawShopList(); }
 
 	// ============================================================
 	// ★★★大きい数字を短く書く（2026-08-16。★上限を外したので要る）
@@ -2331,15 +2348,9 @@
 		return String(n);
 	}
 
-	// ★★倍率を画面に出す形（★上限を外したので、桁が増えても入るように）
-	//   ★999.9 までは小数1桁（★いままでどおりの見え方）。それ以上は K / M / B / T
-	function multText(m) {
-		return "×" + ((m < 1000) ? m.toFixed(1) : shortNum(m));
-	}
-
 	// ★1行ぶんの文字（★名前・レベル・値段を桁でそろえる）
 	function shopRowText(r) {
-		if (r.kind === "start") return "START";
+		if (r.kind === "start") return r.name;
 		var name = pad(r.name, 9);
 		if (r.kind === "unlock") return name + (r.got ? "OWNED" : pad("", 4) + r.cost);
 		// ★★上限なし（`maxLevel: null`）のときは MAX にならない
@@ -2433,7 +2444,11 @@
 	// ■ シェルとの窓口
 	// ============================================================
 	global.DotOllie = {
-		pad: ["act", "sound", "pause"],
+		// ★★★2026-08-16、島さんの指定で**ショップを液晶の外の3つ目に置いた**:
+		//   > 「ショップボタン作って。そこで各能力を買えるようにします。」
+		//   ★ラン終了の画面の一覧は**そのまま残す**（島さんの指定）。
+		//     ★★同じ一覧を、いつでも開ける場所が増えただけ
+		pad: ["act", "sound", "pause", "shop"],
 		padIcons: { sound: "BTN_SOUND_ON" },
 
 		start: function (c, w, h, opts) {
@@ -2474,6 +2489,13 @@
 		inputDown: function (action) {
 			if (action === "pause") { this.togglePause(); return; }
 			if (action === "sound") { this.toggleSound(); return; }
+			// ★★★ショップボタン（2026-08-16 島さんの指定）
+			if (action === "shop")  { this.toggleShop();  return; }
+			// ★ショップを開いているあいだも、上下キーでカーソルが動く
+			if (st && st.shopOpen && (action === "jump" || action === "guard")) {
+				shopMove(action === "jump" ? -1 : 1);
+				return;
+			}
 			// ★お店では、パソコンの上下キーでもカーソルが動くようにする
 			//   （★スマホは「なぞる」。★操作は増やしていない）
 			if (st && st.phase === "over" && countDone() &&
@@ -2507,6 +2529,13 @@
 		inputUp: function (action, swiped) {
 			if (action !== "act") return;
 			if (st === null) return;
+			// ★★ショップ（液晶の外のボタンで開いたもの）も「離したときに決める」
+			if (st.shopOpen) {
+				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
+				st.tapArmed = false;
+				shopDecide();
+				return;
+			}
 			// ★★一時停止メニューも「離したときに決める」
 			if (st.paused) {
 				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
@@ -2531,7 +2560,7 @@
 		//   ★ここでやるのは「どの技かを決めて 0 にする」だけ。
 		//     高さも滞空も**島さんが描いた絵**が決める
 		trick: function (how) {
-			if (st === null || st.paused) return false;
+			if (st === null || st.paused || st.shopOpen) return false;
 			if (st.phase === "over") return false;       // ★ラン終了中は技が出ない
 			for (var i = 0; i < POSES.length; i++) {
 				if (POSES[i].how !== how) continue;
@@ -2540,8 +2569,6 @@
 				if (!knowsTrick(POSES[i].name)) return false;
 				st.trick = i;
 				st.air = 0;
-				// ★★技を出したら倍率が上がる（★加速装置。★出すだけでよい＝技術が要らない）
-				addMult(MULT_TRICK);
 				// 技ごとに音を変える（タップ990 / 上へ1320 / 下へ660）
 				sound(how === "swipeUp" ? 1320 : (how === "swipeDown" ? 660 : 990), 0.06);
 				return true;
@@ -2555,6 +2582,8 @@
 			if (st === null) return;
 			// ★★★一時停止メニュー（2026-08-16 / Phase D）。★押した瞬間は構えるだけ
 			if (st.paused) { st.tapArmed = true; return; }
+			// ★★★ショップ（2026-08-16）。★買い物画面と**まったく同じ操作**
+			if (st.shopOpen) { st.tapArmed = true; return; }
 			// ★★ラン終了の画面（2026-08-15）。★タップは2段階:
 			//   ① 数えている途中 … **省略**（★誤タップで結果が消えない）
 			//   ② 数え終わったあと … ★**構えるだけ。決めるのは指を離したとき**（`inputUp`）
@@ -2595,6 +2624,8 @@
 			if (st === null) return;
 			// ★★一時停止メニューを、なぞって選ぶ
 			if (st.paused) { st.tapArmed = false; pauseMove(how === "swipeUp" ? -1 : 1); return; }
+			// ★★ショップを、なぞって選ぶ（★ラン終了の画面と同じ）
+			if (st.shopOpen) { st.tapArmed = false; shopMove(how === "swipeUp" ? -1 : 1); return; }
 			// ★★ラン終了の画面では、なぞりは**カーソルの上下**（2026-08-15 / Phase B）
 			//   ★数えている途中なら、まず省略
 			if (st.phase === "over") {
@@ -2616,10 +2647,25 @@
 			if (st.air < 0 || justTapped) this.trick(how);
 		},
 
+		// ★★★ショップの開け閉め（2026-08-16 島さんの指定）
+		//   ★★ラン終了の画面では**開かない**（★そこはもうお店なので、二重に開くと混乱する）
+		//   ★キャンプで選んでいる最中も開かない（★世界の中の選択を邪魔しない）
+		toggleShop: function () {
+			if (st === null) return;
+			if (st.phase === "over" || st.phase === "camp") return;
+			st.shopOpen = !st.shopOpen;
+			if (st.shopOpen) {
+				st.paused = false;      // ★一時停止とは同時に開かない
+				st.shopSel = 0;         // ★★はじめは `CLOSE`（＝タップ1回で閉じられる）
+				st.tapArmed = false;
+			}
+			sound(st.shopOpen ? 880 : 660, 0.06);
+		},
+
 		togglePause: function () {
 			if (st === null) return;
 			st.paused = !st.paused;
-			if (st.paused) { st.pauseSel = 0; st.tapArmed = false; }   // ★★はじめは「つづける」
+			if (st.paused) { st.shopOpen = false; st.pauseSel = 0; st.tapArmed = false; }   // ★★はじめは「つづける」
 			sound(st.paused ? 440 : 660, 0.06);
 		},
 
@@ -2644,20 +2690,19 @@
 		// ★★カウントアップの覗き窓（★テストが「表示だけ」を確かめるため）
 		_countedCoin: countedCoin,
 		_countDone: countDone,
-		_runAvgMult: runAvgMult,
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
+		_toggleShop: function () { global.DotOllie.toggleShop(); },
 		_shopRows: shopRows,
 		_shopRowText: shopRowText,
 		_shortNum: shortNum,
-		_multText: multText,
 		_shopPick: shopPick,
 		_upgLevel: upgLevel,
 		_knowsTrick: knowsTrick,
 		_curSpeed: curSpeed,
 		_jumpMul: jumpDurationMul,
 		_curStaminaMax: curStaminaMax,
-		_curMultCone: curMultCone,
+		_curCoinPer: curCoinPer,
 		_curClearDots: curClearDots,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
@@ -2688,7 +2733,7 @@
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
 				// ★★間隔の下限は「1回の技で進む距離」から作る（2026-08-16 / Step 0）
 				GAP_SAFETY: GAP_SAFETY, trickTravelDots: trickTravelDots,
-				coneGapMin: coneGapMin, rockGapMin: rockGapMin,
+				coneGapMin: coneGapMin, enemyGapMin: enemyGapMin,
 				// ★★障害物のパターン（2026-08-15 / Phase 2）。★テストが解いて見張る
 				//   ★`PATTERNS` は**出だし（0m）の形**。★Phase C から先は距離で太る
 				PATTERN_ON: PATTERN_ON,
@@ -2703,12 +2748,10 @@
 				COINS: coins,
 				STAMINA_MAX: STAMINA_MAX, HIT_STAMINA: HIT_STAMINA,
 				HIT_SLOW_MS: HIT_SLOW_MS, HIT_SLOW: HIT_SLOW,
-				MULT_BASE: MULT_BASE, MULT_PER_SEC: MULT_PER_SEC,
-				MULT_TRICK: MULT_TRICK, MULT_CONE: MULT_CONE, MULT_MAX: MULT_MAX,
-				MULT_HIT_KEEP: MULT_HIT_KEEP,
+				COIN_PER: COIN_PER,
 				// ★★報酬フィードバック（2026-08-15）
 				POP_ON: POP_ON, POP_MS: POP_MS, POP_MAX: POP_MAX, POP_RISE: POP_RISE,
-				MULT_FLASH_MS: MULT_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
+				GAIN_FLASH_MS: GAIN_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
@@ -2717,14 +2760,14 @@
 				CONE_W: CONE.FRAMES[0].rows[0].length,
 				CONE_H: CONE.FRAMES[0].rows.length,
 				CONE_SOURCE: CONE.SOURCE,
-				// ★★丘の障害物（岩）。2026-08-15、島さんの指定で新設
-				ROCK_ON: ROCK_ON, ROCK_GAP_MIN: ROCK_GAP_MIN, ROCK_GAP_MAX: ROCK_GAP_MAX,
-				ROCK_W: ROCK_W, ROCK_H: ROCK.FRAMES[0].rows.length,
-				ROCK_SOURCE: ROCK.SOURCE,
+				// ★★丘の敵。2026-08-15、島さんの指定で新設
+				ENEMY_ON: ENEMY_ON, ENEMY_GAP_MIN: ENEMY_GAP_MIN, ENEMY_GAP_MAX: ENEMY_GAP_MAX,
+				ENEMY_W: ENEMY_W, ENEMY_H: ENEMY.FRAMES[0].rows.length,
+				ENEMY_SOURCE: ENEMY.SOURCE,
 				// ★★障害物の絵ぜんぶ（★テストが「黒で縁取られているか」を見張る）
 				//   ★鍵は「ぶつかるもの」ではないが、**背景に溶けたら拾えない**ので同じ決まりを課す
 				OBSTACLE_ARTS: [
-					{ name: "コーン", art: CONE }, { name: "岩", art: ROCK },
+					{ name: "コーン", art: CONE }, { name: "敵", art: ENEMY },
 					{ name: "扉", art: GATE },
 					{ name: "扉(開)", art: { FRAMES: GATE.OPEN_FRAMES, SOURCE: GATE.SOURCE } },
 					{ name: "鍵", art: KEY }, { name: "キャンプ", art: CAMP }

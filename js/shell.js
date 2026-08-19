@@ -265,7 +265,9 @@
 	// RUN が出すボタン(特大の「跳ぶ」/ 右上の「音」「一時停止」「もどる」)
 	//   ★`sound` の絵は入り切りで変わるので、ゲーム側(DotOllie.padIcons)が上書きする
 	var PAD_ICONS = {
-		act: "BTN_ACT", sound: "BTN_SOUND_ON", pause: "BTN_PAUSE", exit: "BTN_EXIT"
+		act: "BTN_ACT", sound: "BTN_SOUND_ON", pause: "BTN_PAUSE", exit: "BTN_EXIT",
+		// ★★ショップ（2026-08-16 島さんの指定）。★液晶の外の3つ目のボタン
+		shop: "BTN_SHOP"
 	};
 
 	function renderPadLabels() {

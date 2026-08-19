@@ -111,7 +111,7 @@ button.key:active canvas.pad-label {
 	padding: clamp(12px, 3vh, 26px) clamp(8px, 3vw, 20px);
 }
 
-#pad-sound, #pad-pause, #pad-exit {
+#pad-sound, #pad-pause, #pad-exit, #pad-shop {
 	width: clamp(46px, 14vw, 64px);
 	height: clamp(46px, 14vw, 64px);
 }

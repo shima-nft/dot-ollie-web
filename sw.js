@@ -12,7 +12,7 @@
 //   → **音は素通しにして、Safari に任せる。**
 //     音がオフラインで鳴らなくても `AUDIO_GUIDE` 決まり1
 //     「音が出せない環境でも遊べる」を満たしているので、遊びには影響しない
-var CACHE = "dot-ollie-v18";
+var CACHE = "dot-ollie-v20";
 
 // このパスを含むものは、サービスワーカーが一切触らない
 function isPassThrough(url) {
@@ -32,7 +32,7 @@ var FILES = [
 	"./js/standby-art.js",
 	"./js/push-art.js",
 	"./js/cone-art.js",
-	"./js/rock-art.js",
+	"./js/enemy-art.js",
 	"./js/gate-art.js",
 	"./js/camp-art.js",
 	"./js/upgrades.js",
