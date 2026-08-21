@@ -101,7 +101,10 @@
 		// ★★★2026-08-16、COIN の効き方が変わった（島さん「コイン獲得枚数が上がるように」）。
 		//   ★前 … 最後にまとめて掛ける倍率 ／ ★後 … ★★**障害物1個あたりの枚数**
 		//   ★★越えた瞬間に「+12 → +16」と目に見えて増えるので、買った実感が出る
-		{ id: "coin",    name: "COIN",    maxLevel: null, baseCost: 70, costGrowth: 2.7, per: 1.30 }
+		//   ★★2026-08-21、島さんの指定で値段が動きました（★経緯を残します）:
+		//     70 → 49（3割引） → 70（★元に戻す） → ★★**56（さらに2割引）**
+		//   ★あわせて「1個あたりの取得」も上げています（→ `js/ollie.js` の `COIN_PER`）
+		{ id: "coin",    name: "COIN",    maxLevel: null, baseCost: 56, costGrowth: 2.7, per: 1.30 }
 		// ★足すならここ。例:
 		// { id: "magnet", name: "MAGNET", maxLevel: 3, baseCost: 400, costGrowth: 2.2, per: 1.2 },
 	];
