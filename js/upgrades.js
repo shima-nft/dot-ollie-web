@@ -75,7 +75,7 @@
 	var UPGRADES = [
 		// ★★★いちばん安い ＝ **最初の1個**。★2026-08-16、150 → 40 に下げた。
 		//   ★狙い: **最初のランの、はじめの15秒で1個買える**（島さんの「もっと序盤に」）
-		{ id: "speed",   name: "SPEED",   maxLevel: null, baseCost: 40, costGrowth: 2.7, per: 1.15 },
+		{ id: "speed",   name: "SPEED",   maxLevel: null, baseCost: 40, costGrowth: 2.7, per: 1.05 },
 		// ★★★2026-08-16、島さんの指定で **JUMP は廃止した**:
 		//   > 「ジャンプレベルは廃止。」
 		//
@@ -91,7 +91,7 @@
 		//   ★★★2026-08-16、`per` を 1.08 → **1.15** に上げた。
 		//     ★1.08 だと 5 → 5.4回で、**3段買うまで「1回ぶん」も増えなかった**
 		//     （＝ 買っても何も変わらない）。★いまは**1段で必ず1回ぶん増える**
-		{ id: "stamina", name: "STAMINA", maxLevel: null, baseCost: 55, costGrowth: 2.7, per: 1.15 },
+		{ id: "stamina", name: "STAMINA", maxLevel: null, baseCost: 55, costGrowth: 2.7, per: 1.12 },
 		// ★★★2026-08-16、島さんの指定で **MULT は廃止した**:
 		//   > 「倍率のレベルを廃止して。障害物を飛び越え直接コイン獲得するようにします。」
 		//   ★倍率という**仕組みそのもの**が無くなったので、上げる対象が無い。
@@ -104,7 +104,7 @@
 		//   ★★2026-08-21、島さんの指定で値段が動きました（★経緯を残します）:
 		//     70 → 49（3割引） → 70（★元に戻す） → ★★**56（さらに2割引）**
 		//   ★あわせて「1個あたりの取得」も上げています（→ `js/ollie.js` の `COIN_PER`）
-		{ id: "coin",    name: "COIN",    maxLevel: null, baseCost: 56, costGrowth: 2.7, per: 1.30 }
+		{ id: "coin",    name: "COIN",    maxLevel: null, baseCost: 56, costGrowth: 1.5, per: 1.40 }
 		// ★足すならここ。例:
 		// { id: "magnet", name: "MAGNET", maxLevel: 3, baseCost: 400, costGrowth: 2.2, per: 1.2 },
 	];
@@ -122,9 +122,9 @@
 	//   id … ★`js/frames.js` の技の名前を小文字にしたもの
 	var UNLOCKS = [
 		// ★★2.5ラン ぶん。**最初の「できることが増える」買い物**
-		{ id: "kickflip", name: "KICKFLIP", cost: 220 },
+		{ id: "kickflip", name: "KICKFLIP", cost: 220000 },
 		// ★4.4ラン ぶん
-		{ id: "pop",      name: "POP",      cost: 520 }
+		{ id: "pop",      name: "POP",      cost: 220000 }
 	];
 
 	// ============================================================
@@ -166,7 +166,7 @@
 	//     ・3本目 12,000 … ★★★**そこまで行けたら、もう1本ぶんの価値がある**
 	//   → ★★「延命を重ねるほど、次の延命が遠い」＝ **どこかで必ず終わる**
 	var ITEMS = [
-		{ id: "maxdrink", name: "MAXDRINK", cost: 120, costGrowth: 10, maxHave: 1, art: "MAXdrink" }
+		{ id: "maxdrink", name: "MAXDRINK", cost: 120, costGrowth: 15, maxHave: 1, art: "MAXdrink" }
 	];
 
 	// ============================================================
