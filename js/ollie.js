@@ -1070,6 +1070,11 @@
 	//     ★これは「走りながら組み立てて、死んだら最初から」を守るため
 	//     （→ CLAUDE.md「★★★★2026-08-16、この作品の形が変わった」）
 	var bag = {};
+	// ★★★そのランで「何本買ったか」（2026-08-22 島さんの指定）。
+	//   ★値段が買うたびに10倍になるので、**買った回数**が要ります。
+	//   ★★使った本数ではありません（★使っても値段は戻りません）。
+	//   ★死ぬと 0 に戻ります（★コイン・レベルと同じ）
+	var buys = {};
 
 	// ★★MAXdrink の絵（★島さんが描いたもの。AIは置く場所を決めるだけ）
 	//   もと: `assets/parts/MAXdrink-0001.aseprite` →「絵を反映する.bat」→ `js/parts-art.js`
@@ -1077,26 +1082,31 @@
 		? global.DotPartsArt.MAXdrink.FRAMES[0] : null;
 
 	function loadUpg() {
-		upgLv = {}; unlocked = {}; bag = {};
+		upgLv = {}; unlocked = {}; bag = {}; buys = {};
 		try {
 			var raw = localStorage.getItem("dotollie-upg");
 			var o = raw ? JSON.parse(raw) : null;
 			if (o && o.lv) upgLv = o.lv;
 			if (o && o.un) unlocked = o.un;
 			if (o && o.bag) bag = o.bag;          // ★持ち物（2026-08-22）
-		} catch (e) { upgLv = {}; unlocked = {}; bag = {}; }
+			if (o && o.buys) buys = o.buys;       // ★★何本買ったか（値段が上がるので要る）
+		} catch (e) { upgLv = {}; unlocked = {}; bag = {}; buys = {}; }
 		return upgLv;
 	}
 
 	function saveUpg() {
 		try {
 			localStorage.setItem("dotollie-upg",
-				JSON.stringify({ lv: upgLv, un: unlocked, bag: bag }));
+				JSON.stringify({ lv: upgLv, un: unlocked, bag: bag, buys: buys }));
 		} catch (e) { /* 保存できなくても遊べる */ }
 	}
 
 	// ★何本持っているか
 	function bagCount(id) { return bag[id] || 0; }
+	// ★★そのランで何本買ったか（★次の値段を出すのに使う）
+	function buyCount(id) { return buys[id] || 0; }
+	// ★★★その道具の「次の値段」
+	function itemCost(u) { return UP ? UP.itemCostOf(u, buyCount(u.id)) : u.cost; }
 
 	// ★その強化がいま何倍か（★買っていなければ 1 倍 ＝ 何も変わらない）
 	function upgMul(id) {
@@ -1188,6 +1198,7 @@
 		upgLv = {};
 		unlocked = {};
 		bag = {};                   // ★★★持ち物も無くなる（★コインやレベルと同じ）
+		buys = {};                  // ★★買った回数も忘れる ＝ 値段が 120 に戻る
 		items = {};                 // ★拾った鍵も忘れる（★保留中の仕組み）
 		try {
 			localStorage.setItem("dotollie-coins", "0");
@@ -1203,6 +1214,7 @@
 		upgLv = {};
 		unlocked = {};
 		bag = {};                   // ★★持ち物も無くなる
+		buys = {};                  // ★★買った回数も忘れる
 		items = {};                 // ★★拾った鍵も忘れる（＝また「何だこれ？」から試せる）
 		try {
 			localStorage.setItem("dotollie-coins", "0");
@@ -1860,7 +1872,9 @@
 		(UP.ITEMS || []).forEach(function (u) {
 			rows.push({
 				kind: "item", id: u.id, name: u.name,
-				have: bagCount(u.id), cost: u.cost
+				have: bagCount(u.id), maxHave: (u.maxHave || 1),
+				// ★★★値段は「**次に買う値段**」（★買うたびに10倍）
+				cost: itemCost(u)
 			});
 		});
 		return rows;
@@ -1869,8 +1883,10 @@
 	// ★その行が買えるか（★買えないものは暗く出す）
 	function canBuy(r) {
 		if (r.kind === "start") return true;
-		// ★★★使うと無くなるものは、**何本でも買えます**（★`got` を見ない）
-		if (r.kind === "item") return coins >= r.cost;
+		// ★★★使うと無くなるもの（2026-08-22 島さんの指定）:
+		//   ・★**持てるのは 1 本まで**（★持っているあいだは買えない）
+		//   ・★★値段は買うたびに10倍（★`cost` にはもう次の値段が入っている）
+		if (r.kind === "item") return r.have < r.maxHave && coins >= r.cost;
 		// ★★上限なし（`max === null`）なら、レベルでは止めない
 		return !r.got && coins >= r.cost;
 	}
@@ -1885,9 +1901,10 @@
 			coins -= r.cost;
 			upgLv[r.id] = (upgLv[r.id] || 0) + 1;
 		} else if (r.kind === "item") {
-			// ★★使うと無くなるもの ＝ 買うたびに1つ増える（★値上がりしない）
+			// ★★使うと無くなるもの。★★★**買った回数**も数える（★次の値段が10倍になる）
 			coins -= r.cost;
 			bag[r.id] = bagCount(r.id) + 1;
+			buys[r.id] = buyCount(r.id) + 1;
 		} else {
 			coins -= r.cost;
 			unlocked[r.id] = true;
@@ -2631,7 +2648,9 @@
 			var drinkCol = C_COIN;
 			if (st.reviveMs > 0) { drinkY -= 1; drinkCol = C_COIN_UP; }
 			drawArt(DRINK_ICON, 2, drinkY);
-			F.drawText(ctx, String(nDrink),
+			// ★★★「×1」で出す（2026-08-22 島さんの指定）。
+			//   ★コインは数字だけですが、道具は**個数**なので「×」を付けます
+			F.drawText(ctx, "×" + nDrink,
 				2 + DRINK_ICON.rows[0].length + 2, drinkY, GB[drinkCol]);
 		}
 
@@ -2836,8 +2855,14 @@
 		if (r.kind === "start") return r.name;
 		var name = pad(r.name, 9);
 		if (r.kind === "unlock") return name + (r.got ? "OWNED" : pad("", 4) + r.cost);
-		// ★★使うと無くなるもの（2026-08-22）。★何本持っているかを出す（★値段は変わらない）
-		if (r.kind === "item") return name + "x" + r.have + " " + shortNum(r.cost);
+		// ★★使うと無くなるもの（2026-08-22）。
+		//   ★持っているときは **FULL**（★もう買えない ＝ 1本まで）
+		//   ★持っていないときは「次の値段」（★買うたびに10倍になる）
+		//   ★★★「×1」で出す（2026-08-22 島さんの指定「×1の表示お願いします」）。
+		//     ★フォントに「×」があるので、そのまま使えます（→ `js/font.js`）
+		if (r.kind === "item") {
+			return name + "×" + r.have + " " + (r.have >= r.maxHave ? "FULL" : shortNum(r.cost));
+		}
 		// ★★上限なし（`maxLevel: null`）のときは MAX にならない
 		if (r.max !== null && r.lv >= r.max) return name + "LV" + r.lv + " MAX";
 		return name + "LV" + r.lv + " " + shortNum(r.cost);
@@ -3201,6 +3226,7 @@
 		_curCoinPer: curCoinPer,
 		// ★★MAXdrink（2026-08-22）
 		_bagCount: bagCount,
+		_buyCount: buyCount,
 		_giveDrink: function (n) { bag.maxdrink = (bag.maxdrink || 0) + (n || 1); saveUpg(); },
 		// ★★左上に出しているコイン（★テストが「お店と一致するか」を見張る）
 		_hudCoin: function () { return coins; },
