@@ -14,10 +14,10 @@
 			FRAMES: [{ x: 5, y: 5, rows: [
 				"...t.",
 				"ttttt",
-				"tnrrt",
-				"trrrt",
-				"trrst",
-				"tqrrt",
+				"tnqqt",
+				"tqjqt",
+				"tqqpt",
+				"trqqt",
 				".ttt.",
 			] }]
 		},
