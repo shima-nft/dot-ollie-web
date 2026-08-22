@@ -22,7 +22,19 @@
 	// sprite はメニューに出る絵。★選択画面には**スケーターの1コマ目**を出す
 	var TITLE = "OLLIE";          // 画面上部に出す題名。空なら出さない
 	var GAMES = [
-		{ label: "START", skater: 0, game: function () { return DotOllie; } }
+		{ label: "START", skater: 0, game: function () { return DotOllie; } },
+		// ============================================================
+		// ★★★テストモード（2026-08-22 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「テストでエンディングをみたいのだけど、9950ｍまでとばせないかな。
+		//   >   例えばタイトル画面でテストモードを選べるようにしてさ」
+		//
+		//   ★★**9950m から走り出す**（★10000m のゴールまで約7秒）。
+		//   ★★★**BEST は更新しない**ので、記録が汚れない（→ `js/ollie.js` の `testMode`）。
+		//   ★★消したくなったら、**この1行を消すだけ**（★他はどこも触らなくてよい）
+		{ label: "TEST 9950m", skater: 0, startM: 9950,
+			game: function () { return DotOllie; } }
 	];
 
 	// ============================================================
@@ -128,9 +140,12 @@
 				var lx = Math.floor((LCD_W - DotFont.textWidth(GAMES[i].label.length)) / 2);
 				drawSprite(lctx, CURSOR, lx - CUR_W - 2, y + 1);
 			}
-			// ★スケーターを一人、題名の下に立たせる(選択画面に出るのは0コマ目)
-			if (GAMES[i].skater !== undefined) drawSkaterFrame(GAMES[i].skater, y + 16);
 		}
+		// ★★スケーターは**一覧のいちばん下**に一人だけ立たせる（2026-08-22）。
+		//   ★★項目が2つ以上になったので、行ごとに出すと**次の行と重なる**。
+		//   ★項目が1つのときの見た目は**前とまったく同じ**（★同じ行に立つ）
+		var sk = GAMES[cursor] && GAMES[cursor].skater;
+		if (sk !== undefined) drawSkaterFrame(sk, top + ROW_H + GAMES.length * ROW_H + 6);
 	}
 
 	// ★選択画面のスケーター —— js/ollie-art.js の絵をそのまま、まん中に置く
@@ -323,6 +338,11 @@
 			// ★★SEED ID 画面で見せた番号を、そのままゲームへ渡す
 			//   （渡さないとゲーム側が引き直して、見せた番号と別の世界になる）
 			seed: pendingSeed,
+			// ★★★テストモード（2026-08-22 島さんの指定）。
+			//   ★`startM` を持つ項目を選んだときだけ、そこから走り出す。
+			//   ★★そのときは BEST を更新しない（★記録を汚さない）
+			startM: entry.startM || 0,
+			testMode: !!entry.startM,
 			// ゲーム側でボタンが増えたとき(例: 何かを習得)に呼んでもらう
 			refreshPad: function () { showPad(activeGame.pad || ["act"], false); },
 			// ★★★ゲームから「メニューへ戻して」と言うための窓口（2026-08-16 / Phase D）

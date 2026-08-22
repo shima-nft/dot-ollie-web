@@ -1108,6 +1108,22 @@
 	// ------------------------------------------------------------
 	var best = 0;      // ★ドットではなく**メートル**（画面に出す数字と同じ単位）
 
+	// ============================================================
+	// ■ ★★★テストモード（2026-08-22 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「テストでエンディングをみたいのだけど、9950ｍまでとばせないかな。
+	//   >   例えばタイトル画面でテストモードを選べるようにしてさ」
+	//
+	//   ★★シェル（`js/shell.js`）のタイトル画面で **TEST 9950m** を選ぶと、
+	//     ★**9950m から走り出す**（★10000m のゴールまで約7秒）。
+	//   ★★★**BEST（いちばん進んだ距離）は更新しない**ので、★記録が汚れない。
+	//     ★これが無いと、テストするたびに BEST が 10000m になって
+	//       **本当の記録が上書きされてしまう**
+	//   ★★遊びの中身は1つも変えていない（★走り出す場所だけが違う）
+	var startAtM = 0;       // ★何メートルから走り出すか（0 = ふつうに 0m から）
+	var testMode = false;   // ★★テストモードのあいだは BEST を更新しない
+
 	function loadBest() {
 		try {
 			var v = parseInt(localStorage.getItem("dotollie-best"), 10);
@@ -1118,6 +1134,9 @@
 
 	// ★★超えたときだけ更新する（**同じ距離では更新しない**）
 	function updateBest(m) {
+		// ★★★テストモードでは記録を残さない（2026-08-22）。
+		//   ★9950m から始めるので、そのままだと**必ず BEST を塗り替えてしまう**
+		if (testMode) return false;
 		if (m <= best) return false;
 		best = m;
 		try { localStorage.setItem("dotollie-best", String(best)); } catch (e) { /* 保存できなくても遊べる */ }
@@ -1451,6 +1470,10 @@
 			// ★お店で「押したけど、まだ離していない」か（→ `inputUp` の説明）
 			tapArmed: false
 		};
+		// ★★★テストモード: 決めた距離から走り出す（2026-08-22 島さんの指定）。
+		//   ★★地形も背景も**種と場所から毎回その場で計算している**ので、
+		//     いきなり 9950m に置いても**そこの景色がちゃんと出る**（★貯めていない強み）
+		if (startAtM > 0) st.dist = startAtM * SCORE_DOTS;
 		st.nextCone = nextConeGap();
 		st.nextEnemy = nextEnemyGap();
 		st.nextPush = nextPushWait();
@@ -3228,6 +3251,10 @@
 			loadItems();                 // ★★拾った持ち物を思い出す（2026-08-16 / Phase C）
 			// ★★★メニューへ戻す窓口（2026-08-16 / Phase D。★一時停止メニューの「EXIT」で使う）
 			exitToMenu = (opts && opts.exitToMenu) || null;
+			// ★★★テストモード（2026-08-22 島さんの指定）。★**`reset()` より前に決めること**
+			//   ★`startM` … 何メートルから走り出すか / `testMode` … BEST を更新しない
+			startAtM = (opts && opts.startM) || 0;
+			testMode = !!(opts && opts.testMode);
 			// ★シェルが SEED ID 画面で見せた種を、そのまま受け取る
 			reset(opts && typeof opts.seed === "number" ? opts.seed : undefined);
 			// ★READY の音。★enter から始まるときは、enter が明けた瞬間に鳴る（updatePhase）
@@ -3483,6 +3510,9 @@
 		// ★★★★10000m のエンディング（2026-08-22）
 		_endLightT: endLightT, _endShown: endShown,
 		_endSkip: endSkip, _continueRun: continueRun,
+		// ★★★テストモード（2026-08-22）
+		_testMode: function () { return testMode; },
+		_startAtM: function () { return startAtM; },
 		_toTitle: toTitle,
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
