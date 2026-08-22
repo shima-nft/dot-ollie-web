@@ -2668,8 +2668,11 @@
 		}
 	}
 
-	// ★★スタミナバー（★画面のいちばん上・横いっぱい）
+	// ★★スタミナバー（★★★2026-08-23、島さんの指定で**画面のいちばん下**へ移した）
+	//   > 島さん「体力バーを液晶の一番下に持って来てください」
 	//   ★★**見た目だけ。** ここは何も書き換えない（読むだけ）
+	//   ★★★**高さを直書きしない**（`barTop()` を通す）。
+	//     ★バーの太さを変えても、置き場所が黙ってずれない
 	function barColorFor(ratio) {
 		for (var i = 0; i < BAR_STEPS.length; i++) {
 			if (ratio >= BAR_STEPS[i].at) return BAR_STEPS[i].color;
@@ -2677,20 +2680,24 @@
 		return BAR_STEPS[BAR_STEPS.length - 1].color;
 	}
 
+	// ★★バーのいちばん上の行（★画面のいちばん下に置く）
+	function barTop() { return H - BAR_H; }
+
 	function drawStaminaBar() {
 		if (!BAR_ON) return;
+		var by = barTop();
 		// ★★このランの満タンで割る（★STAMINA を上げるとバーの目盛りも伸びる）
 		var r = Math.max(0, Math.min(1, st.stamina / (st.staminaMax || STAMINA_MAX)));
 		// ★★2026-08-15、島さんの指定で**「尽きたら全部赤」にはしない**。
 		//   ★残量が減るほど短くなり、色が 緑 → 黄 → 橙 → 赤 と変わって、**そのまま尽きる**
 		// ★減った側（★「どれだけ減ったか」が見える）
 		ctx.fillStyle = GB[C_BAR_BACK];
-		ctx.fillRect(0, 0, W, BAR_H);
+		ctx.fillRect(0, by, W, BAR_H);
 		// ★残っている側。★残量で色が変わる（緑 → 黄 → 橙 → 赤）
 		var w = Math.round(W * r);
 		if (w > 0) {
 			ctx.fillStyle = GB[barColorFor(r)];
-			ctx.fillRect(0, 0, w, BAR_H);
+			ctx.fillRect(0, by, w, BAR_H);
 		}
 		// ★★★全回復の演出（2026-08-22 島さん「ゲージ全回復時演出」）
 		//   ★★**バー全体が白く点滅**します（★満タンになったことが一目で分かる）。
@@ -2698,7 +2705,7 @@
 		//   ★★★これは**見た目だけ**。スタミナの値には1ドットも触りません
 		if (st.reviveMs > 0 && Math.floor(st.reviveMs / REVIVE_BLINK) % 2 === 0) {
 			ctx.fillStyle = GB[16];                  // 16 = 生成り（★いちばん明るい白）
-			ctx.fillRect(0, 0, W, BAR_H);
+			ctx.fillRect(0, by, W, BAR_H);
 		}
 	}
 
@@ -2993,8 +3000,9 @@
 		// ★★★ここで揺れをやめる。この下（HUD）は揺らさない
 		ctx.restore();
 
-		// ⑨' ★★スタミナバー（★画面のいちばん上・横いっぱい）。2026-08-15 島さんの指定
+		// ⑨' ★★スタミナバー（★★2026-08-23、島さんの指定で**画面のいちばん下**へ）
 		//   島さん「スタミナの見える化がないと、何故急に終了したのか分からない」
+		//   ★★★いちばん最後に描くので、★地面の上にちゃんと乗る
 		drawStaminaBar();
 
 		// ★★★HP（2026-08-16 / Phase D）。★スタミナバーのすぐ下に、HP_MAX 個の四角
@@ -3002,7 +3010,8 @@
 		//     ★同じ形のバーを2本並べると、どちらが何か分からなくなる
 		//   ★★絵は使っていない（★四角なので `js/palette.js` の色だけで足りる）
 		if (CAMP_ON) {
-			var hpY = (BAR_ON ? BAR_H : 0) + 1;
+			// ★★2026-08-23、バーが下へ移ったので、HP は**いちばん上**から並ぶ
+			var hpY = 1;
 			for (var hi = 0; hi < st.hpMax; hi++) {
 				ctx.fillStyle = GB[(hi < st.hp) ? C_HP_ON : C_HP_OFF];
 				ctx.fillRect(2 + hi * (HP_BLOCK_W + HP_GAP), hpY, HP_BLOCK_W, HP_BLOCK_H);
@@ -3011,9 +3020,10 @@
 
 		// ⑨ 距離と倍率（左上に2行）。★右上は [音][一時停止][もどる] が重なるので使わない
 		//   ★単位の「m」つき（2026-08-12 島さんの指定）
-		//   ★★バーのぶんだけ下へずらす
+		//   ★★★2026-08-23、バーが**いちばん下**へ移ったので、
+		//     ★左上の文字は**押し下げなくてよくなった**（★上に詰められる）
 		var F = global.DotFont;
-		var hudY = (BAR_ON ? BAR_H : 0) + 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
+		var hudY = 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
 		F.drawText(ctx, meters() + "m", 2, hudY, GB[C_TEXT]);
 		// ============================================================
 		// ★★★左上のコイン ＝ **財布（いま持っている額）**（2026-08-16）
@@ -3866,6 +3876,8 @@
 		_startAtM: function () { return startAtM; },
 		_toTitle: toTitle,
 		_barColorFor: barColorFor,
+		// ★★バーのいちばん上の行（★テストが「本当に一番下か」を測る。2026-08-23）
+		_barTop: function () { return barTop(); },
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
 		_toggleShop: function () { global.DotOllie.toggleShop(); },
 		_shopRows: shopRows,
