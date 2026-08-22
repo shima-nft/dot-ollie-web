@@ -12,7 +12,7 @@
 //   → **音は素通しにして、Safari に任せる。**
 //     音がオフラインで鳴らなくても `AUDIO_GUIDE` 決まり1
 //     「音が出せない環境でも遊べる」を満たしているので、遊びには影響しない
-var CACHE = "dot-ollie-v41";
+var CACHE = "dot-ollie-v42";
 
 // このパスを含むものは、サービスワーカーが一切触らない
 function isPassThrough(url) {

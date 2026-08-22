@@ -269,6 +269,52 @@
 	var ENEMY_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
 
 	// ============================================================
+	// ■■■ ★★★★拾えるコイン（2026-08-23 島さんの指定）■■■
+	// ============================================================
+	//
+	//   > 島さん「コインを導入したいけどどこに置くか問題がある」
+	//   > 島さん「まずはB案。1000ｍから出現。コインを拾えるようにすると稼ぎが増えるが
+	//   >   越えた分は減らさない。一旦一枚10コインにする。左上に出している🪙の絵を使用する。」
+	//
+	//   ■ ★★★「どこに置くか」の答え —— **高さを人が決めない**
+	//
+	//     ★1枚ずつ場所を考えると必ず迷う。
+	//     → ★★**「ここで跳んだら通る道」に沿って並べる**（★弧・ガーランド）。
+	//     ★★★**その軌道のデータは、もうある**: `js/frames.js` の `lifts`
+	//       （＝1コマごとの足元の高さ）＝ **島さんが描いた跳躍そのもの**。
+	//
+	//     ★これで:
+	//       ・★**直書きが1つも要らない**（★島さんがコマを詰めたら、弧も自動で追従する）
+	//       ・★★**跳べば必ず全部取れる**が構造として保証される（★理不尽が作れない）
+	//       ・★★★決まり「**跳躍は絵が決めている**」を、コインにもそのまま伸ばせる
+	//
+	//   ■ ★★B案 ＝ **一段ジャンプの弧**（★いま入れたのはこれだけ）
+	//     ★D案（二段ジャンプでも届かない高さ ＝ マグネット用）は
+	//       ★**まだ入れていません**（→ `TODO.md`。★島さんが「案として追加」と決めた）
+	//
+	//   ■ ★障害物とは**重ねない**
+	//     ★重なると「避けるのか拾うのか」が同時に来て、★★1ボタンでは処理できない
+	// ============================================================
+	var PICK_ON      = 1;      // ★0 にすると仕組みごと止まる
+	var PICK_FROM_M  = 1000;   // ★★ここから出はじめる（メートル）★島さんの指定
+	var PICK_VALUE   = 10;     // ★★1枚いくらか ★島さんの指定「一旦一枚10コイン」
+	// ★★★COIN のレベルを効かせるか（0 = 効かせない ＝ いつでも10枚）。
+	//   ★★1 にすると「越えたときの取得」と同じように増えていきます。
+	//     ★★★実測: 1000m まで来ると「越えて入る額」は**1個で数百枚**になるので、
+	//       ★0 のままだと拾えるコインは**おまけ**になります（→ 島さんの判断待ち）
+	var PICK_SCALES  = 0;
+	var PICK_N       = 5;      // ★1つの弧に何枚並べるか
+	var PICK_GAP_MIN = 420;    // ★次の弧までの距離（ドット）。★約6秒
+	var PICK_GAP_MAX = 900;    //   ★ここまでの間でランダム。★約13秒
+	// ★★★**足の高さで拾う**（★体ぜんぶで拾うと、走っているだけで取れてしまう）。
+	//   ★この数字が「どれくらいずれても拾えるか」＝ ★★やさしさのつまみ
+	var PICK_TAKE_Y  = 8;
+	// ★★★**これより低いところには置かない**（ドット）。
+	//   ★★低いと、★走っているだけで拾えてしまい「跳ぶ理由」が消える。
+	//   ★★★実測: 走っているときの足は 0。★`PICK_TAKE_Y`(8) より高ければ届かない
+	var PICK_MIN_LIFT = 12;
+
+	// ============================================================
 	// ■■■ ★★★★ゴールの扉 —— 10000m のエンディング（2026-08-22 島さんの指定）■■■
 	// ============================================================
 	//
@@ -790,7 +836,11 @@
 	var COIN_ICON = (global.DotPartsArt && global.DotPartsArt.coin)
 		? global.DotPartsArt.coin.FRAMES[0] : null;
 
-	// ★★丘の敵。2026-08-15、島さんの指定で新設
+	// ★★拾えるコインの絵 ＝ **左上に出しているものと同じ**（★島さんの指定）
+	var PICK_W = COIN_ICON ? COIN_ICON.rows[0].length : 0;
+	var PICK_H = COIN_ICON ? COIN_ICON.rows.length : 0;
+
+	// ★★丘の敵。2026-08-15、島さんの指定で新設（絵）
 	//   > 「丘に新しい障害物を新設してください。背景部品と差別化するため、コーン同様、縁取り黒で」
 	//   ★★2026-08-16、島さんの指定で**島さんが描いた絵に差し替えた**（→ `js/enemy-art.js`）
 	//   > 「障害物の岩を敵01に差し替えて」
@@ -1489,6 +1539,11 @@
 			cones: [],
 			nextCone: 0,   // 次のコーンを出すまでの残り距離（ドット）
 			nextEnemy: 0,   // ★次の敵（丘の障害物）を出すまでの残り距離
+			// ★★★★拾えるコイン（2026-08-23 島さんの指定）
+			picks: [],      // ★いま画面にあるコイン（★{ x, lift, taken }）
+			nextPick: 0,    // ★次の弧を出すまでの残り距離
+			picksBorn: 0,   // ★このランで出した弧の数（★実測用）
+			picksGot: 0,    // ★★拾った枚数（★実測用）
 			conesBorn: 0,  // ★これまでに出したコーンの数（テストが見張るためだけの数）
 			enemiesBorn: 0,  // ★これまでに出した敵の数
 			// ★★★★ゴールの扉（2026-08-22。★10000m のエンディング）
@@ -1583,6 +1638,51 @@
 	//   ★直書きしないこと。★島さんが `js/frames.js` のコマを速くしたら、ここも自動で追従する
 	function trickTravelDots() {
 		return FR.totalMs(POSES[poseIndex("OLLIE")].ms) * jumpDurationMul() / 1000 * curSpeed();
+	}
+
+	// ============================================================
+	// ■■■ ★★★★拾えるコインの「弧」（2026-08-23 島さんの指定）■■■
+	// ============================================================
+	//
+	//   ★★★**高さは島さんの跳躍の絵（`lifts`）から、そのまま取る。**
+	//     ★ここに数字を直書きしないこと（★絵と弧がずれる元になる）。
+
+	// ★1つの弧のかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
+	//   ★★**オーリーの絵を、時間で等分にサンプリングする**だけ
+	function pickArc() {
+		var P = POSES[poseIndex("OLLIE")];
+		// ★★足が**十分に高い**区間だけを使う（★低いところに置くと、走って取れてしまう）
+		var first = -1, last = -1;
+		for (var i = 0; i < P.lifts.length; i++) {
+			if (P.lifts[i] >= PICK_MIN_LIFT) { if (first < 0) first = i; last = i; }
+		}
+		if (first < 0) return [];
+		var t0 = FR.startMs(P.ms, first), t1 = FR.startMs(P.ms, last);
+		var out = [], v = curSpeed() / 1000;      // ★1ミリ秒で進むドット数
+		for (var k = 0; k < PICK_N; k++) {
+			// ★★区間を等分（★両端も使うので、弧の始まりと終わりが低くなる）
+			var f = (PICK_N === 1) ? 0.5 : k / (PICK_N - 1);
+			var t = t0 + (t1 - t0) * f;
+			var fi = FR.frameAt(P.ms, t);
+			if (fi < 0) fi = last;
+			out.push({ dx: Math.round((t - t0) * v), lift: P.lifts[fi] });
+		}
+		return out;
+	}
+
+	// ★弧の横幅（★障害物と重ねないための確かめに使う）
+	function pickArcW(arc) {
+		return (arc.length ? arc[arc.length - 1].dx : 0) + PICK_W;
+	}
+
+	// ★次の弧までの距離をランダムに引く（★種では決めない ＝ 覚えゲーにしない）
+	function nextPickGap() {
+		return PICK_GAP_MIN + Math.random() * (PICK_GAP_MAX - PICK_GAP_MIN);
+	}
+
+	// ★★1枚いくらか（★`PICK_SCALES` が 1 のときだけ COIN のレベルが効く）
+	function pickValue() {
+		return PICK_SCALES ? Math.max(1, Math.round(PICK_VALUE * upgMul("coin"))) : PICK_VALUE;
 	}
 
 	// ★★★障害物どうしの最小の間隔（→ 上の「欠陥」の説明）
@@ -2495,6 +2595,31 @@
 			//       **「前は開けられなかった扉を開けた」**がちゃんと残る
 			// ============================================================
 			// ============================================================
+			// ★★★★拾えるコインの弧（2026-08-23 島さんの指定）
+			//
+			//   ★★**1000m から**出はじめる（★島さんの指定）。
+			//   ★★★**障害物と重ねない**（★避けるのと拾うのが同時に来ないように）
+			// ============================================================
+			if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M) {
+				st.nextPick -= moved;
+				if (st.nextPick <= 0) {
+					var arc = pickArc(), arcW = pickArcW(arc);
+					// ★★次の障害物まで、弧がまるごと入る余裕があるときだけ置く
+					var room = Math.min(st.nextCone, st.nextEnemy);
+					if (arc.length && room > arcW + CONE_W * 2) {
+						for (var pi = 0; pi < arc.length; pi++) {
+							st.picks.push({ x: W + 4 + arc[pi].dx, lift: arc[pi].lift });
+						}
+						st.picksBorn++;
+						st.nextPick = nextPickGap();
+					} else {
+						// ★★置けなかったら、少し待ってもう一度ためす（★間隔は崩さない）
+						st.nextPick = CONE_W * 4;
+					}
+				}
+			}
+
+			// ============================================================
 			// ★★★★ゴールの扉（2026-08-22 島さんの指定）
 			//
 			//   ★決まった距離に**1回だけ**立つ（★種では決めない ＝ 既存の決まり）。
@@ -2620,6 +2745,34 @@
 				}
 				if (c.x + cw < 0) st.cones.splice(i, 1);
 			}
+			// ============================================================
+			// ★★★★拾えるコインを動かす・拾う（2026-08-23 島さんの指定）
+			//
+			//   ★★**ぶつかるものではない**ので、`hitConeIndex()` とは別に見る。
+			//
+			//   ★★★**足の高さで拾う**（★体ぜんぶで拾うと、★走っているだけで取れてしまう。
+			//     ★2026-08-23 に実際そうなって直した）。
+			//   ★★これで「**跳んだ道に沿って置いたコインは、跳べば取れる**」が
+			//     ★そのまま成り立つ（★弧は島さんの跳躍の絵から作っているので）
+			// ============================================================
+			if (PICK_ON) {
+				var myLift = currentLift();
+				var boxL = RIDER_X, boxR = RIDER_X + RIDER_FOOT * 2;
+				for (var qi = st.picks.length - 1; qi >= 0; qi--) {
+					var pk = st.picks[qi];
+					pk.x -= moved;
+					if (pk.x + PICK_W < 0) { st.picks.splice(qi, 1); continue; }
+					if (pk.taken) continue;
+					var px = Math.round(pk.x);
+					if (px + PICK_W > boxL && px < boxR &&
+						Math.abs(pk.lift - myLift) <= PICK_TAKE_Y) {
+						pk.taken = 1;
+						st.picksGot++;
+						gainCoin(pickValue());     // ★★その場で財布に入る（★越えたときと同じ道）
+					}
+				}
+			}
+
 			// ★★当たり判定。★★**転ばない。** 減速＋倍率リセット＋スタミナ減だけ
 			var hi = hitConeIndex();
 			if (hi >= 0) onHit(hi);
@@ -2757,6 +2910,22 @@
 				continue;
 			}
 			drawArt(f, cx, y);
+		}
+	}
+
+	// ★★★★拾えるコインを描く（2026-08-23 島さんの指定）
+	//   ★★絵は**左上に出しているものと同じ**（★島さんの指定）。
+	//   ★★★高さは「足元の高さ」なので、★**その場所の地面の上に、そのぶん浮かせる**
+	//     （★坂の上では、坂に合わせて上がる ＝ コーンや敵とまったく同じ考え方）
+	function drawPicks() {
+		if (!COIN_ICON) return;
+		for (var i = 0; i < st.picks.length; i++) {
+			var pk = st.picks[i];
+			if (pk.taken) continue;                     // ★拾ったものは、もう描かない
+			var cx = Math.round(pk.x);
+			var half = Math.floor(PICK_W / 2);
+			var y = groundRowAt(cx + half) - 1 - pk.lift - (PICK_H - 1);
+			drawArt(COIN_ICON, cx, y);
 		}
 	}
 
@@ -2988,6 +3157,9 @@
 
 		// ⑥ 三角コーン（★スケーターより先に描く = 人が手前に見える）
 		if (CONE_ON) drawCones();
+
+		// ⑥' ★★★★拾えるコイン（★スケーターより先に描く = 人が手前）
+		if (PICK_ON) drawPicks();
 
 		// ⑦ スケーター
 		drawSkater(currentFrame());
@@ -3898,6 +4070,8 @@
 		_hudCoin: function () { return coins; },
 		_gainCoin: gainCoin,
 		_curClearDots: curClearDots,
+		// ★★★★拾えるコイン（2026-08-23）
+		_pickArc: pickArc, _pickValue: pickValue,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
@@ -3923,6 +4097,12 @@
 				ENTER_MS: ENTER_MS, READY_MS: READY_MS, GO_MS: GO_MS,
 				// ★走り出しの加速（かける時間はプッシュの絵の長さ）
 				ACCEL_ON: ACCEL_ON, ACCEL_START: ACCEL_START, ACCEL_MS: accelSpan(),
+				// ★★★★拾えるコイン（2026-08-23 島さんの指定）
+				PICK_ON: PICK_ON, PICK_FROM_M: PICK_FROM_M, PICK_VALUE: PICK_VALUE,
+				PICK_SCALES: PICK_SCALES, PICK_N: PICK_N,
+				PICK_TAKE_Y: PICK_TAKE_Y, PICK_MIN_LIFT: PICK_MIN_LIFT,
+				PICK_GAP_MIN: PICK_GAP_MIN, PICK_GAP_MAX: PICK_GAP_MAX,
+				PICK_W: PICK_W, PICK_H: PICK_H,
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
 				// ★★間隔の下限は「1回の技で進む距離」から作る（2026-08-16 / Step 0）
 				GAP_SAFETY: GAP_SAFETY, trickTravelDots: trickTravelDots,
