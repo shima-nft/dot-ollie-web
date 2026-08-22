@@ -1675,6 +1675,43 @@
 		return (row.length ? row[row.length - 1].dx : 0) + PICK_W;
 	}
 
+	// ============================================================
+	// ★★★★列を「水平」に置く（2026-08-23 島さんの指摘）
+	// ============================================================
+	//
+	//   > 島さん「コインが整列になっていないパターンがありました。
+	//   >   おそらく地面と平行の高さに置かれているためと思われます。
+	//   >   そのため、坂道にあるコインが整列でないです。平地は合格です。
+	//   >   ジャンプで届く位置かつ水平においてください。そのほうが美しいです。」
+	//
+	//   ★★前は**1枚ずつ「その場所の地面」から高さを取っていた**ので、
+	//     ★坂では列が**地面と平行に傾いて**いた。
+	//   → ★★★**列の下でいちばん高い地面**を1つ選び、★そこから全部おなじ高さにする。
+	//
+	//   ★★「いちばん高い地面」を基準にするのが大事:
+	//     ★★★どこか1枚でも地面に近づくと、★**走っているだけで拾えてしまう**。
+	//     ★高いほうに合わせておけば、★列のどこでも「跳んで届く高さ」が保証される。
+	//
+	//   ★★★以後、コインは**画面の行（`y`）**で持つ（★地面からの高さでは持たない）。
+	//     ★この作品はカメラが上下に動かないので、★**行は変わらない**
+	function makeRow(x0) {
+		var row = pickRow();
+		if (!row.length) return [];
+		// ★★列の下でいちばん高い地面（★行の数字が小さいほど高い）
+		var top = Infinity;
+		for (var i = 0; i < row.length; i++) {
+			var gx = x0 + row[i].dx + Math.floor(PICK_W / 2);
+			var gr = groundRowAt(gx);
+			if (gr < top) top = gr;
+		}
+		var out = [];
+		for (i = 0; i < row.length; i++) {
+			// ★`y` = コインの**足元の行**（★全部おなじ ＝ 水平）
+			out.push({ x: x0 + row[i].dx, y: top - 1 - row[i].lift });
+		}
+		return out;
+	}
+
 	// ★次の弧までの距離をランダムに引く（★種では決めない ＝ 覚えゲーにしない）
 	function nextPickGap() {
 		return PICK_GAP_MIN + Math.random() * (PICK_GAP_MAX - PICK_GAP_MIN);
@@ -2632,9 +2669,9 @@
 					// ★★次の障害物まで、列がまるごと入る余裕があるときだけ置く
 					var room = Math.min(st.nextCone, st.nextEnemy);
 					if (row.length && room > rowW + CONE_W * 2) {
-						for (var pi = 0; pi < row.length; pi++) {
-							st.picks.push({ x: W + 4 + row[pi].dx, lift: row[pi].lift });
-						}
+						// ★★★水平に並べる（→ `makeRow()`）
+						var made = makeRow(W + 4);
+						for (var pi = 0; pi < made.length; pi++) st.picks.push(made[pi]);
 						st.picksBorn++;
 						st.nextPick = nextPickGap();
 					} else {
@@ -2781,7 +2818,8 @@
 			//     ★そのまま成り立つ（★弧は島さんの跳躍の絵から作っているので）
 			// ============================================================
 			if (PICK_ON) {
-				var myLift = currentLift();
+				// ★★★コインは**画面の行**で持っているので、主役の足も行で見る（2026-08-23）
+				var myRow = riderGroundRow() - 1 - currentLift();
 				var boxL = RIDER_X, boxR = RIDER_X + RIDER_FOOT * 2;
 				for (var qi = st.picks.length - 1; qi >= 0; qi--) {
 					var pk = st.picks[qi];
@@ -2790,7 +2828,7 @@
 					if (pk.taken) continue;
 					var px = Math.round(pk.x);
 					if (px + PICK_W > boxL && px < boxR &&
-						Math.abs(pk.lift - myLift) <= PICK_TAKE_Y) {
+						Math.abs(pk.y - myRow) <= PICK_TAKE_Y) {
 						pk.taken = 1;
 						st.picksGot++;
 						gainCoin(pickValue());     // ★★その場で財布に入る（★越えたときと同じ道）
@@ -2940,17 +2978,15 @@
 
 	// ★★★★拾えるコインを描く（2026-08-23 島さんの指定）
 	//   ★★絵は**左上に出しているものと同じ**（★島さんの指定）。
-	//   ★★★高さは「足元の高さ」なので、★**その場所の地面の上に、そのぶん浮かせる**
-	//     （★坂の上では、坂に合わせて上がる ＝ コーンや敵とまったく同じ考え方）
+	//   ★★★★**水平に並べる**（2026-08-23 島さんの指摘）。
+	//     ★コインは**画面の行**（`y` ＝ 足元の行）を持っているので、
+	//       ★★**坂でも列が傾かない**（★コーンや敵は地面に沿うが、コインは沿わせない）
 	function drawPicks() {
 		if (!COIN_ICON) return;
 		for (var i = 0; i < st.picks.length; i++) {
 			var pk = st.picks[i];
 			if (pk.taken) continue;                     // ★拾ったものは、もう描かない
-			var cx = Math.round(pk.x);
-			var half = Math.floor(PICK_W / 2);
-			var y = groundRowAt(cx + half) - 1 - pk.lift - (PICK_H - 1);
-			drawArt(COIN_ICON, cx, y);
+			drawArt(COIN_ICON, Math.round(pk.x), pk.y - (PICK_H - 1));
 		}
 	}
 
@@ -4097,6 +4133,9 @@
 		_curClearDots: curClearDots,
 		// ★★★★拾えるコイン（2026-08-23）
 		_pickRow: pickRow, _pickLift: pickLift, _pickValue: pickValue,
+		_makeRow: makeRow,
+		// ★★主役の足がいまどの行にいるか（★テストが「水平か」を測るのに使う）
+		_riderRow: function () { return riderGroundRow() - 1 - currentLift(); },
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
