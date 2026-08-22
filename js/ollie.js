@@ -324,6 +324,53 @@
 	var GOAL_BLINK_MS = 450;     // ★CONTINUE が点いたり消えたりする間隔
 
 	// ============================================================
+	// ■■■ ★★★★二段ジャンプを授かる（2026-08-22 島さんの指定）■■■
+	// ============================================================
+	//
+	//   > 島さん「エンディングでコンテニュー後画面タップで暗転し
+	//   >   一秒後画面に JUNP の文字表示お願いします。
+	//   >   さらに一秒後喜びの効果音とともに JUNP の文字の横に×２を表示してください。
+	//   >   ここからは二段ジャンプ可能とします。
+	//   >   仕様 ジャンプ中にタップでもう一度ジャンプできる。」
+	//
+	//   ★★★**これは、この作品の古い決まりを島さん自身が上書きしたものです。**
+	//
+	//     これまで … 「★空中で押しても二段跳びにならない」
+	//                （★1ボタンでも「跳ぶ位置を決める」駆け引きを残すため）
+	//     ★これから … ★★**10000m を走りきった人にだけ、二段ジャンプが渡る**
+	//
+	//   ★★決まりは**まだ生きています**。★変わったのは「ご褒美で外れる」ようになったこと。
+	//     ★★★**授かる前は、いままでどおり空中で押しても何も起きません**
+	//       （★`test/ollie.test.js` がそこを見張り続けています）。
+	//
+	//   ■ ★段取り（★時間は島さんが指定したとおり）
+	//
+	//       3ページ目の CONTINUE をタップ
+	//         → ★暗転（`GIFT_FADE_MS`）
+	//         → ★★1秒後に **JUMP**（`GIFT_WORD_MS`）
+	//         → ★★さらに1秒後に **喜びの音 ＋ ×2**（`GIFT_X2_MS`）
+	//         → ★タップで走り出す（★ここから二段ジャンプ）
+	//
+	//   ★★**待っているあいだのタップは効きません**（★島さんが「1秒後」と決めた間を守るため）。
+	//
+	//   ■ ★★★AIへ: 文字について
+	//     ★島さんの原文は **「JUNP」** ですが、**JUMP**（つづりの直し）にしてあります。
+	//     ★★`JUNP` のままがよければ `GIFT_WORD` の1か所を書き換えるだけです
+	//
+	//   ■ ★★二段ジャンプは「そのランのあいだだけ」
+	//     ★死んだら消えます（★コイン・レベル・技・道具とまったく同じ）。
+	//     ★★この作品の芯（**残るのは BEST だけ**）を崩さないため
+	var DJ_ON        = 1;        // ★0 にすると仕組みごと止まる（★授からない）
+	var DJ_MAX       = 2;        // ★★1回の滞空で跳べる回数（2 = 二段ジャンプ）
+	var GIFT_FADE_MS = 300;      // ★暗転にかける時間
+	var GIFT_WORD_MS = 1000;     // ★★暗転してから「JUMP」が出るまで（島さん「一秒後」）
+	var GIFT_X2_MS   = 1000;     // ★★「JUMP」から「×2」が出るまで（島さん「さらに一秒後」）
+	var GIFT_WORD    = "JUMP";   // ★★出す文字（★島さんの原文は「JUNP」）
+	var GIFT_MARK    = "×2";     // ★横に出す印
+	var C_GIFT_WORD  = 16;       // ★JUMP の色。16=生成り（★暗い画面で読める）
+	var C_GIFT_MARK  = 19;       // ★★×2 の色。19=黄（★ご褒美なので明るく）
+
+	// ============================================================
 	// ★★★★エンディングの3ページ —— ★島さんの持ち場（2026-08-22 島さんの指定）
 	// ============================================================
 	//
@@ -1449,6 +1496,11 @@
 			goalDone: false,  // ★★このランでもうエンディングを見たか（★二度は出さない）
 			endMs: 0,         // ★エンディングの進み具合（ミリ秒）
 			endPage: 0,       // ★★★いま何ページ目を見せているか（2026-08-22）
+			// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
+			dj: false,        // ★★このランで二段ジャンプを授かったか（★死ぬと消える）
+			airJumps: 0,      // ★いまの滞空で、もう何回跳んだか
+			giftMs: 0,        // ★授かる場面の進み具合（ミリ秒）
+			giftRang: false,  // ★喜びの音をもう鳴らしたか（★二度鳴らさない）
 			// ★★扉と鍵（2026-08-16 / Phase C）
 			gateBorn: false,  // ★このランで扉をもう出したか（★決まった距離に**1回だけ**）
 			gateSeen: false,  // ★このランで扉が画面に出たか（★実測用）
@@ -1895,9 +1947,66 @@
 	//   ★`goalDone` を立てるので扉はもう出てこない（★開いた扉はそのまま後ろへ流れる）
 	function continueRun() {
 		st.goalDone = true;
-		st.phase = "play";
 		st.endMs = 0;
 		st.endPage = 0;
+		// ★★★★まだ二段ジャンプを持っていなければ、**授かる場面**へ（2026-08-22 島さんの指定）
+		//   > 島さん「エンディングでコンテニュー後画面タップで暗転し…」
+		//   ★★ここで走り出さずに、暗転 → JUMP → ×2 を見せてから走り出す
+		if (DJ_ON && !st.dj) {
+			st.phase = "gift";
+			st.giftMs = 0;
+			st.giftRang = false;
+			return;
+		}
+		st.phase = "play";
+	}
+
+	// ============================================================
+	// ■■■ ★★★★二段ジャンプを授かる場面（2026-08-22 島さんの指定）■■■
+	// ============================================================
+	//
+	//   ★★**世界は止まったまま。** 距離もコインも増えず、スタミナも減りません
+	//     （★エンディングとまったく同じ扱い）。
+
+	function updateGift(dt) {
+		st.giftMs += dt * 1000;
+		// ★★★「×2」が出た瞬間に、**喜びの音を1回だけ**鳴らす（★島さんの指定）
+		//   ★あわせて、ここで**二段ジャンプが手に入る**（★見えた瞬間＝使える瞬間）
+		if (!st.giftRang && giftX2()) {
+			st.giftRang = true;
+			st.dj = true;
+			giftSound();
+		}
+	}
+
+	// ★暗転の進み具合（0〜1）
+	function giftFadeT() { return Math.max(0, Math.min(1, st.giftMs / GIFT_FADE_MS)); }
+	// ★★「JUMP」が出ているか（★暗転しきってから1秒後）
+	function giftWord() { return st.giftMs >= GIFT_FADE_MS + GIFT_WORD_MS; }
+	// ★★「×2」が出ているか（★JUMP からさらに1秒後）
+	function giftX2() { return st.giftMs >= GIFT_FADE_MS + GIFT_WORD_MS + GIFT_X2_MS; }
+
+	// ★★★授かる場面を終えて、走り出す（★ここから二段ジャンプ）
+	function giftDone() {
+		st.dj = true;              // ★★念のため（★音より先に押されても必ず渡す）
+		st.phase = "play";
+		st.giftMs = 0;
+	}
+
+	// ★★★喜びの効果音（★★仮です。★島さんの耳が正 → `tools/preview-sound.html`）
+	//   ★買った音（速い）とも、回復の音（ゆっくり満ちる）とも、ゴールの音とも別のもの:
+	//   ★★**跳ねる音を2回**（★二段ジャンプなので「タン・タン」）→ ★明るい和音で満ちる
+	function giftSound() {
+		melody([
+			[784,  0.07,   0],   // ★1回目の跳躍
+			[1047, 0.07,  70],
+			[1319, 0.09, 140],
+			[1047, 0.07, 260],   // ★★2回目の跳躍（★間をあけて「もう一度」を出す）
+			[1319, 0.07, 330],
+			[1568, 0.10, 400],
+			// ★★満ちる和音（★手に入った）
+			[2093, 0.50, 520], [1568, 0.50, 520], [1047, 0.50, 520]
+		]);
 	}
 
 	// ★★★次のページへ（2026-08-22）。★最後のページなら、もう進めない
@@ -2181,6 +2290,8 @@
 		if (st.phase === "over") { updateOver(dt); return; }
 		// ★★★★10000m のエンディング（2026-08-22）。★世界は止まったまま、演出だけ進む
 		if (st.phase === "ending") { updateEnding(dt); return; }
+		// ★★★★二段ジャンプを授かる場面（2026-08-22）。★これも世界は止まったまま
+		if (st.phase === "gift") { updateGift(dt); return; }
 		// ★★★キャンプで選んでいるあいだは、世界が止まる（2026-08-16 / Phase D）
 		//   ★距離も倍率も増えない（★「止まって考える場所」なので）
 		if (st.phase === "camp") {
@@ -2925,6 +3036,10 @@
 		else if (st.phase === "ending") {
 			drawEndingScreen();
 		}
+		// ★★★★二段ジャンプを授かる場面（2026-08-22 島さんの指定）
+		else if (st.phase === "gift") {
+			drawGiftScreen();
+		}
 		// ★★★キャンプの選択（2026-08-16 / Phase D）
 		else if (st.phase === "camp") {
 			drawCampScreen();
@@ -3115,6 +3230,48 @@
 			if (!rows[i].blink || on) drawCenterAt(rows[i].t, y, rows[i].col);
 			y += F.GLYPH_H + lead;
 		}
+	}
+
+	// ============================================================
+	// ★★★★二段ジャンプを授かる場面の画面（2026-08-22 島さんの指定）
+	// ============================================================
+	//
+	//     （まっ暗）
+	//         JUMP ×2        ← ★JUMP が先、1秒おいて ×2
+	//
+	//   ★★★**JUMP は、はじめから「×2 が付いたときの位置」に出します。**
+	//     ★そうしないと、★★×2 が出た瞬間に JUMP が左へずれて見える
+	//     （★「横に足す」という島さんの指定が、**動かずに**成立する）。
+	//
+	//   ★★暗転は GAMEOVER とまったく同じやり方（横の行を `FADE_ORDER` の順に塗る）。
+	//     ★半透明は使わない（★この世界に無い色が出るため）
+	function drawGiftScreen() {
+		var F = global.DotFont;
+
+		// ★★★① 暗転（★GAMEOVER と同じ道具）
+		var lit = Math.round(giftFadeT() * 8);
+		if (lit > 0) {
+			ctx.fillStyle = GB[C_FADE];
+			if (lit >= 8) ctx.fillRect(0, 0, W, H);
+			else {
+				for (var y = 0; y < H; y++) {
+					if (FADE_ORDER.indexOf(y % 8) < lit) ctx.fillRect(0, y, W, 1);
+				}
+			}
+		}
+		if (!giftWord()) return;             // ★★1秒経つまでは、まっ暗なだけ
+
+		// ★★★② JUMP（★はじめから最後の位置に置く）
+		//   ★字の間隔は**フォントから測る**（★直書きしない）
+		var pitch = F.textWidth(2) - F.textWidth(1);
+		var full = GIFT_WORD + " " + GIFT_MARK;
+		var x0 = Math.floor((W - F.textWidth(full.length)) / 2);
+		var y0 = Math.floor((H - F.GLYPH_H) / 2);
+		F.drawText(ctx, GIFT_WORD, x0, y0, GB[C_GIFT_WORD]);
+
+		// ★★★③ さらに1秒後に ×2（★音は `updateGift()` が鳴らす）
+		if (!giftX2()) return;
+		F.drawText(ctx, GIFT_MARK, x0 + (GIFT_WORD.length + 1) * pitch, y0, GB[C_GIFT_MARK]);
 	}
 
 	// ============================================================
@@ -3391,6 +3548,16 @@
 				continueRun();                            // ★③その先へ
 				return;
 			}
+			// ============================================================
+			// ★★★★二段ジャンプを授かる場面（2026-08-22 島さんの指定）
+			//   ★★**×2 が出るまでは、押しても何も起きない**
+			//     （★島さんが「一秒後」「さらに一秒後」と決めた間を、飛ばさせない）
+			//   ★×2 が出たあとのタップで、走り出す（★ここから二段ジャンプ）
+			// ============================================================
+			if (st && st.phase === "gift") {
+				if (giftX2()) giftDone();
+				return;
+			}
 			if (action === "pause") { this.togglePause(); return; }
 			if (action === "sound") { this.toggleSound(); return; }
 			// ★★★ショップボタン（2026-08-16 島さんの指定）
@@ -3463,6 +3630,10 @@
 				// ★★★覚えていない技は出ない（2026-08-15 / Phase B）。
 				//   ★最初はオーリーだけ。キックフリップとポップは**買って覚える**
 				if (!knowsTrick(POSES[i].name)) return false;
+				// ★★地上から出した技 ＝ **1回目**（★二段ジャンプの数え。2026-08-22）
+				//   ★空中から出したときは `input()` が数えているので、ここでは触らない
+				//   （★なぞりで技を差し替えたときも、数えが増えない）
+				if (st.air < 0) st.airJumps = 1;
 				st.trick = i;
 				st.air = 0;
 				// 技ごとに音を変える（タップ990 / 上へ1320 / 下へ660）
@@ -3502,7 +3673,24 @@
 			// ★★走り出す前（enter / READY）は**何も起きない**（島さんの指定 2026-08-12）。
 			//   飛ばせないし、技も出ない
 			if (isFrozen(st.phase)) return;
-			if (st.air >= 0) return;
+			// ============================================================
+			// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
+			//
+			//   > 島さん「ここからは二段ジャンプ可能とします。
+			//   >   仕様 ジャンプ中にタップでもう一度ジャンプできる。」
+			//
+			//   ★★★**授かる前は、いままでどおり空中で押しても何も起きません**
+			//     （→ CLAUDE.md「空中で押しても二段跳びにならない」）。
+			//   ★授かったあとだけ、★★**1回の滞空で `DJ_MAX` 回まで**跳べます。
+			//   ★★物理は1つも足していません。**島さんの絵をもう一度はじめから流すだけ**
+			//     ＝ ★跳ぶ高さも滞空も、いままでどおり**絵が決めている**
+			// ============================================================
+			if (st.air >= 0) {
+				if (!st.dj || st.airJumps >= DJ_MAX) return;
+				st.airJumps++;
+				this.trick("tap");
+				return;
+			}
 			this.trick("tap");
 		},
 
@@ -3530,7 +3718,7 @@
 			if (st.phase === "over") { st.tapArmed = false; return; }
 			// ★★★エンディングも、なぞっても何も起きない（2026-08-22）。
 			//   ★動かすカーソルが無い（★進めるのはタップだけ）
-			if (st.phase === "ending") { st.tapArmed = false; return; }
+			if (st.phase === "ending" || st.phase === "gift") { st.tapArmed = false; return; }
 			// ★★キャンプの選択（★買い物画面と同じ操作）
 			if (st.phase === "camp") {
 				if (st.campStopMs > 0) return;
@@ -3550,7 +3738,8 @@
 		toggleShop: function () {
 			if (st === null) return;
 			// ★★★エンディング中も開かない（2026-08-22。★演出の裏で開くのを防ぐ）
-			if (st.phase === "over" || st.phase === "camp" || st.phase === "ending") return;
+			if (st.phase === "over" || st.phase === "camp" ||
+				st.phase === "ending" || st.phase === "gift") return;
 			st.shopOpen = !st.shopOpen;
 			if (st.shopOpen) {
 				st.paused = false;      // ★一時停止とは同時に開かない
@@ -3562,8 +3751,8 @@
 
 		togglePause: function () {
 			if (st === null) return;
-			// ★★★エンディング中は一時停止できない（2026-08-22。★止めるものが無い）
-			if (st.phase === "ending") return;
+			// ★★★エンディング中・授かる場面は一時停止できない（2026-08-22。★止めるものが無い）
+			if (st.phase === "ending" || st.phase === "gift") return;
 			st.paused = !st.paused;
 			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
 			sound(st.paused ? 440 : 660, 0.06);
@@ -3594,6 +3783,8 @@
 		// ★★★★10000m のエンディング（2026-08-22）
 		_endLightT: endLightT, _endShown: endShown,
 		_endSkip: endSkip, _continueRun: continueRun, _endNext: endNext,
+		// ★★★★二段ジャンプを授かる場面（2026-08-22）
+		_giftWord: giftWord, _giftX2: giftX2, _giftDone: giftDone,
 		// ★★★テストモード（2026-08-22）
 		_testMode: function () { return testMode; },
 		_startAtM: function () { return startAtM; },
@@ -3699,6 +3890,11 @@
 				GOAL_ON: GOAL_ON, GOAL_M: GOAL_M,
 				GOAL_OPEN_MS: GOAL_OPEN_MS, GOAL_LIGHT_MS: GOAL_LIGHT_MS,
 				GOAL_PAGES: GOAL_PAGES, ENDING_ART: EA,
+				// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
+				DJ_ON: DJ_ON, DJ_MAX: DJ_MAX,
+				GIFT_FADE_MS: GIFT_FADE_MS, GIFT_WORD_MS: GIFT_WORD_MS, GIFT_X2_MS: GIFT_X2_MS,
+				GIFT_WORD: GIFT_WORD, GIFT_MARK: GIFT_MARK,
+				C_GIFT_WORD: C_GIFT_WORD, C_GIFT_MARK: C_GIFT_MARK,
 				C_GOAL_LIGHT: C_GOAL_LIGHT, C_GOAL_TITLE: C_GOAL_TITLE,
 				C_GOAL_TEXT: C_GOAL_TEXT,
 				GATE_ON: GATE_ON, GATE_M: GATE_M, GATE_W: GATE_W,
