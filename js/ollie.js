@@ -269,6 +269,80 @@
 	var ENEMY_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
 
 	// ============================================================
+	// ■■■ ★★★★ゴールの扉 —— 10000m のエンディング（2026-08-22 島さんの指定）■■■
+	// ============================================================
+	//
+	//   > 島さん「距離10000ｍで一旦エンディングにしたい。いい感じの。」
+	//   > 島さん「**B案で扉を使いましょう。その後は②へ。
+	//   >   エンディング(ショートカット可)を見たあと「CONTINUE」で先へ。**」
+	//
+	//   ★★★**これは下の「扉と鍵」（`GATE_ON`。★いまも保留中）とは別物です。**
+	//
+	//     | | 扉と鍵（`GATE_ON = 0`・保留中） | ★★ゴールの扉（これ） |
+	//     |---|---|---|
+	//     | 役目 | ★**通せんぼ**（鍵が無いと行き止まり） | ★★**到達点**（着いたら必ず開く） |
+	//     | 場所 | 140m | ★★**10000m** |
+	//     | 鍵 | ★要る | ★★**要らない** |
+	//
+	//   ★★★**AIへ: `GATE_ON` を 1 に戻さないこと。** ★あちらは保留のままです。
+	//     ★借りているのは**絵だけ**（`js/gate-art.js`。★これも仮の絵）。
+	//
+	// ■ ★★10000m は「実測してから」決めた距離です（★当てずっぽうではない）
+	//
+	//     かかる時間     … ★★**約13分**（育てながら走った場合。★何も買わないと24分）
+	//     くぐる障害物   … 約380〜400個
+	//     そのときの育ち … SPEED Lv18 / STAMINA Lv18 / COIN Lv35 あたり
+	//     届くか         … ★ミス5%までのプレイなら **8回中7回**届く。
+	//                      ★ミス10%だと 4000〜6500m で力尽きる
+	//
+	//   → ★★★**「上手い人だけが見られる」ではなく「ちゃんと育てた人が見られる」**位置。
+	//   ★おまけ: 封印してある技（KICKFLIP / POP ＝ 220,000）は
+	//     **3000m の手前でお金が届く** ＝ ★道中で技が戻ってくる
+	//
+	// ■ ★エンディングの段取り（★★どこでもタップで**ショートカット**できる）
+	//
+	//     ① 扉が開く（`GOAL_OPEN_MS`）
+	//     ② ★★**白い光が広がる**（`GOAL_LIGHT_MS`）
+	//     ③ まん中に3行 … CONGRATULATIONS / 10000M / CONTINUE（★点滅）
+	//     ④ ★もう一度タップ ＝ **CONTINUE**。★育てたものはそのままで、**その先へ**
+	//
+	//   ★★★**暗転（GAMEOVER）は黒、こちらは白。★対にしてあります。**
+	//     ★どちらも「横の行を `FADE_ORDER` の順に塗る」やり方。★半透明は使いません
+	//     （→ `OVER_FADE_MS` の説明。★重ねると 33色の外の色が出るため）
+	//
+	//   ★★★**CONTINUE で育てたものを消さないこと**（島さんの指定「その後は②へ」）。
+	//     ★13分かけて組んだビルドが、**達成した直後に消える**のがいちばん痛い。
+	//     ★消えるのは、これまでどおり **GAMEOVER のときだけ**
+	// ============================================================
+	var GOAL_ON       = 1;       // ★0 にすると仕組みごと止まる（★扉も出ない）
+	var GOAL_M        = 10000;   // ★★ここに扉が立っている（メートル）
+	var GOAL_OPEN_MS  = 600;     // ★①扉が開いたのを見せる時間
+	var GOAL_LIGHT_MS = 900;     // ★②白い光が広がりきるまで
+	var C_GOAL_LIGHT  = 29;      // ★★白（★GAMEOVER の黒と対）
+	var C_GOAL_TITLE  = 17;      // ★1行目。17=赤（★GAMEOVER の文字と同じ色 ＝ 対の関係）
+	var C_GOAL_TEXT   = 9;       // ★2行目以降。9=まっ黒（★白地なので黒が読みやすい）
+	var GOAL_BLINK_MS = 450;     // ★CONTINUE が点いたり消えたりする間隔
+
+	// ============================================================
+	// ★★★エンディングのクレジット —— ★島さんの持ち場（2026-08-22 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「エンディングでは「Shima(私)」と「S.S(協力者)」と「S.T(協力者)」を
+	//   >   クレジットに追加してください」
+	//
+	//   ★★**フォントにあるのは「大文字・数字・.」だけ**なので `SHIMA` と書いています
+	//     （★小文字は `m` の1文字しかありません → `js/font.js`）。
+	//   ★★★**名前も肩書きもここを書き換えるだけ**で変わります（★行を足しても崩れません）。
+	//     ・`t`   … 出す文字（★フォントにある字だけ）
+	//     ・`gap` … その行の**前に**あける高さ（ドット）。★0 なら前の行にくっつく
+	var GOAL_CREDITS = [
+		{ t: "CREATED BY",     gap: 8 },
+		{ t: "SHIMA",          gap: 0 },
+		{ t: "SPECIAL THANKS", gap: 8 },
+		{ t: "S.S   S.T",      gap: 0 }
+	];
+
+	// ============================================================
 	// ■■■ ★★★扉と鍵 —— 「ルールの壁」（2026-08-16 / Phase C）■■■
 	// ============================================================
 	//
@@ -671,7 +745,9 @@
 		if (o.kind === "camp") return CAMP;
 		// ★★扉は「開いた姿」を持つ。★★**鍵を持っているだけでは開かない**
 		//   （★`o.opened` は「鍵を持った状態で**突破した瞬間**」に立つ。→ `passGate()`）
-		if (o.kind === "gate") {
+		// ★★★ゴールの扉も同じ絵を借りている（2026-08-22）。
+		//   ★★着いた瞬間に `opened` が立つので、**開く様子がそのまま見える**
+		if (o.kind === "gate" || o.kind === "goal") {
 			return o.opened
 				? { FRAMES: GATE.OPEN_FRAMES, FEET_ROW: GATE.FEET_ROW }
 				: GATE;
@@ -680,7 +756,7 @@
 	}
 	function obWidth(o) {
 		if (o.kind === "enemy") return ENEMY_W;
-		if (o.kind === "gate") return GATE_W;
+		if (o.kind === "gate" || o.kind === "goal") return GATE_W;
 		if (o.kind === "key")  return KEY_W;
 		if (o.kind === "camp") return CAMP_W;
 		return CONE_W;
@@ -1326,6 +1402,10 @@
 			nextEnemy: 0,   // ★次の敵（丘の障害物）を出すまでの残り距離
 			conesBorn: 0,  // ★これまでに出したコーンの数（テストが見張るためだけの数）
 			enemiesBorn: 0,  // ★これまでに出した敵の数
+			// ★★★★ゴールの扉（2026-08-22。★10000m のエンディング）
+			goalBorn: false,  // ★このランで扉をもう置いたか（★1回だけ）
+			goalDone: false,  // ★★このランでもうエンディングを見たか（★二度は出さない）
+			endMs: 0,         // ★エンディングの進み具合（ミリ秒）
 			// ★★扉と鍵（2026-08-16 / Phase C）
 			gateBorn: false,  // ★このランで扉をもう出したか（★決まった距離に**1回だけ**）
 			gateSeen: false,  // ★このランで扉が画面に出たか（★実測用）
@@ -1621,7 +1701,10 @@
 			//     ② 速さが上がると1コマで扉の幅より進むので、**すり抜ける**
 			//   → どちらも「足の列に届いた最初のコマで決める」やり方で解いてある
 			//     （`update()` の中。`resolved` の印を見ること）
-			if (o.kind === "gate" || o.kind === "key" || o.kind === "camp") continue;
+			// ★★★ゴールの扉も、ここでは扱わない（2026-08-22）。
+			//   ★着いた瞬間の判定は「足の列に届いた最初のコマ」で1回だけ行う（下の `resolved`）
+			if (o.kind === "gate" || o.kind === "key" || o.kind === "camp" ||
+				o.kind === "goal") continue;
 			var cx = Math.round(o.x);                    // ★描くときと同じ丸め方
 			if (foot >= cx && foot < cx + obWidth(o)) return i;
 		}
@@ -1716,6 +1799,72 @@
 		sound(200, 0.16);
 		setTimeout(function () { sound(150, 0.16); }, 130);
 		setTimeout(function () { sound(110, 0.34); }, 260);
+	}
+
+	// ============================================================
+	// ■■■ ★★★★10000m のエンディング（2026-08-22 島さんの指定）■■■
+	// ============================================================
+	//
+	//   ★★**世界を止めて演出を流すだけ。遊びの数字には1つも触りません。**
+	//     ・距離も稼ぎも増えない（★`update()` の早い戻りで止まる）
+	//     ・★★スタミナも減らない ＝ ★エンディング中に GAMEOVER にならない
+
+	// ★★ゴールの扉に着いた。★★**必ず開く**（鍵は要らない）
+	function reachGoal(c) {
+		c.opened = true;              // ★★扉が開いた姿に変わる（→ `obArt()`）
+		// ★★★着いた瞬間の距離を、ちょうど 10000m にそろえる。
+		//   ★なぜ要るか: 障害物は「画面の上を1コマぶんずつ左へ動く」ので、
+		//     足の列に届く瞬間は**必ず少し行き過ぎる**（★速いほど大きい）。
+		//     ★★そのままだと画面の数字が **9999m** のままエンディングに入る。
+		//   ★足すのは**1メートル未満**（★1コマぶんの端数だけ）。★減らすことはしない
+		if (st.dist < GOAL_M * SCORE_DOTS) st.dist = GOAL_M * SCORE_DOTS;
+		st.phase = "ending";
+		st.endMs = 0;
+		st.shopOpen = false;          // ★開けっぱなしのお店があれば閉じる
+		st.paused = false;
+		goalSound();
+	}
+
+	// ★エンディングの時間だけを進める（★世界は止まったまま）
+	function updateEnding(dt) { st.endMs += dt * 1000; }
+
+	// ★白い光が、どこまで広がったか（0〜1）
+	function endLightT() {
+		return Math.max(0, Math.min(1, (st.endMs - GOAL_OPEN_MS) / GOAL_LIGHT_MS));
+	}
+
+	// ★★文字（クレジット）が出ているか。★★ここまで来たら、次のタップは CONTINUE
+	function endShown() { return st.endMs >= GOAL_OPEN_MS + GOAL_LIGHT_MS; }
+
+	// ★★★ショートカット（島さんの指定「エンディング(ショートカット可)」）。
+	//   ★演出の途中で押したら、**一気に文字のところまで飛ぶ**
+	function endSkip() { st.endMs = GOAL_OPEN_MS + GOAL_LIGHT_MS; }
+
+	// ★★★CONTINUE ＝ **その先へ**（島さんの指定「その後は②へ」）。
+	//   ★★★育てたもの（コイン・レベル・技・道具・スタミナ）を**1つも失わない**。
+	//     ★ここで消すと、13分かけて組んだビルドが**達成した直後に**消えることになる。
+	//     ★消えるのは、これまでどおり **GAMEOVER のときだけ**（→ `resetStatus()`）
+	//   ★`goalDone` を立てるので扉はもう出てこない（★開いた扉はそのまま後ろへ流れる）
+	function continueRun() {
+		st.goalDone = true;
+		st.phase = "play";
+		st.endMs = 0;
+	}
+
+	// ★★★ゴールの音（★★仮です。★島さんの耳が正 → `tools/preview-sound.html`）
+	//   ★買った音（速い・駆け上がる）とも、回復の音（ゆっくり満ちる）とも別のもの:
+	//   ★★**開く → 光が差す**（★駆け上がったあと、長い和音で広がる）
+	function goalSound() {
+		melody([
+			[523,  0.10,   0],   // ド
+			[659,  0.10, 110],   // ミ
+			[784,  0.10, 220],   // ソ
+			[1047, 0.14, 330],   // ド（上）
+			// ★★光が広がるところ（★長い和音 ＝ 白くなっていく時間）
+			[1319, 0.55, 470],   //   ミ
+			[1047, 0.55, 470],   // ＋ド
+			[784,  0.55, 470]    // ＋ソ
+		]);
 	}
 
 	// ============================================================
@@ -1973,6 +2122,8 @@
 		if (st.paused || st.shopOpen) return;
 		// ★★ラン終了。★世界は止まったまま、コインの数え上げだけ進む
 		if (st.phase === "over") { updateOver(dt); return; }
+		// ★★★★10000m のエンディング（2026-08-22）。★世界は止まったまま、演出だけ進む
+		if (st.phase === "ending") { updateEnding(dt); return; }
 		// ★★★キャンプで選んでいるあいだは、世界が止まる（2026-08-16 / Phase D）
 		//   ★距離も倍率も増えない（★「止まって考える場所」なので）
 		if (st.phase === "camp") {
@@ -2115,6 +2266,30 @@
 			//     ★★同じ場所なら誰が来ても同じなので、
 			//       **「前は開けられなかった扉を開けた」**がちゃんと残る
 			// ============================================================
+			// ============================================================
+			// ★★★★ゴールの扉（2026-08-22 島さんの指定）
+			//
+			//   ★決まった距離に**1回だけ**立つ（★種では決めない ＝ 既存の決まり）。
+			//   ★★置き方は下の「扉」とまったく同じ（★通り過ぎさせない）。
+			//   ★★★`GATE_ON`（保留中）の**外**に置いてあります。混ぜないこと
+			// ============================================================
+			if (GOAL_ON && !st.goalBorn && !st.goalDone) {
+				// ★★★**足の列に届いた瞬間に、距離がちょうど 10000m になる**ように置く。
+				//   ★主役は画面の左（`RIDER_X`）にいるので、扉の世界座標を
+				//     **足の分だけ右へずらす**（★ずらさないと 9996m で着いてしまい、
+				//     ★★画面の数字と「10000m」の文字が食い違う）
+				var goalWx = GOAL_M * SCORE_DOTS + RIDER_X + RIDER_FOOT;
+				var gEdge = worldX() + W + 4;
+				if (gEdge >= goalWx) {
+					st.goalBorn = true;                // ★この位置は一度きり
+					var gx3 = W + 4 - (gEdge - goalWx);
+					// ★★もう足より左＝通り過ぎている場所なら、右端に寄せ直して**必ず置く**
+					//   （★捨てるとゴールを素通りできてしまう。★扉と同じ考え方）
+					if (gx3 <= RIDER_X + RIDER_FOOT) gx3 = W + 4;
+					st.cones.push({ x: gx3, wx: goalWx, kind: "goal" });
+				}
+			}
+
 			if (GATE_ON) {
 				// --- 扉 ---
 				if (!st.gateBorn) {
@@ -2196,9 +2371,12 @@
 				//     ★★扉は「鍵が無ければ絶対に通れない」ものなので、すり抜けは致命的。
 				//   → **足の列に届いた最初のコマで、必ず1回だけ決める。**
 				// ============================================================
-				if (!c.resolved && (c.kind === "gate" || c.kind === "key" || c.kind === "camp") &&
+				if (!c.resolved && (c.kind === "gate" || c.kind === "key" || c.kind === "camp" ||
+					c.kind === "goal") &&
 					Math.round(c.x) <= foot) {
 					c.resolved = 1;
+					// ★★★★ゴールの扉 ＝ **鍵は要らない。必ず開く**（2026-08-22）
+					if (c.kind === "goal") { reachGoal(c); return; }   // ★★世界を止める
 					if (c.kind === "camp") { reachCamp(c); return; }   // ★★世界を止める
 					if (c.kind === "key") takeKey(c);
 					else if (hasItem("key")) passGate(c);   // ★★鍵を**使った**瞬間
@@ -2209,7 +2387,8 @@
 				//   ★扉と鍵は上で決めてあるので、ここでは倍率を動かさない
 				if (!c.passed && Math.round(c.x) + cw < foot) {
 					c.passed = 1;
-					if (c.kind !== "gate" && c.kind !== "key" && c.kind !== "camp") gainCoin(curCoinPer());
+					if (c.kind !== "gate" && c.kind !== "key" && c.kind !== "camp" &&
+						c.kind !== "goal") gainCoin(curCoinPer());
 				}
 				if (c.x + cw < 0) st.cones.splice(i, 1);
 			}
@@ -2685,6 +2864,10 @@
 		else if (st.phase === "over") {
 			drawOverScreen();
 		}
+		// ★★★★10000m のエンディング（2026-08-22 島さんの指定）
+		else if (st.phase === "ending") {
+			drawEndingScreen();
+		}
 		// ★★★キャンプの選択（2026-08-16 / Phase D）
 		else if (st.phase === "camp") {
 			drawCampScreen();
@@ -2796,6 +2979,65 @@
 	}
 
 	// ============================================================
+	// ★★★★10000m のエンディングの画面（2026-08-22 島さんの指定）
+	// ============================================================
+	//
+	//        CONGRATULATIONS      ← ★赤（GAMEOVER と同じ色 ＝ 対）
+	//            10000m
+	//          CREATED BY
+	//             SHIMA           ← ★★島さん
+	//         SPECIAL THANKS
+	//           S.S   S.T         ← ★★協力者
+	//            CONTINUE         ← ★点滅。★押すと**その先へ**
+	//
+	//   ★★★**白へのフェードは、暗転（GAMEOVER）とまったく同じやり方**:
+	//     横の行を `FADE_ORDER` の順に塗っていく。★半透明は使わない
+	//     （★重ねると 33色の外の色が出るうえ、テストで測れなくなる）。
+	//     ★★色だけが **黒 ↔ 白** で逆になっている
+	//
+	//   ★★行の並びは `GOAL_CREDITS`（★島さんの持ち場）から作る。
+	//     ★★**高さを直書きしない**ので、名前を足しても消しても、まん中のまま崩れない
+	function drawEndingScreen() {
+		var F = global.DotFont;
+
+		// ★★★① 白い光が広がる（★暗転と同じ「横の行を塗る」やり方）
+		var lit = Math.round(endLightT() * 8);      // ★8段のうち、何段ぶん白くしたか
+		if (lit > 0) {
+			ctx.fillStyle = GB[C_GOAL_LIGHT];
+			if (lit >= 8) ctx.fillRect(0, 0, W, H);   // ★まっ白（★1回で済ませる）
+			else {
+				for (var y = 0; y < H; y++) {
+					if (FADE_ORDER.indexOf(y % 8) < lit) ctx.fillRect(0, y, W, 1);
+				}
+			}
+		}
+		// ★★光が広がりきるまでは文字を出さない（★扉が開いて白くなる様子だけを見せる）
+		if (!endShown()) return;
+
+		// ★★★② まん中に、祝いの言葉 → 距離 → クレジット → CONTINUE
+		var lines = [
+			{ t: "CONGRATULATIONS", col: C_GOAL_TITLE, gap: 0 },
+			{ t: GOAL_M + "m",      col: C_GOAL_TEXT,  gap: 2 }
+		];
+		GOAL_CREDITS.forEach(function (c) {
+			lines.push({ t: c.t, col: C_GOAL_TEXT, gap: c.gap });
+		});
+		// ★★点滅する CONTINUE（★「次はここを押す」を、説明の文字を足さずに伝える）
+		lines.push({ t: "CONTINUE", col: C_GOAL_TITLE, gap: 10, blink: true });
+
+		// ★★かたまり全体の高さから、上を決める（★直書きしない）
+		var lead = 3, total = lines.length * F.GLYPH_H + (lines.length - 1) * lead;
+		lines.forEach(function (l) { total += l.gap; });
+		var y = Math.floor((H - total) / 2);
+		var on = (Math.floor(st.endMs / GOAL_BLINK_MS) % 2 === 0);
+		for (var i = 0; i < lines.length; i++) {
+			y += lines[i].gap;
+			if (!lines[i].blink || on) drawCenterAt(lines[i].t, y, lines[i].col);
+			y += F.GLYPH_H + lead;
+		}
+	}
+
+	// ============================================================
 	// ★★★お店の一覧そのもの（2026-08-16）
 	// ============================================================
 	//   ★★**ラン終了の画面と、ショップボタンの両方がここを通る。**
@@ -2899,9 +3141,12 @@
 	// ★★横のまん中に、**行の高さを指定して**出す（2026-08-16）。
 	//   ★★★横の中央ぞろえは**ここ1か所だけ**（`drawCenterText` もここを通る）。
 	//     ★別々に計算すると「片方だけ横にずれる」が起きる
-	function drawCenterAt(text, y) {
+	//   ★★`col` を省くと、これまでどおり距離の色（`C_TEXT`）で出る。
+	//     ★白いエンディングの画面だけ、読める色を渡している（★生成りは白地に溶けるため）
+	function drawCenterAt(text, y, col) {
 		var F = global.DotFont;
-		F.drawText(ctx, text, Math.floor((W - F.textWidth(text.length)) / 2), y, GB[C_TEXT]);
+		F.drawText(ctx, text, Math.floor((W - F.textWidth(text.length)) / 2), y,
+			GB[(col === undefined) ? C_TEXT : col]);
 	}
 
 	// ============================================================
@@ -3018,6 +3263,21 @@
 			//       ★**ショップや一時停止が GAMEOVER の裏で開いてしまう**
 			if (st && st.phase === "over") {
 				if (fadeDone()) toTitle();
+				return;
+			}
+			// ============================================================
+			// ★★★★10000m のエンディング（2026-08-22 島さんの指定）
+			//
+			//   ★演出の途中 → ★★**ショートカット**（一気にクレジットまで飛ぶ）
+			//   ★クレジットが出ている → ★★**CONTINUE**（★その先へ）
+			//
+			//   ★★**GAMEOVER と同じく、いちばん先に見る**（★音・一時停止・ショップより前）。
+			//     ★そうしないと、**エンディングの裏でショップや一時停止が開く**
+			//     （2026-08-16 に GAMEOVER で実際に起きた不具合と同じ形）
+			//   ★★新しい操作は1つも増えていない（★押すたびに1つ進むだけ）
+			// ============================================================
+			if (st && st.phase === "ending") {
+				if (endShown()) continueRun(); else endSkip();
 				return;
 			}
 			if (action === "pause") { this.togglePause(); return; }
@@ -3157,6 +3417,9 @@
 			// ★★★GAMEOVER の画面では、なぞっても何も起きない（2026-08-16）。
 			//   ★一覧を出さなくなったので、**動かすカーソルが無い**
 			if (st.phase === "over") { st.tapArmed = false; return; }
+			// ★★★エンディングも、なぞっても何も起きない（2026-08-22）。
+			//   ★動かすカーソルが無い（★進めるのはタップだけ）
+			if (st.phase === "ending") { st.tapArmed = false; return; }
 			// ★★キャンプの選択（★買い物画面と同じ操作）
 			if (st.phase === "camp") {
 				if (st.campStopMs > 0) return;
@@ -3175,7 +3438,8 @@
 		//   ★キャンプで選んでいる最中も開かない（★世界の中の選択を邪魔しない）
 		toggleShop: function () {
 			if (st === null) return;
-			if (st.phase === "over" || st.phase === "camp") return;
+			// ★★★エンディング中も開かない（2026-08-22。★演出の裏で開くのを防ぐ）
+			if (st.phase === "over" || st.phase === "camp" || st.phase === "ending") return;
 			st.shopOpen = !st.shopOpen;
 			if (st.shopOpen) {
 				st.paused = false;      // ★一時停止とは同時に開かない
@@ -3187,6 +3451,8 @@
 
 		togglePause: function () {
 			if (st === null) return;
+			// ★★★エンディング中は一時停止できない（2026-08-22。★止めるものが無い）
+			if (st.phase === "ending") return;
 			st.paused = !st.paused;
 			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
 			sound(st.paused ? 440 : 660, 0.06);
@@ -3214,6 +3480,9 @@
 		_countedCoin: countedCoin,
 		_countDone: countDone,
 		_fadeT: fadeT, _fadeDone: fadeDone,
+		// ★★★★10000m のエンディング（2026-08-22）
+		_endLightT: endLightT, _endShown: endShown,
+		_endSkip: endSkip, _continueRun: continueRun,
 		_toTitle: toTitle,
 		_barColorFor: barColorFor,
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
@@ -3312,6 +3581,12 @@
 				CAMP_ON: CAMP_ON, CAMP_M: CAMP_M, CAMP_W: CAMP_W,
 				CAMP_H: CAMP.FRAMES[0].rows.length, CAMP_STOP_MS: CAMP_STOP_MS,
 				HP_MAX: HP_MAX, DEATH_ENDS_RUN: DEATH_ENDS_RUN,
+				// ★★★★ゴールの扉とエンディング（2026-08-22 島さんの指定）
+				GOAL_ON: GOAL_ON, GOAL_M: GOAL_M,
+				GOAL_OPEN_MS: GOAL_OPEN_MS, GOAL_LIGHT_MS: GOAL_LIGHT_MS,
+				GOAL_CREDITS: GOAL_CREDITS,
+				C_GOAL_LIGHT: C_GOAL_LIGHT, C_GOAL_TITLE: C_GOAL_TITLE,
+				C_GOAL_TEXT: C_GOAL_TEXT,
 				GATE_ON: GATE_ON, GATE_M: GATE_M, GATE_W: GATE_W,
 				GATE_H: GATE.FRAMES[0].rows.length,
 				KEY_MIN_M: KEY_MIN_M, KEY_RATE: KEY_RATE, KEY_TRY_GAP: KEY_TRY_GAP,
