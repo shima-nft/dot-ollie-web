@@ -276,19 +276,21 @@
 	//   > 島さん「まずはB案。1000ｍから出現。コインを拾えるようにすると稼ぎが増えるが
 	//   >   越えた分は減らさない。一旦一枚10コインにする。左上に出している🪙の絵を使用する。」
 	//
-	//   ■ ★★★「どこに置くか」の答え —— **高さを人が決めない**
+	//   ■ ★★★★2026-08-23、島さんの指定で**横に整列**にしました
 	//
-	//     ★1枚ずつ場所を考えると必ず迷う。
-	//     → ★★**「ここで跳んだら通る道」に沿って並べる**（★弧・ガーランド）。
-	//     ★★★**その軌道のデータは、もうある**: `js/frames.js` の `lifts`
-	//       （＝1コマごとの足元の高さ）＝ **島さんが描いた跳躍そのもの**。
+	//     > 島さん「コインは「弧」でなく横に整列にしてください。とりこぼしがあってもいい。
+	//     >   そのほうがマグネットが生きる。」
 	//
-	//     ★これで:
-	//       ・★**直書きが1つも要らない**（★島さんがコマを詰めたら、弧も自動で追従する）
-	//       ・★★**跳べば必ず全部取れる**が構造として保証される（★理不尽が作れない）
-	//       ・★★★決まり「**跳躍は絵が決めている**」を、コインにもそのまま伸ばせる
+	//     ★はじめは**跳んだ弧の形**に並べていた（★跳べば全部取れる）。
+	//     ★★しかし**全部取れてしまうと、マグネットを買う理由が生まれない**。
+	//     → ★★★**まっすぐ横に並べる。** ★1回のジャンプでは**必ず取りこぼす**。
 	//
-	//   ■ ★★B案 ＝ **一段ジャンプの弧**（★いま入れたのはこれだけ）
+	//   ■ ★★高さは、それでも**人が決めない**
+	//
+	//     ★★★**オーリーがいちばん高く上がる高さ**（`lifts` の最大）に置く。
+	//       ＝ ★**跳んで届くいちばん上**。★★直書きしない（★絵を変えたら追従する）。
+	//
+	//   ■ ★★B案 ＝ **一段ジャンプで届く高さの一直線**（★いま入れたのはこれ）
 	//     ★D案（二段ジャンプでも届かない高さ ＝ マグネット用）は
 	//       ★**まだ入れていません**（→ `TODO.md`。★島さんが「案として追加」と決めた）
 	//
@@ -303,7 +305,8 @@
 	//     ★★★実測: 1000m まで来ると「越えて入る額」は**1個で数百枚**になるので、
 	//       ★0 のままだと拾えるコインは**おまけ**になります（→ 島さんの判断待ち）
 	var PICK_SCALES  = 0;
-	var PICK_N       = 5;      // ★1つの弧に何枚並べるか
+	var PICK_N       = 5;      // ★1列に何枚並べるか
+	var PICK_STEP    = 12;     // ★★となりのコインまでの距離（ドット）。★絵は5ドット幅
 	var PICK_GAP_MIN = 420;    // ★次の弧までの距離（ドット）。★約6秒
 	var PICK_GAP_MAX = 900;    //   ★ここまでの間でランダム。★約13秒
 	// ★★★**足の高さで拾う**（★体ぜんぶで拾うと、走っているだけで取れてしまう）。
@@ -1641,38 +1644,35 @@
 	}
 
 	// ============================================================
-	// ■■■ ★★★★拾えるコインの「弧」（2026-08-23 島さんの指定）■■■
+	// ■■■ ★★★★拾えるコインの「一列」（2026-08-23 島さんの指定）■■■
 	// ============================================================
 	//
-	//   ★★★**高さは島さんの跳躍の絵（`lifts`）から、そのまま取る。**
-	//     ★ここに数字を直書きしないこと（★絵と弧がずれる元になる）。
+	//   > 島さん「コインは「弧」でなく横に整列にしてください。とりこぼしがあってもいい。
+	//   >   そのほうがマグネットが生きる。」
+	//
+	//   ★★★**高さは島さんの跳躍の絵（`lifts`）から取る**（★直書きしない）。
 
-	// ★1つの弧のかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
-	//   ★★**オーリーの絵を、時間で等分にサンプリングする**だけ
-	function pickArc() {
-		var P = POSES[poseIndex("OLLIE")];
-		// ★★足が**十分に高い**区間だけを使う（★低いところに置くと、走って取れてしまう）
-		var first = -1, last = -1;
-		for (var i = 0; i < P.lifts.length; i++) {
-			if (P.lifts[i] >= PICK_MIN_LIFT) { if (first < 0) first = i; last = i; }
-		}
-		if (first < 0) return [];
-		var t0 = FR.startMs(P.ms, first), t1 = FR.startMs(P.ms, last);
-		var out = [], v = curSpeed() / 1000;      // ★1ミリ秒で進むドット数
-		for (var k = 0; k < PICK_N; k++) {
-			// ★★区間を等分（★両端も使うので、弧の始まりと終わりが低くなる）
-			var f = (PICK_N === 1) ? 0.5 : k / (PICK_N - 1);
-			var t = t0 + (t1 - t0) * f;
-			var fi = FR.frameAt(P.ms, t);
-			if (fi < 0) fi = last;
-			out.push({ dx: Math.round((t - t0) * v), lift: P.lifts[fi] });
-		}
+	// ★★コインを置く高さ ＝ **オーリーがいちばん高く上がるところ**
+	//   ★★★＝「跳んで届くいちばん上」。★島さんが絵を変えたら、ここも自動で追従する
+	function pickLift() {
+		var P = POSES[poseIndex("OLLIE")], best = 0;
+		for (var i = 0; i < P.lifts.length; i++) if (P.lifts[i] > best) best = P.lifts[i];
+		return best;
+	}
+
+	// ★1列のかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
+	//   ★★**全部おなじ高さ**（★横に整列）。★等間隔に `PICK_N` 枚
+	function pickRow() {
+		var lift = pickLift();
+		if (lift < PICK_MIN_LIFT) return [];      // ★低すぎるなら置かない（★走って取れる）
+		var out = [];
+		for (var k = 0; k < PICK_N; k++) out.push({ dx: k * PICK_STEP, lift: lift });
 		return out;
 	}
 
-	// ★弧の横幅（★障害物と重ねないための確かめに使う）
-	function pickArcW(arc) {
-		return (arc.length ? arc[arc.length - 1].dx : 0) + PICK_W;
+	// ★列の横幅（★障害物と重ねないための確かめに使う）
+	function pickRowW(row) {
+		return (row.length ? row[row.length - 1].dx : 0) + PICK_W;
 	}
 
 	// ★次の弧までの距離をランダムに引く（★種では決めない ＝ 覚えゲーにしない）
@@ -2603,12 +2603,12 @@
 			if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M) {
 				st.nextPick -= moved;
 				if (st.nextPick <= 0) {
-					var arc = pickArc(), arcW = pickArcW(arc);
-					// ★★次の障害物まで、弧がまるごと入る余裕があるときだけ置く
+					var row = pickRow(), rowW = pickRowW(row);
+					// ★★次の障害物まで、列がまるごと入る余裕があるときだけ置く
 					var room = Math.min(st.nextCone, st.nextEnemy);
-					if (arc.length && room > arcW + CONE_W * 2) {
-						for (var pi = 0; pi < arc.length; pi++) {
-							st.picks.push({ x: W + 4 + arc[pi].dx, lift: arc[pi].lift });
+					if (row.length && room > rowW + CONE_W * 2) {
+						for (var pi = 0; pi < row.length; pi++) {
+							st.picks.push({ x: W + 4 + row[pi].dx, lift: row[pi].lift });
 						}
 						st.picksBorn++;
 						st.nextPick = nextPickGap();
@@ -4071,7 +4071,7 @@
 		_gainCoin: gainCoin,
 		_curClearDots: curClearDots,
 		// ★★★★拾えるコイン（2026-08-23）
-		_pickArc: pickArc, _pickValue: pickValue,
+		_pickRow: pickRow, _pickLift: pickLift, _pickValue: pickValue,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
@@ -4100,7 +4100,7 @@
 				// ★★★★拾えるコイン（2026-08-23 島さんの指定）
 				PICK_ON: PICK_ON, PICK_FROM_M: PICK_FROM_M, PICK_VALUE: PICK_VALUE,
 				PICK_SCALES: PICK_SCALES, PICK_N: PICK_N,
-				PICK_TAKE_Y: PICK_TAKE_Y, PICK_MIN_LIFT: PICK_MIN_LIFT,
+				PICK_TAKE_Y: PICK_TAKE_Y, PICK_MIN_LIFT: PICK_MIN_LIFT, PICK_STEP: PICK_STEP,
 				PICK_GAP_MIN: PICK_GAP_MIN, PICK_GAP_MAX: PICK_GAP_MAX,
 				PICK_W: PICK_W, PICK_H: PICK_H,
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
