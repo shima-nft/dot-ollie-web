@@ -371,6 +371,11 @@
 	var C_GOAL_TITLE  = 17;      // ★1行目。17=赤（★GAMEOVER の文字と同じ色 ＝ 対の関係）
 	var C_GOAL_TEXT   = 9;       // ★2行目以降。9=まっ黒（★白地なので黒が読みやすい）
 	var GOAL_BLINK_MS = 450;     // ★CONTINUE が点いたり消えたりする間隔
+	// ★★★★扉の前後、これだけ**何も置かない**（メートル）。2026-08-23 島さんの指定
+	//   > 島さん「扉前後20ｍは障害物などおかないようにしてください。」
+	//   ★★「など」＝ ★コーン・★丘の敵・★拾えるコイン **全部**。
+	//   ★★★13分走った先の**到達の瞬間**を、★障害物で邪魔しないため
+	var GOAL_CLEAR_M  = 20;
 
 	// ============================================================
 	// ■■■ ★★★★二段ジャンプを授かる（2026-08-22 島さんの指定）■■■
@@ -1982,7 +1987,9 @@
 	//         1本目は必ず 0 ＝ **何も買えない**。
 	//     → ★★**越えた瞬間に、その場で貯金に入れる。**
 	//       ★「越えたら即コイン」という島さんの指定に、貯金の動きも合わせた形
-	function gainCoin(n) {
+	// ★★★`kind` に "pick" を渡すと、**拾ったときの音**（チャリーン）になる（2026-08-23）。
+	//   ★何も渡さなければ、いままでどおり「越えたときの軽いチャリン」
+	function gainCoin(n, kind) {
 		n = Math.floor(n);
 		if (n <= 0) return;
 		st.coin += n;
@@ -2000,7 +2007,35 @@
 		//     ★うるさければ**この1行を消すだけ**で無音に戻る。
 		//   ★★わざと軽く・低めにしてある（1320／0.04秒）＝
 		//     ★★**買った瞬間の着地音（1760・0.28秒）とぶつからないように**
+		//
+		//   ★★★2026-08-23、**拾ったコインだけ別の音**にした（島さんの指定）:
+		//     > 島さん「コインに触れたときの効果音をチャリーンに変えたいです。」
+		if (kind === "pick") { coinSound(); return; }
 		sound(1320, 0.04);
+	}
+
+	// ============================================================
+	// ★★★★コインを拾ったときの「チャリーン」（2026-08-23 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「コインに触れたときの効果音をチャリーンに変えたいです。
+	//   >   いくつか聴き比べて選びたい。より気持ちの良い音にしたい。」
+	//
+	//   ★★★2026-08-23、島さんが **C②（きらめき三段）** を選びました:
+	//     > 島さん「この選べるシステムとてもよいです。C②きらめき三段に設定してください。」
+	//
+	//   ★★AIへ: **勝手に差し替えないこと**（→ CLAUDE.md 2026-08-20 の教訓
+	//     「音は理屈で決めない。島さんの耳が正」）。
+	//     ★候補は `tools/preview-sound.html` の C⓪〜C⑤（★いまの音は **C②**）。
+	//
+	//   ★C②の作り: **細かく3段のぼって、最後だけ長く伸ばす**
+	//     ★のぼりが「チャリチャリ」／★★最後の伸びが「〜ン」の余韻
+	function coinSound() {
+		melody([
+			[1319, 0.04,  0],    // ★ミ
+			[1760, 0.04, 45],    // ★ラ
+			[2637, 0.45, 90]     // ★★ミ（上）… ★長く伸ばす（★これが余韻）
+		]);
 	}
 
 	// ★いまぶつかっているコーンの番号（無ければ -1）
@@ -2140,6 +2175,20 @@
 		st.shopOpen = false;          // ★開けっぱなしのお店があれば閉じる
 		st.paused = false;
 		goalSound();
+	}
+
+	// ============================================================
+	// ★★★★扉の前後は「何も置かない」（2026-08-23 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「扉前後20ｍは障害物などおかないようにしてください。」
+	//
+	//   ★★見るのは「**そこに立つ場所**（世界のどこか）」であって、
+	//     ★「いま何メートル走ったか」ではない。
+	//     ★★★世界の位置は動かないので、**一度あけたら、あいたまま**になる
+	function inGoalClear(wx) {
+		if (!GOAL_ON) return false;
+		return Math.abs(metersOf(wx) - GOAL_M) <= GOAL_CLEAR_M;
 	}
 
 	// ★エンディングの時間だけを進める（★世界は止まったまま）
@@ -2614,7 +2663,11 @@
 				var pat = PATTERN_ON ? patternAt(st.patIndex, bornAt) : null;
 				var len = pat ? patternLen(pat) : 0;
 				// ★★パターンの**端から端まで**が平らな道の上に乗るときだけ置く
-				if (pat && WD.flatnessAt(bornAt) >= 1 && WD.flatnessAt(bornAt + len) >= 1) {
+				// ★★★扉の前後は何も置かない（2026-08-23 島さんの指定）。
+				//   ★★パターンの**端から端まで**が、あけておく帯にかからないこと
+				var clearOK = !inGoalClear(bornAt) && !inGoalClear(bornAt + len);
+				if (pat && clearOK &&
+					WD.flatnessAt(bornAt) >= 1 && WD.flatnessAt(bornAt + len) >= 1) {
 					for (var oi = 0; oi < pat.obs.length; oi++) {
 						for (var ci = 0; ci < pat.obs[oi].n; ci++) {
 							var off = pat.obs[oi].at + ci * CONE_W;
@@ -2640,7 +2693,8 @@
 				if (st.nextEnemy <= 0) {
 					var enemyAt = worldX() + W + 4;
 					// ★丘のときだけ（＝まっすぐな道ではないとき）
-					if (WD.flatnessAt(enemyAt) <= 0) {
+					//   ★★★扉の前後は何も置かない（2026-08-23 島さんの指定）
+					if (WD.flatnessAt(enemyAt) <= 0 && !inGoalClear(enemyAt)) {
 						st.cones.push({ x: W + 4, wx: enemyAt, kind: "enemy" });
 						st.enemiesBorn++;
 					}
@@ -2668,7 +2722,10 @@
 					var row = pickRow(), rowW = pickRowW(row);
 					// ★★次の障害物まで、列がまるごと入る余裕があるときだけ置く
 					var room = Math.min(st.nextCone, st.nextEnemy);
-					if (row.length && room > rowW + CONE_W * 2) {
+					// ★★★扉の前後は何も置かない（2026-08-23 島さんの指定。★「など」に含む）
+					var pickWx = worldX() + W + 4;
+					var pickClear = !inGoalClear(pickWx) && !inGoalClear(pickWx + rowW);
+					if (row.length && pickClear && room > rowW + CONE_W * 2) {
 						// ★★★水平に並べる（→ `makeRow()`）
 						var made = makeRow(W + 4);
 						for (var pi = 0; pi < made.length; pi++) st.picks.push(made[pi]);
@@ -2831,7 +2888,9 @@
 						Math.abs(pk.y - myRow) <= PICK_TAKE_Y) {
 						pk.taken = 1;
 						st.picksGot++;
-						gainCoin(pickValue());     // ★★その場で財布に入る（★越えたときと同じ道）
+						// ★★その場で財布に入る（★越えたときと同じ道）。
+						//   ★★★音だけは「チャリーン」に分けてある（2026-08-23 島さんの指定）
+						gainCoin(pickValue(), "pick");
 					}
 				}
 			}
@@ -4133,7 +4192,7 @@
 		_curClearDots: curClearDots,
 		// ★★★★拾えるコイン（2026-08-23）
 		_pickRow: pickRow, _pickLift: pickLift, _pickValue: pickValue,
-		_makeRow: makeRow,
+		_makeRow: makeRow, _inGoalClear: inGoalClear,
 		// ★★主役の足がいまどの行にいるか（★テストが「水平か」を測るのに使う）
 		_riderRow: function () { return riderGroundRow() - 1 - currentLift(); },
 		_baseClear: function () { return BASE_CLEAR; },
@@ -4221,6 +4280,7 @@
 				// ★★★★ゴールの扉とエンディング（2026-08-22 島さんの指定）
 				GOAL_ON: GOAL_ON, GOAL_M: GOAL_M,
 				GOAL_OPEN_MS: GOAL_OPEN_MS, GOAL_LIGHT_MS: GOAL_LIGHT_MS,
+				GOAL_CLEAR_M: GOAL_CLEAR_M,
 				GOAL_PAGES: GOAL_PAGES, ENDING_ART: EA,
 				// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
 				DJ_ON: DJ_ON, DJ_MAX: DJ_MAX,
