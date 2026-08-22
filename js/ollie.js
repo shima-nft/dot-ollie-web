@@ -1730,14 +1730,49 @@
 	//     ★★★物理は1つも足していません（★高さを決めているのは、いまも島さんの絵）。
 	//
 	//   ★`djBase` … タップした瞬間の足元の高さ（ドット）。★地上から跳ぶときは 0
+	//   ★★★★2026-08-23、**ここを直しました**（島さんの指摘）:
+	//     > 島さん「二段ジャンプの二回目がジャンプの途中でなく地面からとなっています。」
+	//
+	//     ★★★**下駄を `currentLift()` にしか足していなかった**のが原因でした。
+	//       ★`currentLift()` は**当たり判定**にしか使われていません。
+	//       ★★**絵を描くところ（`drawSkater()`）は、絵のコマだけで高さを決めていた**
+	//         ので、★★★見た目は**まったく動いていませんでした**。
+	//     → ★下駄を `djLift()` として切り出し、★★**描くところにも足しました**。
+
+	// ★★絵がいちばん高くなる時点（ミリ秒）。★**絵から測る**＝直書きしない
+	//   ★島さんがコマの長さを変えたら、ここも自動でついてくる
+	function poseTopMs(P) {
+		var best = -1, idx = 0;
+		for (var i = 0; i < P.lifts.length; i++) {
+			if (P.lifts[i] > best) { best = P.lifts[i]; idx = i; }
+		}
+		return FR.startMs(P.ms, idx);
+	}
+
+	// ★★二段目の「下駄」だけ（★絵そのものの跳躍は、コマの `y` に入っている）
+	//
+	//   ★★★**上がりきるまでは、タップした高さをそのまま保つ**（2026-08-23）。
+	//     ★はじめは「技の進み具合で、まっすぐ減らす」形にしていたが、
+	//       ★★**上がっている途中から減り始める**ので「さらに高く」が薄まっていた。
+	//     ★★★いまは:
+	//       タップした瞬間 … 下駄まるごと      ＝ **タップしたところが基準**
+	//       絵の頂点       … 下駄 ＋ 絵の跳躍  ＝ ★★**いちばん高い**
+	//       着地           … 0                 ＝ ★地面へ戻る（★瞬間移動しない）
+	function djLift() {
+		if (!st || !st.djBase || st.air < 0) return 0;
+		var P = currentPose();
+		var total = FR.totalMs(P.ms);
+		var top = poseTopMs(P);              // ★絵がいちばん高くなるところ
+		if (total <= top) return 0;
+		if (st.air <= top) return st.djBase; // ★★上がりきるまでは、そのまま保つ
+		// ★そのあと、着地までにまっすぐ 0 へ戻す
+		var t = (st.air - top) / (total - top);
+		return Math.round(st.djBase * (1 - Math.max(0, Math.min(1, t))));
+	}
+
 	function currentLift() {
 		var P = currentPose();
-		var lift = P.lifts[currentFrame()];
-		if (!st || !st.djBase || st.air < 0) return lift;
-		// ★技の進み具合（0 → 1）。★進むほど下駄が薄くなる
-		var total = FR.totalMs(P.ms);
-		var t = (total > 0) ? Math.max(0, Math.min(1, st.air / total)) : 1;
-		return lift + Math.round(st.djBase * (1 - t));
+		return P.lifts[currentFrame()] + djLift();
 	}
 
 	// ============================================================
@@ -2683,11 +2718,16 @@
 		}
 	}
 
+	//   ★★★★2026-08-23、**二段ジャンプの下駄をここにも足しました**（島さんの指摘）。
+	//     ★跳ぶ高さは、いままでどおり**島さんの絵（コマの `y`）が決めています**。
+	//     ★★下駄は「**二段目をタップした高さ**」のぶんだけ、絵ごと持ち上げるだけ
+	//       （★物理は1つも足していません → `djLift()`）
 	function drawSkater(index) {
 		var P = currentPose(), A = P.art, f = A.FRAMES[index];
 		drawArt(f,
 			RIDER_X + (f.x - P.x0),                     // ★描いた位置をそのまま使う
-			riderGroundRow() - 1 - A.FEET_ROW + f.y);   // ★足がつく行を、いまの地面に重ねる
+			// ★足がつく行を、いまの地面に重ねる。★★二段目だけ下駄のぶん持ち上がる
+			riderGroundRow() - 1 - A.FEET_ROW + f.y - djLift());
 	}
 
 	// ★三角コーン。**絵のいちばん下が地面に乗る**（島さんが描いたまま）
@@ -3808,6 +3848,8 @@
 		_step: function (dt) { update(dt); },
 		// ★いま足が何ドット浮いているか（★テストと実測が使う。0 = 地面）
 		_lift: function () { return currentLift(); },
+		// ★★★二段目の「下駄」だけ（★描くところとテストが使う。2026-08-23）
+		_djLift: function () { return djLift(); },
 		// ★ポップアップを外から1つ出す（★テストが上限と寿命を確かめるため）
 		_addPop: function (text, kind) { addPop(text, kind); },
 		// ★★カウントアップの覗き窓（★テストが「表示だけ」を確かめるため）
