@@ -12,13 +12,13 @@
 		"MAXdrink": {
 			SOURCE: "assets/parts/MAXdrink-0001.aseprite", CELL: 64, COUNT: 1, FEET_ROW: 11,
 			FRAMES: [{ x: 5, y: 5, rows: [
-				"...t.",
-				"ttttt",
-				"tnqqt",
-				"tqjqt",
-				"tqqpt",
-				"trqqt",
-				".ttt.",
+				"...f.",
+				"fffft",
+				"ftqqf",
+				"fqtqf",
+				"fqqtf",
+				"ftqqf",
+				".fff.",
 			] }]
 		},
 		// assets/parts/coin.aseprite
