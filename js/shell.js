@@ -248,6 +248,18 @@
 		ev.preventDefault();
 		swipeFromY = ev.clientY;
 		swipeFired = false;
+		// ============================================================
+		// ★★★タイトル画面だけは「離したときに決める」（2026-08-22 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「テストモードへいけないので(現在は左右ボタンがない)
+		//   >   なぞるで操作できるようにしてください。」
+		//
+		//   ★★★押した瞬間に決めていると、**なぞる前に SEED 画面へ進んでしまう**ので、
+		//     ★**なぞってカーソルを動かすことが構造的に不可能**だった。
+		//   ★★これは買い物画面で 2026-08-16 に踏んだのと**まったく同じ罠**
+		//     （→ `js/ollie.js` の `inputUp` の説明）。★同じ解き方でそろえてある
+		if (mode === "menu") return;
 		padDown("act");                       // ★押した瞬間に出す(反応を遅らせない)
 	});
 
@@ -256,6 +268,9 @@
 		var dy = swipeFromY - ev.clientY;          // ＋が上へ、−が下へ
 		if (Math.abs(dy) < SWIPE_PX) return;
 		swipeFired = true;
+		// ★★★タイトル画面: なぞってカーソルを動かす（2026-08-22 島さんの指定）。
+		//   ★★**上へなぞる＝1つ上 / 下へなぞる＝1つ下**（★お店の一覧と同じ操作）
+		if (mode === "menu") { moveCursor(dy > 0 ? -1 : 1); return; }
 		if (mode !== "game" || !activeGame) return;
 		if (dy > 0) {
 			if (activeGame.inputSwipeUp) activeGame.inputSwipeUp();
@@ -273,6 +288,11 @@
 		if (swipeFromY === null) return;
 		var swiped = swipeFired;
 		swipeFromY = null;
+		// ★★★タイトル画面は、ここで決める（★なぞっただけのときは決めない）
+		if (mode === "menu") {
+			if (!swiped) { beep(990, 0.06); enterSeed(); }
+			return;
+		}
 		padUp("act", swiped);
 	});
 	shellEl.addEventListener("pointercancel", function () { swipeFromY = null; });
@@ -321,8 +341,13 @@
 	}
 
 	function showMenuPad() {
-		// 選択画面: ◀▶で選ぶ / Aで決定(もどる先は無いので「もどる」は出さない)
-		showPad(GAMES.length > 1 ? ["left", "right", "act"] : ["act"], false);
+		// ★★★2026-08-22、島さんの指定で**なぞって選ぶ**ようにした:
+		//   > 「テストモードへいけないので(現在は左右ボタンがない)
+		//   >   なぞるで操作できるようにしてください。」
+		//   ★★液晶の外に ◀▶ のボタンは**無い**（`index.html` にも置いていない）。
+		//     ★上下になぞればカーソルが動く（→ `pointermove`）。
+		//   ★「もどる」先は無いので出さない
+		showPad(["act"], false);
 	}
 
 	// ---- ゲームの起動・終了 ----

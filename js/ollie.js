@@ -324,22 +324,42 @@
 	var GOAL_BLINK_MS = 450;     // ★CONTINUE が点いたり消えたりする間隔
 
 	// ============================================================
-	// ★★★エンディングのクレジット —— ★島さんの持ち場（2026-08-22 島さんの指定）
+	// ★★★★エンディングの3ページ —— ★島さんの持ち場（2026-08-22 島さんの指定）
 	// ============================================================
 	//
+	//   > 島さん「エンディングに挿し絵を追加したいです。
+	//   >   10000ｍの画面に takibi.png
+	//   >   → 二ページ目、私 tennto.png
+	//   >   → 三ページ目、協力者 kuruma.png」
 	//   > 島さん「エンディングでは「Shima(私)」と「S.S(協力者)」と「S.T(協力者)」を
 	//   >   クレジットに追加してください」
 	//
 	//   ★★**フォントにあるのは「大文字・数字・.」だけ**なので `SHIMA` と書いています
 	//     （★小文字は `m` の1文字しかありません → `js/font.js`）。
-	//   ★★★**名前も肩書きもここを書き換えるだけ**で変わります（★行を足しても崩れません）。
-	//     ・`t`   … 出す文字（★フォントにある字だけ）
-	//     ・`gap` … その行の**前に**あける高さ（ドット）。★0 なら前の行にくっつく
-	var GOAL_CREDITS = [
-		{ t: "CREATED BY",     gap: 8 },
-		{ t: "SHIMA",          gap: 0 },
-		{ t: "SPECIAL THANKS", gap: 8 },
-		{ t: "S.S   S.T",      gap: 0 }
+	//
+	//   ★★★**名前も並びもここを書き換えるだけ**で変わります（★ページを足しても崩れません）:
+	//     ・`art`   … そのページに出す挿し絵の名前（→ `js/ending-art.js`）
+	//     ・`lines` … 出す文字。`t` = 文字 / `hi` = 1 なら赤で目立たせる
+	//     ・`{M}`   … ★ゴールの距離（いまは 10000m）に置き換わる合言葉
+	//
+	//   ★★挿し絵の**置き場所は島さんが決めています**（★240×160 の紙のどこに描いたか）。
+	//     ★AIは1ドットも動かしていません。★文字のほうが**挿し絵を避けて**上に並びます
+	var GOAL_PAGES = [
+		// ★1ページ目 …… 着いたこと
+		{ art: "takibi", lines: [
+			{ t: "CONGRATULATIONS", hi: 1 },
+			{ t: "{M}" }
+		] },
+		// ★2ページ目 …… 私（島さん）
+		{ art: "tennto", lines: [
+			{ t: "CREATED BY" },
+			{ t: "SHIMA", hi: 1 }
+		] },
+		// ★3ページ目 …… 協力者
+		{ art: "kuruma", lines: [
+			{ t: "SPECIAL THANKS" },
+			{ t: "S.S   S.T", hi: 1 }
+		] }
 	];
 
 	// ============================================================
@@ -730,6 +750,9 @@
 	var ENEMY = global.DotEnemyArt;
 	var ENEMY_W = ENEMY.FRAMES[0].rows[0].length;
 
+	// ★★★★エンディングの挿し絵（2026-08-22 島さんの指定）。★島さんが描いた3枚
+	//   ★★**ここだけ 33色の外の色を使う**（島さん「色は使ってよいものとする」）
+	var EA = global.DotEndingArt || {};
 	// ★★扉と鍵（2026-08-16 / Phase C）。★★いまは**仮の絵**（→ `js/gate-art.js`）
 	var GATE = global.DotGateArt;
 	var KEY  = global.DotKeyArt;
@@ -1425,6 +1448,7 @@
 			goalBorn: false,  // ★このランで扉をもう置いたか（★1回だけ）
 			goalDone: false,  // ★★このランでもうエンディングを見たか（★二度は出さない）
 			endMs: 0,         // ★エンディングの進み具合（ミリ秒）
+			endPage: 0,       // ★★★いま何ページ目を見せているか（2026-08-22）
 			// ★★扉と鍵（2026-08-16 / Phase C）
 			gateBorn: false,  // ★このランで扉をもう出したか（★決まった距離に**1回だけ**）
 			gateSeen: false,  // ★このランで扉が画面に出たか（★実測用）
@@ -1843,6 +1867,7 @@
 		if (st.dist < GOAL_M * SCORE_DOTS) st.dist = GOAL_M * SCORE_DOTS;
 		st.phase = "ending";
 		st.endMs = 0;
+		st.endPage = 0;               // ★★★かならず1ページ目から（2026-08-22）
 		st.shopOpen = false;          // ★開けっぱなしのお店があれば閉じる
 		st.paused = false;
 		goalSound();
@@ -1872,6 +1897,15 @@
 		st.goalDone = true;
 		st.phase = "play";
 		st.endMs = 0;
+		st.endPage = 0;
+	}
+
+	// ★★★次のページへ（2026-08-22）。★最後のページなら、もう進めない
+	function endNext() {
+		if (st.endPage >= GOAL_PAGES.length - 1) return false;
+		st.endPage++;
+		sound(880, 0.05);
+		return true;
 	}
 
 	// ★★★ゴールの音（★★仮です。★島さんの耳が正 → `tools/preview-sound.html`）
@@ -3005,13 +3039,22 @@
 	// ★★★★10000m のエンディングの画面（2026-08-22 島さんの指定）
 	// ============================================================
 	//
-	//        CONGRATULATIONS      ← ★赤（GAMEOVER と同じ色 ＝ 対）
-	//            10000m
-	//          CREATED BY
-	//             SHIMA           ← ★★島さん
-	//         SPECIAL THANKS
-	//           S.S   S.T         ← ★★協力者
-	//            CONTINUE         ← ★点滅。★押すと**その先へ**
+	//   ★★★2026-08-22、島さんの指定で**3ページ**になりました（★挿し絵つき）:
+	//
+	//     1ページ目            2ページ目            3ページ目
+	//     CONGRATULATIONS      CREATED BY           SPECIAL THANKS
+	//         10000m             SHIMA                S.S   S.T
+	//                                                 CONTINUE
+	//      ★たき火の絵         ★テントの絵          ★車の絵
+	//
+	//   ★★挿し絵は**島さんが 240×160 の紙に置いた場所**にそのまま出ます
+	//     （★AIは1ドットも動かしていません → `js/ending-art.js`）。
+	//
+	//   ★★★2026-08-22、島さんの指定で直したところ:
+	//     > 「エンディングでＮＥＸＴの文字は必要ないです。文字は中央にしてください。」
+	//     ・★**`NEXT` は出さない**（★1・2ページ目は文字だけ。★タップで次へ進む）
+	//     ・★★**文字は液晶のまん中**（★GAMEOVER と同じ置き方）
+	//   ★`CONTINUE` は最後のページだけ（★島さんが「CONTINUE で先へ」と決めた言葉）
 	//
 	//   ★★★**白へのフェードは、暗転（GAMEOVER）とまったく同じやり方**:
 	//     横の行を `FADE_ORDER` の順に塗っていく。★半透明は使わない
@@ -3037,26 +3080,64 @@
 		// ★★光が広がりきるまでは文字を出さない（★扉が開いて白くなる様子だけを見せる）
 		if (!endShown()) return;
 
-		// ★★★② まん中に、祝いの言葉 → 距離 → クレジット → CONTINUE
-		var lines = [
-			{ t: "CONGRATULATIONS", col: C_GOAL_TITLE, gap: 0 },
-			{ t: GOAL_M + "m",      col: C_GOAL_TEXT,  gap: 2 }
-		];
-		GOAL_CREDITS.forEach(function (c) {
-			lines.push({ t: c.t, col: C_GOAL_TEXT, gap: c.gap });
-		});
-		// ★★点滅する CONTINUE（★「次はここを押す」を、説明の文字を足さずに伝える）
-		lines.push({ t: "CONTINUE", col: C_GOAL_TITLE, gap: 10, blink: true });
+		// ★★★② いま見せているページ（★島さんの表 `GOAL_PAGES` のとおり）
+		var page = GOAL_PAGES[Math.max(0, Math.min(GOAL_PAGES.length - 1, st.endPage))];
+		var A = EA[page.art] || null;               // ★島さんが描いた挿し絵
 
-		// ★★かたまり全体の高さから、上を決める（★直書きしない）
-		var lead = 3, total = lines.length * F.GLYPH_H + (lines.length - 1) * lead;
-		lines.forEach(function (l) { total += l.gap; });
+		// ★★★③ 挿し絵（★島さんが置いた場所にそのまま）
+		drawEndingArt(A);
+
+		// ============================================================
+		// ★★★④ 文字は**液晶のまん中**（2026-08-22 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「エンディングでＮＥＸＴの文字は必要ないです。文字は中央にしてください。」
+		//
+		//   ★★`NEXT` は出しません（★1・2ページ目は文字だけ）。
+		//   ★★★**高さを直書きしない**ので、★島さんが行や名前を足しても
+		//     まん中のまま崩れません（★GAMEOVER とまったく同じ置き方）
+		var lead = 4, last = (st.endPage >= GOAL_PAGES.length - 1);
+		var rows = page.lines.map(function (L) {
+			// ★`{M}` は、ゴールの距離に置き換える（★10000 を2か所に書かないため）
+			return { t: L.t.replace("{M}", GOAL_M + "m"),
+				col: L.hi ? C_GOAL_TITLE : C_GOAL_TEXT, gap: 0 };
+		});
+		// ★★最後のページだけ `CONTINUE`（★島さんが決めた言葉。★点滅する）
+		//   ★★★**かたまりの一部として数える**ので、これがあっても中央のまま
+		if (last) rows.push({ t: "CONTINUE", col: C_GOAL_TITLE, gap: 10, blink: 1 });
+
+		var total = rows.length * F.GLYPH_H + (rows.length - 1) * lead;
+		rows.forEach(function (r) { total += r.gap; });
 		var y = Math.floor((H - total) / 2);
 		var on = (Math.floor(st.endMs / GOAL_BLINK_MS) % 2 === 0);
-		for (var i = 0; i < lines.length; i++) {
-			y += lines[i].gap;
-			if (!lines[i].blink || on) drawCenterAt(lines[i].t, y, lines[i].col);
+		for (var i = 0; i < rows.length; i++) {
+			y += rows[i].gap;
+			if (!rows[i].blink || on) drawCenterAt(rows[i].t, y, rows[i].col);
 			y += F.GLYPH_H + lead;
+		}
+	}
+
+	// ============================================================
+	// ★★★★エンディングの挿し絵を1枚描く（2026-08-22 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「★★色は使ってよいものとする」
+	//
+	//   ★★★**ここだけ `js/palette.js` の33色の外にいます。**
+	//     ★この3枚は何百色ものグラデーションで描かれていて、33色に寄せると
+	//       **島さんの絵が別物になる**ため（★島さんが色を許可しています）。
+	//     ★★★**遊んでいる画面（走っているところ）は、いままでどおり33色のまま**。
+	//
+	//   ★中身は「1行 = [x, 長さ, 色番号, …]」の帯なので、★塗るのは横線だけ ＝ 軽い
+	function drawEndingArt(A) {
+		if (!A) return;
+		for (var r = 0; r < A.rows.length; r++) {
+			var runs = A.rows[r], ry = A.y + r;
+			if (ry < 0 || ry >= H) continue;
+			for (var i = 0; i < runs.length; i += 3) {
+				ctx.fillStyle = A.colors[runs[i + 2]];
+				ctx.fillRect(A.x + runs[i], ry, runs[i + 1], 1);
+			}
 		}
 	}
 
@@ -3295,8 +3376,9 @@
 			// ============================================================
 			// ★★★★10000m のエンディング（2026-08-22 島さんの指定）
 			//
-			//   ★演出の途中 → ★★**ショートカット**（一気にクレジットまで飛ぶ）
-			//   ★クレジットが出ている → ★★**CONTINUE**（★その先へ）
+			//   ★演出の途中 → ★★**ショートカット**（一気に1ページ目まで飛ぶ）
+			//   ★★ページの途中 → **次のページへ**（2026-08-22。★全3ページ）
+			//   ★最後のページ → ★★**CONTINUE**（★その先へ）
 			//
 			//   ★★**GAMEOVER と同じく、いちばん先に見る**（★音・一時停止・ショップより前）。
 			//     ★そうしないと、**エンディングの裏でショップや一時停止が開く**
@@ -3304,7 +3386,9 @@
 			//   ★★新しい操作は1つも増えていない（★押すたびに1つ進むだけ）
 			// ============================================================
 			if (st && st.phase === "ending") {
-				if (endShown()) continueRun(); else endSkip();
+				if (!endShown()) { endSkip(); return; }   // ★①光を飛ばす
+				if (endNext()) return;                    // ★②次のページへ
+				continueRun();                            // ★③その先へ
 				return;
 			}
 			if (action === "pause") { this.togglePause(); return; }
@@ -3509,7 +3593,7 @@
 		_fadeT: fadeT, _fadeDone: fadeDone,
 		// ★★★★10000m のエンディング（2026-08-22）
 		_endLightT: endLightT, _endShown: endShown,
-		_endSkip: endSkip, _continueRun: continueRun,
+		_endSkip: endSkip, _continueRun: continueRun, _endNext: endNext,
 		// ★★★テストモード（2026-08-22）
 		_testMode: function () { return testMode; },
 		_startAtM: function () { return startAtM; },
@@ -3614,7 +3698,7 @@
 				// ★★★★ゴールの扉とエンディング（2026-08-22 島さんの指定）
 				GOAL_ON: GOAL_ON, GOAL_M: GOAL_M,
 				GOAL_OPEN_MS: GOAL_OPEN_MS, GOAL_LIGHT_MS: GOAL_LIGHT_MS,
-				GOAL_CREDITS: GOAL_CREDITS,
+				GOAL_PAGES: GOAL_PAGES, ENDING_ART: EA,
 				C_GOAL_LIGHT: C_GOAL_LIGHT, C_GOAL_TITLE: C_GOAL_TITLE,
 				C_GOAL_TEXT: C_GOAL_TEXT,
 				GATE_ON: GATE_ON, GATE_M: GATE_M, GATE_W: GATE_W,
