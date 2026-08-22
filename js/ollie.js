@@ -480,6 +480,19 @@
 	//   ★★**見た目は見た目だけ。** バーを描いてもスタミナ・距離・倍率は1ドットも変わらない
 	var BAR_ON     = 1;    // 0 にするとバーが出なくなる
 	var BAR_H      = 3;    // バーの高さ（ドット）
+	// ============================================================
+	// ★★★MAXdrink（回復アイテム）—— 2026-08-22 島さんの指定
+	// ============================================================
+	//   > 島さん「回復のタイミングは残り体力が0になった時です。
+	//   >   心地よい音とゲージ全回復時演出。」
+	//
+	//   ★★**自分では使えません。** ★スタミナが 0 になった瞬間に、勝手に1本使われます。
+	//     ★★★だから「使いどき」を考える遊びではなく、★**保険**です
+	//       （★買うかどうか、いくつ買うか、だけが選択）。
+	//   ★`DRINK_ON = 0` にすると、この仕組みごと止まります（★ショップからも消える）
+	var DRINK_ON     = 1;
+	var REVIVE_MS    = 700;   // ★全回復の演出の長さ（ミリ秒）
+	var REVIVE_BLINK = 90;    // ★バーが白く光る間隔（ミリ秒）
 	var C_BAR_BACK = 5;    // ★減った側の色。5=炭（「どれだけ減ったか」が見える）
 	// ★残量で色が変わる（★上から順に見て、最初に当てはまったものを使う）
 	var BAR_STEPS = [
@@ -972,6 +985,32 @@
 	}
 
 
+	// ============================================================
+	// ★★★MAXdrink を使ったときの音（2026-08-22 島さんの指定「心地よい音」）
+	// ============================================================
+	//
+	//   ★★買った音（`buySound`）とは**わざと別のもの**にしてあります:
+	//
+	//   | | 買った音 | ★この音 |
+	//   |---|---|---|
+	//   | 速さ | ★速い（45ms 刻み） | ★★**ゆっくり**（90ms 刻み） |
+	//   | 形 | 駆け上がって着地 | ★★**下から積み上がって、和音で満ちる** |
+	//   | 気持ち | 「やった、買えた」 | ★★★「ふう、助かった」 |
+	//
+	//   ★★★**音は理屈で決めない。島さんの耳が正**（→ CLAUDE.md 2026-08-20 の教訓）。
+	//     ★`tools/preview-sound.html` で聞き比べられます。★違ったら言ってください
+	function reviveSound() {
+		melody([
+			[392, 0.10,   0],   // ★ソ …… 低いところから
+			[523, 0.10,  90],   // ★ド
+			[659, 0.10, 180],   // ★ミ
+			// ★★満ちる和音（★長く伸ばす ＝ ゲージが満タンになる時間）
+			[784, 0.45, 270],   //   ソ
+			[523, 0.45, 270],   // ＋ド
+			[1047, 0.45, 270]   // ＋ド（上）
+		]);
+	}
+
 	function loadSound() {
 		try { soundOn = localStorage.getItem("dotollie-sound") !== "off"; } catch (e) { soundOn = true; }
 		global.DotOllie.padIcons.sound = soundOn ? "BTN_SOUND_ON" : "BTN_SOUND_OFF";
@@ -1021,22 +1060,43 @@
 	var upgLv = {};        // id → いまのレベル（0 から）
 	var unlocked = {};     // id → 覚えている技かどうか
 
+	// ============================================================
+	// ★★★使うと無くなるもの（アイテム）—— 2026-08-22 島さんの指定
+	// ============================================================
+	//   > 島さん「MAXdrinkを描きました。ショップで購入出来る回復アイテムです。」
+	//
+	//   ★`bag[id]` = 何本持っているか。★★**買うと増え、使うと減ります**。
+	//   ★★★**死んだら無くなります**（★コイン・レベル・技とまったく同じ扱い）。
+	//     ★これは「走りながら組み立てて、死んだら最初から」を守るため
+	//     （→ CLAUDE.md「★★★★2026-08-16、この作品の形が変わった」）
+	var bag = {};
+
+	// ★★MAXdrink の絵（★島さんが描いたもの。AIは置く場所を決めるだけ）
+	//   もと: `assets/parts/MAXdrink-0001.aseprite` →「絵を反映する.bat」→ `js/parts-art.js`
+	var DRINK_ICON = (global.DotPartsArt && global.DotPartsArt.MAXdrink)
+		? global.DotPartsArt.MAXdrink.FRAMES[0] : null;
+
 	function loadUpg() {
-		upgLv = {}; unlocked = {};
+		upgLv = {}; unlocked = {}; bag = {};
 		try {
 			var raw = localStorage.getItem("dotollie-upg");
 			var o = raw ? JSON.parse(raw) : null;
 			if (o && o.lv) upgLv = o.lv;
 			if (o && o.un) unlocked = o.un;
-		} catch (e) { upgLv = {}; unlocked = {}; }
+			if (o && o.bag) bag = o.bag;          // ★持ち物（2026-08-22）
+		} catch (e) { upgLv = {}; unlocked = {}; bag = {}; }
 		return upgLv;
 	}
 
 	function saveUpg() {
 		try {
-			localStorage.setItem("dotollie-upg", JSON.stringify({ lv: upgLv, un: unlocked }));
+			localStorage.setItem("dotollie-upg",
+				JSON.stringify({ lv: upgLv, un: unlocked, bag: bag }));
 		} catch (e) { /* 保存できなくても遊べる */ }
 	}
+
+	// ★何本持っているか
+	function bagCount(id) { return bag[id] || 0; }
 
 	// ★その強化がいま何倍か（★買っていなければ 1 倍 ＝ 何も変わらない）
 	function upgMul(id) {
@@ -1127,6 +1187,7 @@
 		coins = 0;
 		upgLv = {};
 		unlocked = {};
+		bag = {};                   // ★★★持ち物も無くなる（★コインやレベルと同じ）
 		items = {};                 // ★拾った鍵も忘れる（★保留中の仕組み）
 		try {
 			localStorage.setItem("dotollie-coins", "0");
@@ -1141,6 +1202,7 @@
 		best = 0;
 		upgLv = {};
 		unlocked = {};
+		bag = {};                   // ★★持ち物も無くなる
 		items = {};                 // ★★拾った鍵も忘れる（＝また「何だこれ？」から試せる）
 		try {
 			localStorage.setItem("dotollie-coins", "0");
@@ -1283,6 +1345,7 @@
 			shopOpen: false,       // ★★ショップボタンで開いているか（2026-08-16）
 			overFadeMs: 0,         // ★★GAMEOVER の暗転が、どこまで進んだか（2026-08-16）
 			coin: 0,               // ★★積分した稼ぎ（毎コマ「距離 × そのときの倍率」を足す）
+			reviveMs: 0,           // ★★MAXdrink で全回復した演出の残り（2026-08-22）
 			slowMs: 0,             // ★ぶつかったあとの減速の残り
 			hits: 0,               // ★ぶつかった回数（★テストと実測が見る）
 			// ★★報酬フィードバック（2026-08-15）
@@ -1793,12 +1856,21 @@
 				got: !!unlocked[u.id], cost: u.cost
 			});
 		});
+		// ★★★使うと無くなるもの（2026-08-22）。★何本でも買える ＝ `got` を持たない
+		(UP.ITEMS || []).forEach(function (u) {
+			rows.push({
+				kind: "item", id: u.id, name: u.name,
+				have: bagCount(u.id), cost: u.cost
+			});
+		});
 		return rows;
 	}
 
 	// ★その行が買えるか（★買えないものは暗く出す）
 	function canBuy(r) {
 		if (r.kind === "start") return true;
+		// ★★★使うと無くなるものは、**何本でも買えます**（★`got` を見ない）
+		if (r.kind === "item") return coins >= r.cost;
 		// ★★上限なし（`max === null`）なら、レベルでは止めない
 		return !r.got && coins >= r.cost;
 	}
@@ -1812,6 +1884,10 @@
 		if (r.kind === "upg") {
 			coins -= r.cost;
 			upgLv[r.id] = (upgLv[r.id] || 0) + 1;
+		} else if (r.kind === "item") {
+			// ★★使うと無くなるもの ＝ 買うたびに1つ増える（★値上がりしない）
+			coins -= r.cost;
+			bag[r.id] = bagCount(r.id) + 1;
 		} else {
 			coins -= r.cost;
 			unlocked[r.id] = true;
@@ -1901,6 +1977,24 @@
 		// ★★★2026-08-16、**スタミナは時間では減らない**（島さんの指定）。
 		//   ★減るのは `onHit()` の中だけ ＝ **ぶつかった回数ぶん**。
 		//   ★ここは「0 になったら終わり」の見張りだけが残っている
+		// ============================================================
+		// ★★★MAXdrink（2026-08-22 島さんの指定）
+		// ============================================================
+		//   > 島さん「回復のタイミングは残り体力が0になった時です」
+		//
+		//   ★★**GAMEOVER の判定より前**に置くこと。
+		//     ★後ろに置くと、先に `runOver()` が走って**使う前に終わってしまう**。
+		//   ★1本使って**満タンまで**戻す（★「全回復」＝ 島さんの指定）
+		//   ★`st.phase !== "over"` … ★すでに終わっているときは使わない
+		if (DRINK_ON && st.stamina <= 0 && bagCount("maxdrink") > 0 && st.phase !== "over") {
+			bag.maxdrink = bagCount("maxdrink") - 1;
+			saveUpg();
+			st.stamina = curStaminaMax();       // ★★全回復
+			st.reviveMs = REVIVE_MS;            // ★演出
+			reviveSound();                      // ★心地よい音
+		}
+		if (st.reviveMs > 0) st.reviveMs = Math.max(0, st.reviveMs - dt * 1000);
+
 		if (st.stamina <= 0) {
 			st.stamina = 0;
 			// ★★★扉で止められたときだけ「間」を置く（2026-08-16 のレビュー C-1）
@@ -2172,6 +2266,14 @@
 		if (w > 0) {
 			ctx.fillStyle = GB[barColorFor(r)];
 			ctx.fillRect(0, 0, w, BAR_H);
+		}
+		// ★★★全回復の演出（2026-08-22 島さん「ゲージ全回復時演出」）
+		//   ★★**バー全体が白く点滅**します（★満タンになったことが一目で分かる）。
+		//   ★点滅は「時間を間隔で割った余り」で作る（★新しい時計を増やさない）
+		//   ★★★これは**見た目だけ**。スタミナの値には1ドットも触りません
+		if (st.reviveMs > 0 && Math.floor(st.reviveMs / REVIVE_BLINK) % 2 === 0) {
+			ctx.fillStyle = GB[16];                  // 16 = 生成り（★いちばん明るい白）
+			ctx.fillRect(0, 0, W, BAR_H);
 		}
 	}
 
@@ -2514,6 +2616,25 @@
 		}
 		F.drawText(ctx, shortNum(coins), coinX, coinY, GB[coinCol]);
 
+		// ============================================================
+		// ★★★持っている MAXdrink（2026-08-22 島さんの指定）
+		// ============================================================
+		//   > 島さん「購入したら絵はコインのアイコンの下におきましょう」
+		//
+		//   ★★絵は**島さんが描いたもの**。AIは置く場所を決めるだけ（★1ドットも触らない）。
+		//   ★コインと同じ並び（絵 → 数字）にそろえてある。
+		//   ★★★使った瞬間だけ**1ドット跳ねて色が変わる**（★コインが増えたときと同じ動き）
+		var nDrink = bagCount("maxdrink");
+		if (DRINK_ICON && nDrink > 0) {
+			var dRow = Math.max(DRINK_ICON.rows.length, F.GLYPH_H);
+			var drinkY = coinY + dRow + 2;
+			var drinkCol = C_COIN;
+			if (st.reviveMs > 0) { drinkY -= 1; drinkCol = C_COIN_UP; }
+			drawArt(DRINK_ICON, 2, drinkY);
+			F.drawText(ctx, String(nDrink),
+				2 + DRINK_ICON.rows[0].length + 2, drinkY, GB[drinkCol]);
+		}
+
 			// ★★★持っている鍵を左上に出す（2026-08-16 のレビュー H-3）
 			//   ★数ラン前に拾っていると、**持っているかどうか確かめる場所がどこにも無かった**。
 			//   ★★文字は増やさない。**鍵の絵をそのまま出すだけ**
@@ -2715,6 +2836,8 @@
 		if (r.kind === "start") return r.name;
 		var name = pad(r.name, 9);
 		if (r.kind === "unlock") return name + (r.got ? "OWNED" : pad("", 4) + r.cost);
+		// ★★使うと無くなるもの（2026-08-22）。★何本持っているかを出す（★値段は変わらない）
+		if (r.kind === "item") return name + "x" + r.have + " " + shortNum(r.cost);
 		// ★★上限なし（`maxLevel: null`）のときは MAX にならない
 		if (r.max !== null && r.lv >= r.max) return name + "LV" + r.lv + " MAX";
 		return name + "LV" + r.lv + " " + shortNum(r.cost);
@@ -3076,6 +3199,9 @@
 		_jumpMul: jumpDurationMul,
 		_curStaminaMax: curStaminaMax,
 		_curCoinPer: curCoinPer,
+		// ★★MAXdrink（2026-08-22）
+		_bagCount: bagCount,
+		_giveDrink: function (n) { bag.maxdrink = (bag.maxdrink || 0) + (n || 1); saveUpg(); },
 		// ★★左上に出しているコイン（★テストが「お店と一致するか」を見張る）
 		_hudCoin: function () { return coins; },
 		_gainCoin: gainCoin,

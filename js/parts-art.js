@@ -8,6 +8,19 @@
 (function (global) {
 	"use strict";
 	global.DotPartsArt = {
+		// assets/parts/MAXdrink-0001.aseprite
+		"MAXdrink": {
+			SOURCE: "assets/parts/MAXdrink-0001.aseprite", CELL: 64, COUNT: 1, FEET_ROW: 11,
+			FRAMES: [{ x: 5, y: 5, rows: [
+				"...t.",
+				"ttttt",
+				"tnrrt",
+				"trrrt",
+				"trrst",
+				"tqrrt",
+				".ttt.",
+			] }]
+		},
 		// assets/parts/coin.aseprite
 		"coin": {
 			SOURCE: "assets/parts/coin.aseprite", CELL: 64, COUNT: 1, FEET_ROW: 34,
