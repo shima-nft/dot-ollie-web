@@ -371,6 +371,21 @@
 	var C_GOAL_TITLE  = 17;      // ★1行目。17=赤（★GAMEOVER の文字と同じ色 ＝ 対の関係）
 	var C_GOAL_TEXT   = 9;       // ★2行目以降。9=まっ黒（★白地なので黒が読みやすい）
 	var GOAL_BLINK_MS = 450;     // ★CONTINUE が点いたり消えたりする間隔
+	// ============================================================
+	// ★★★★ページは4秒で切り替わる（2026-08-23 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「エンディングでページが切り替わるのは4秒間に設定してください。
+	//   >   画面タップでの省略は可能だがタップ音は必要ないです。
+	//   >   切り替わる効果としてフェードインとフェードアウトを入れてください。」
+	//
+	//   ★★★**フェードに半透明は使いません**（★この世界の色が濁るため）。
+	//     ★暗転・白い光とまったく同じ「**横の行を塗る**」やり方（`FADE_ORDER`）で、
+	//     ★★**白く覆っていく／覆いを外していく**ことで、出入りを作っています。
+	//
+	//   ★★★**最後のページは自動で進みません**（★`CONTINUE` を待つ ＝ 島さんが決めた形）
+	var GOAL_PAGE_MS  = 4000;    // ★★1ページを見せる長さ（島さんの指定「4秒間」）
+	var GOAL_FADE_MS  = 350;     // ★出るとき・消えるときの片道
 	// ★★★★扉の前後、これだけ**何も置かない**（メートル）。2026-08-23 島さんの指定
 	//   > 島さん「扉前後20ｍは障害物などおかないようにしてください。」
 	//   ★★「など」＝ ★コーン・★丘の敵・★拾えるコイン **全部**。
@@ -1559,6 +1574,7 @@
 			goalDone: false,  // ★★このランでもうエンディングを見たか（★二度は出さない）
 			endMs: 0,         // ★エンディングの進み具合（ミリ秒）
 			endPage: 0,       // ★★★いま何ページ目を見せているか（2026-08-22）
+			pageMs: 0,        // ★★そのページを見せはじめてからの時間（2026-08-23）
 			// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
 			dj: false,        // ★★このランで二段ジャンプを授かったか（★死ぬと消える）
 			airJumps: 0,      // ★いまの滞空で、もう何回跳んだか
@@ -2172,6 +2188,7 @@
 		st.phase = "ending";
 		st.endMs = 0;
 		st.endPage = 0;               // ★★★かならず1ページ目から（2026-08-22）
+		st.pageMs = 0;
 		st.shopOpen = false;          // ★開けっぱなしのお店があれば閉じる
 		st.paused = false;
 		goalSound();
@@ -2192,7 +2209,34 @@
 	}
 
 	// ★エンディングの時間だけを進める（★世界は止まったまま）
-	function updateEnding(dt) { st.endMs += dt * 1000; }
+	function updateEnding(dt) {
+		st.endMs += dt * 1000;
+		if (!endShown()) return;              // ★白い光のあいだは、まだページが始まっていない
+		st.pageMs += dt * 1000;
+		// ★★★最後のページは自動で進まない（★`CONTINUE` を待つ）
+		if (st.endPage >= GOAL_PAGES.length - 1) {
+			if (st.pageMs > GOAL_PAGE_MS) st.pageMs = GOAL_PAGE_MS;
+			return;
+		}
+		// ★★4秒たったら、次のページへ（島さんの指定）
+		if (st.pageMs >= GOAL_PAGE_MS) { st.endPage++; st.pageMs = 0; }
+	}
+
+	// ============================================================
+	// ★★★★ページの「隠れ具合」（0 = よく見える / 1 = まっ白で見えない）
+	// ============================================================
+	//
+	//   ★出はじめ … 1 → 0（★フェードイン）
+	//   ★終わりぎわ … 0 → 1（★フェードアウト）
+	//   ★★最後のページは**消えない**（★`CONTINUE` を出したままにする）
+	function pageHide() {
+		if (!endShown()) return 0;
+		if (st.pageMs < GOAL_FADE_MS) return 1 - st.pageMs / GOAL_FADE_MS;
+		if (st.endPage >= GOAL_PAGES.length - 1) return 0;
+		var t = st.pageMs - (GOAL_PAGE_MS - GOAL_FADE_MS);
+		if (t <= 0) return 0;
+		return Math.max(0, Math.min(1, t / GOAL_FADE_MS));
+	}
 
 	// ★白い光が、どこまで広がったか（0〜1）
 	function endLightT() {
@@ -2204,7 +2248,10 @@
 
 	// ★★★ショートカット（島さんの指定「エンディング(ショートカット可)」）。
 	//   ★演出の途中で押したら、**一気に文字のところまで飛ぶ**
-	function endSkip() { st.endMs = GOAL_OPEN_MS + GOAL_LIGHT_MS; }
+	function endSkip() {
+		st.endMs = GOAL_OPEN_MS + GOAL_LIGHT_MS;
+		st.pageMs = 0;                        // ★ここから1ページ目が始まる
+	}
 
 	// ★★★CONTINUE ＝ **その先へ**（島さんの指定「その後は②へ」）。
 	//   ★★★育てたもの（コイン・レベル・技・道具・スタミナ）を**1つも失わない**。
@@ -2281,10 +2328,13 @@
 	}
 
 	// ★★★次のページへ（2026-08-22）。★最後のページなら、もう進めない
+	//   ★★★2026-08-23、島さんの指定で**タップ音を鳴らさない**ようにした:
+	//     > 島さん「画面タップでの省略は可能だがタップ音は必要ないです。」
+	//   ★★飛ばしたページは、そのまま消える（★次のページは**フェードインから**始まる）
 	function endNext() {
 		if (st.endPage >= GOAL_PAGES.length - 1) return false;
 		st.endPage++;
-		sound(880, 0.05);
+		st.pageMs = 0;
 		return true;
 	}
 
@@ -3598,6 +3648,22 @@
 			if (!rows[i].blink || on) drawCenterAt(rows[i].t, y, rows[i].col);
 			y += F.GLYPH_H + lead;
 		}
+
+		// ★★★★⑤ フェードイン／フェードアウト（2026-08-23 島さんの指定）
+		//   > 島さん「切り替わる効果としてフェードインとフェードアウトを入れてください。」
+		//   ★★★**半透明は使いません**（★この世界の色が濁るため）。
+		//     ★暗転・白い光とまったく同じ「**横の行を白く塗る**」やり方です。
+		//   ★★文字も挿し絵も**まとめて**覆うので、ずれようがありません
+		var hide = Math.round(pageHide() * 8);
+		if (hide > 0) {
+			ctx.fillStyle = GB[C_GOAL_LIGHT];
+			if (hide >= 8) ctx.fillRect(0, 0, W, H);
+			else {
+				for (var hy = 0; hy < H; hy++) {
+					if (FADE_ORDER.indexOf(hy % 8) < hide) ctx.fillRect(0, hy, W, 1);
+				}
+			}
+		}
 	}
 
 	// ============================================================
@@ -4161,6 +4227,7 @@
 		// ★★★★10000m のエンディング（2026-08-22）
 		_endLightT: endLightT, _endShown: endShown,
 		_endSkip: endSkip, _continueRun: continueRun, _endNext: endNext,
+		_pageHide: pageHide,
 		// ★★★★二段ジャンプを授かる場面（2026-08-22）
 		_giftWord: giftWord, _giftX2: giftX2, _giftDone: giftDone,
 		// ★★★テストモード（2026-08-22）
@@ -4281,6 +4348,7 @@
 				GOAL_ON: GOAL_ON, GOAL_M: GOAL_M,
 				GOAL_OPEN_MS: GOAL_OPEN_MS, GOAL_LIGHT_MS: GOAL_LIGHT_MS,
 				GOAL_CLEAR_M: GOAL_CLEAR_M,
+				GOAL_PAGE_MS: GOAL_PAGE_MS, GOAL_FADE_MS: GOAL_FADE_MS,
 				GOAL_PAGES: GOAL_PAGES, ENDING_ART: EA,
 				// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
 				DJ_ON: DJ_ON, DJ_MAX: DJ_MAX,
