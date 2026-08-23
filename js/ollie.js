@@ -305,8 +305,10 @@
 	//     ★★★実測: 1000m まで来ると「越えて入る額」は**1個で数百枚**になるので、
 	//       ★0 のままだと拾えるコインは**おまけ**になります（→ 島さんの判断待ち）
 	var PICK_SCALES  = 0;
-	var PICK_N       = 5;      // ★1列に何枚並べるか
+	var PICK_N       = 5;      // ★（下の表の「ふつう」が使う）1列に何枚並べるか
 	var PICK_STEP    = 12;     // ★★となりのコインまでの距離（ドット）。★絵は5ドット幅
+	// ★★★★コーンの真上に置く割合（★D案。2026-08-23 島さんの指定）
+	var PICK_OVER_CONE = 0.35;
 	var PICK_GAP_MIN = 420;    // ★次の弧までの距離（ドット）。★約6秒
 	var PICK_GAP_MAX = 900;    //   ★ここまでの間でランダム。★約13秒
 	// ★★★**足の高さで拾う**（★体ぜんぶで拾うと、走っているだけで取れてしまう）。
@@ -316,6 +318,39 @@
 	//   ★★低いと、★走っているだけで拾えてしまい「跳ぶ理由」が消える。
 	//   ★★★実測: 走っているときの足は 0。★`PICK_TAKE_Y`(8) より高ければ届かない
 	var PICK_MIN_LIFT = 12;
+
+	// ============================================================
+	// ■■■ ★★★★コインの並びの表 —— ★島さんの持ち場（2026-08-23）■■■
+	// ============================================================
+	//
+	//   > 島さん「②A導入。頻度は稀。C導入。頻度は稀。綺麗に水平に整列させること。
+	//   >   D導入。いづれの案も美しい配置優先。」
+	//
+	//   ★★**書き換えるのはここだけ。** ★行を足せば並びが増えます。
+	//
+	//     name   … 呼び名（★画面には出ません）
+	//     weight … ★出やすさ（★大きいほどよく出る。★0 にするとその並びは出ない）
+	//     rows   … 何段か。★1段なら1つ、2段なら2つ書く
+	//       n    … 何枚並べるか
+	//       step … となりまでの距離（ドット）
+	//       lift … ★★高さ。**「跳んで届くいちばん上」を 1.00 とした割合**
+	//              （★直書きしない ＝ 島さんが跳躍の絵を変えたら、高さも追従する）
+	//
+	//   ★★★**どの段も、必ず水平にそろいます**（★同じ地面を基準に置くため）。
+	//
+	//   ■ ★高さの目安（★いま「跳んで届くいちばん上」は 25ドット）
+	//       0.55 … ★一段ジャンプの**途中**で通る高さ（★走っていては届かない）
+	//       1.00 … ★一段ジャンプの**てっぺん**
+	//       1.60 … ★★**二段ジャンプでしか届かない**（★一段のてっぺんより 15 上）
+	var PICK_PATTERNS = [
+		// ★ふつうの列（★いままでと同じ形）
+		{ name: "ふつう", weight: 84, rows: [{ n: 5, step: 12, lift: 1.00 }] },
+		// ★★A 短い列 …… ★★**全部取れる**（★「完璧に取れた」を作るための形）
+		{ name: "短い",   weight: 8,  rows: [{ n: 3, step: 10, lift: 1.00 }] },
+		// ★★C 2段 …… ★下は一段で取れる／★★上は**二段ジャンプでしか届かない**
+		{ name: "2段",    weight: 8,  rows: [{ n: 4, step: 12, lift: 0.55 },
+		                                     { n: 4, step: 12, lift: 1.60 }] }
+	];
 
 	// ============================================================
 	// ■■■ ★★★★ゴールの扉 —— 10000m のエンディング（2026-08-22 島さんの指定）■■■
@@ -1681,19 +1716,41 @@
 		return best;
 	}
 
-	// ★1列のかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
-	//   ★★**全部おなじ高さ**（★横に整列）。★等間隔に `PICK_N` 枚
-	function pickRow() {
-		var lift = pickLift();
-		if (lift < PICK_MIN_LIFT) return [];      // ★低すぎるなら置かない（★走って取れる）
+	// ★★並びを1つ引く（★表の `weight` にしたがう。★種では決めない）
+	function pickPattern() {
+		var total = 0, i;
+		for (i = 0; i < PICK_PATTERNS.length; i++) total += PICK_PATTERNS[i].weight;
+		if (total <= 0) return null;
+		var r = Math.random() * total;
+		for (i = 0; i < PICK_PATTERNS.length; i++) {
+			r -= PICK_PATTERNS[i].weight;
+			if (r < 0) return PICK_PATTERNS[i];
+		}
+		return PICK_PATTERNS[PICK_PATTERNS.length - 1];
+	}
+
+	// ★1つの並びのかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
+	//   ★★**同じ段は全部おなじ高さ**（★横に整列）。★2段のときは2つぶん入る
+	//   ★★★高さは「跳んで届くいちばん上」× 表の `lift`（★直書きしない）
+	function pickRow(pat) {
+		pat = pat || PICK_PATTERNS[0];
+		var base = pickLift();
+		if (base < PICK_MIN_LIFT) return [];      // ★低すぎるなら置かない（★走って取れる）
 		var out = [];
-		for (var k = 0; k < PICK_N; k++) out.push({ dx: k * PICK_STEP, lift: lift });
+		for (var r = 0; r < pat.rows.length; r++) {
+			var row = pat.rows[r];
+			var lift = Math.round(base * row.lift);
+			if (lift < PICK_MIN_LIFT) continue;   // ★低すぎる段は置かない
+			for (var k = 0; k < row.n; k++) out.push({ dx: k * row.step, lift: lift });
+		}
 		return out;
 	}
 
-	// ★列の横幅（★障害物と重ねないための確かめに使う）
+	// ★並びの横幅（★障害物と重ねないための確かめに使う）
 	function pickRowW(row) {
-		return (row.length ? row[row.length - 1].dx : 0) + PICK_W;
+		var w = 0;
+		for (var i = 0; i < row.length; i++) if (row[i].dx > w) w = row[i].dx;
+		return row.length ? w + PICK_W : 0;
 	}
 
 	// ============================================================
@@ -1715,10 +1772,11 @@
 	//
 	//   ★★★以後、コインは**画面の行（`y`）**で持つ（★地面からの高さでは持たない）。
 	//     ★この作品はカメラが上下に動かないので、★**行は変わらない**
-	function makeRow(x0) {
-		var row = pickRow();
+	function makeRow(x0, pat) {
+		var row = pickRow(pat);
 		if (!row.length) return [];
-		// ★★列の下でいちばん高い地面（★行の数字が小さいほど高い）
+		// ★★★並びの下でいちばん高い地面（★行の数字が小さいほど高い）。
+		//   ★★**並びぜんぶで1つの基準**を使うので、★2段でも**平行**にそろう
 		var top = Infinity;
 		for (var i = 0; i < row.length; i++) {
 			var gx = x0 + row[i].dx + Math.floor(PICK_W / 2);
@@ -2728,6 +2786,44 @@
 							st.conesBorn++;           // ★テストが「全滅していないか」を見る
 						}
 					}
+					// ============================================================
+					// ★★★★D案: コーンの真上にも1列（2026-08-23 島さんの指定）
+					//
+					//   > 島さん「D導入。いづれの案も美しい配置優先。」
+					//
+					//   ★★**どうせ跳ぶ**ので、跳ぶ意味が2つ重なる
+					//     （★避ける動きと拾う動きが**同じ**なので、1ボタンでも成立する）。
+					//   ★★★**コーンの塊のまん中にそろえる**（★美しい配置優先）
+					//
+					//   ★★ここは「重ねない」の**例外**です（→ ふつうの列は重ねません）。
+					//     ★理由がはっきり違う: ★あちらは「別の動きを同時に要求しない」ため
+					// ============================================================
+					if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M &&
+						!inGoalClear(bornAt) && Math.random() < PICK_OVER_CONE) {
+						// ★塊の広さに合わせて枚数を決める（★はみ出させない）
+						var overN = Math.max(3,
+							Math.min(PICK_N, Math.round(len / PICK_STEP) + 1));
+						var overW = (overN - 1) * PICK_STEP + PICK_W;
+						// ★★★コーンの塊の**本当の端から端**でまん中を出す（★美しい配置優先）。
+						//   ★`len` から出すと数ドットずれる（★2026-08-23 に実測して直した）
+						var gMin = pat.obs[0].at;
+						var gLast = pat.obs[pat.obs.length - 1];
+						var gMax = gLast.at + gLast.n * CONE_W;
+						var ox0 = W + 4 + Math.round((gMin + gMax - overW) / 2);
+						var overMade = makeRow(ox0,
+							{ rows: [{ n: overN, step: PICK_STEP, lift: 1.00 }] });
+						// ★★印を付けておく（★テストが「コーンの真上か」を測るため）
+						for (var vi = 0; vi < overMade.length; vi++) {
+							overMade[vi].over = 1;
+							st.picks.push(overMade[vi]);
+						}
+						if (overMade.length) {
+							st.picksBorn++;
+							// ★★ふつうの列とぶつからないよう、次の抽選を先へずらす
+							st.nextPick = Math.max(st.nextPick, len + nextPickGap());
+						}
+					}
+
 					st.patIndex++;
 					// ★★次のパターンまで、ひと呼吸あける。
 					//   ★★**「1回の技で進む距離」より必ず広くする**（→ 上の「欠陥」の説明）
@@ -2769,7 +2865,8 @@
 			if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M) {
 				st.nextPick -= moved;
 				if (st.nextPick <= 0) {
-					var row = pickRow(), rowW = pickRowW(row);
+					var pat = pickPattern();
+					var row = pickRow(pat), rowW = pickRowW(row);
 					// ★★次の障害物まで、列がまるごと入る余裕があるときだけ置く
 					var room = Math.min(st.nextCone, st.nextEnemy);
 					// ★★★扉の前後は何も置かない（2026-08-23 島さんの指定。★「など」に含む）
@@ -2777,7 +2874,7 @@
 					var pickClear = !inGoalClear(pickWx) && !inGoalClear(pickWx + rowW);
 					if (row.length && pickClear && room > rowW + CONE_W * 2) {
 						// ★★★水平に並べる（→ `makeRow()`）
-						var made = makeRow(W + 4);
+						var made = makeRow(W + 4, pat);
 						for (var pi = 0; pi < made.length; pi++) st.picks.push(made[pi]);
 						st.picksBorn++;
 						st.nextPick = nextPickGap();
@@ -4259,6 +4356,7 @@
 		_curClearDots: curClearDots,
 		// ★★★★拾えるコイン（2026-08-23）
 		_pickRow: pickRow, _pickLift: pickLift, _pickValue: pickValue,
+		_pickPattern: pickPattern,
 		_makeRow: makeRow, _inGoalClear: inGoalClear,
 		// ★★主役の足がいまどの行にいるか（★テストが「水平か」を測るのに使う）
 		_riderRow: function () { return riderGroundRow() - 1 - currentLift(); },
@@ -4291,6 +4389,7 @@
 				PICK_ON: PICK_ON, PICK_FROM_M: PICK_FROM_M, PICK_VALUE: PICK_VALUE,
 				PICK_SCALES: PICK_SCALES, PICK_N: PICK_N,
 				PICK_TAKE_Y: PICK_TAKE_Y, PICK_MIN_LIFT: PICK_MIN_LIFT, PICK_STEP: PICK_STEP,
+				PICK_PATTERNS: PICK_PATTERNS, PICK_OVER_CONE: PICK_OVER_CONE,
 				PICK_GAP_MIN: PICK_GAP_MIN, PICK_GAP_MAX: PICK_GAP_MAX,
 				PICK_W: PICK_W, PICK_H: PICK_H,
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
