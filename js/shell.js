@@ -250,19 +250,34 @@
 	//     差し替わっても見た目が飛ばない
 	// ============================================================
 	var shellEl = document.getElementById("shell");
+	// ============================================================
+	// ★★★★タップを拾うのは「画面ぜんぶ」（2026-08-23 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「スマホを横画面にして遊ぶさい、液晶外タップでもジャンプ出来るように
+	//   >   してください。」
+	//
+	//   ★★前は `#shell` だけで拾っていた。
+	//     ★★★横画面では、液晶の**左右に黒い余白**ができる（★`#shell` の外）ので、
+	//       ★そこを触っても**何も起きなかった**。
+	//   → ★★**`document.body` で拾う**。★これで画面のどこを触っても跳べる。
+	//   ★★ボタンの上だけは、いままでどおり除く（→ `onButton()`）
+	var tapEl = document.body;
 	var SWIPE_PX = 24;          // 上へこれだけ動いたら「なぞった」とみなす(画面の実寸)
 	var swipeFromY = null;      // なぞりはじめの縦位置(null = なぞっていない)
 	var swipeFired = false;     // このなぞりで、もう技を差し替えたか
 
 	function onButton(el) {     // ボタンの上で始まった操作か
-		while (el && el !== shellEl) {
+		// ★★★`document.body` まで見る（2026-08-23）。
+		//   ★`#shell` で止めていると、★★**シェルの外のボタン**を見逃す
+		while (el && el !== document) {
 			if (el.tagName === "BUTTON") return true;
 			el = el.parentNode;
 		}
 		return false;
 	}
 
-	shellEl.addEventListener("pointerdown", function (ev) {
+	tapEl.addEventListener("pointerdown", function (ev) {
 		if (onButton(ev.target)) return;      // [音][一時停止][もどる] は自分の役目を果たす
 		ev.preventDefault();
 		swipeFromY = ev.clientY;
@@ -282,7 +297,7 @@
 		padDown("act");                       // ★押した瞬間に出す(反応を遅らせない)
 	});
 
-	shellEl.addEventListener("pointermove", function (ev) {
+	tapEl.addEventListener("pointermove", function (ev) {
 		if (swipeFromY === null || swipeFired) return;
 		var dy = swipeFromY - ev.clientY;          // ＋が上へ、−が下へ
 		if (Math.abs(dy) < SWIPE_PX) return;
@@ -303,7 +318,7 @@
 	//   （★押した瞬間に決めると、なぞろうとした瞬間に決まってしまい、
 	//     ★カーソルを動かすことが構造的に不可能だった —— 実機で見つかった）
 	//   ★`swiped` = このなぞりで、もうカーソルを動かしたか
-	shellEl.addEventListener("pointerup", function () {
+	tapEl.addEventListener("pointerup", function () {
 		if (swipeFromY === null) return;
 		var swiped = swipeFired;
 		swipeFromY = null;
@@ -314,8 +329,8 @@
 		}
 		padUp("act", swiped);
 	});
-	shellEl.addEventListener("pointercancel", function () { swipeFromY = null; });
-	shellEl.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
+	tapEl.addEventListener("pointercancel", function () { swipeFromY = null; });
+	tapEl.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
 	// RUN が出すボタン(特大の「跳ぶ」/ 右上の「音」「一時停止」「もどる」)
 	//   ★`sound` の絵は入り切りで変わるので、ゲーム側(DotOllie.padIcons)が上書きする
 	var PAD_ICONS = {

@@ -155,3 +155,72 @@ canvas.pad-label {
 	image-rendering: pixelated;
 	pointer-events: none;
 }
+
+/* ============================================================
+   ★★★★横画面（スマホを寝かせたとき）—— 2026-08-23 島さんの指定
+   ============================================================
+
+   > 島さん「横画面プレイ時は、一時停止ボタンとスピーカーボタンは右上に。
+   >   ショップボタンは左上に置いてください。」
+
+   ★★横画面では、液晶が**高さいっぱい**になり、**左右に余白**ができる。
+     → ★その余白の**四隅**にボタンを置く（★液晶には1ドットも重ならない）。
+
+   ┌──────┬────────────────┬──────┐
+   │ 🛍   │                │  ⏸  │  ← ★ショップ＝左上 / 一時停止＝右上
+   │      │     液晶       │  🔊  │  ← ★スピーカー＝一時停止の真下
+   └──────┴────────────────┴──────┘
+
+   ★★★**ボタン以外はタップが素通りする**（`pointer-events: none`）ので、
+     ★液晶の外を触っても**ちゃんと跳べる**（→ `js/shell.js` の `tapEl`）。
+
+   ★`max-height` を付けているのは、★★**パソコンの横長の窓を巻き込まない**ため
+     （★スマホ・小さいタブレットだけがこの形になる） */
+@media (orientation: landscape) and (max-height: 620px) {
+
+	/* ★横幅の上限を外す（★液晶を高さいっぱいに使いたい） */
+	#shell {
+		max-width: none;
+		position: relative;
+		justify-content: center;
+	}
+
+	/* ★液晶は「高さいっぱい」。★横幅は 3:2 のまま自動で決まる */
+	#lcd-frame {
+		flex: 1 1 auto;
+		height: 100%;
+		min-height: 0;
+	}
+	#lcd {
+		width: auto;
+		height: 100%;
+		max-width: 100vw;
+		max-height: 100vh;
+	}
+
+	/* ★★ボタンは画面ぜんぶに重ねた「透明な板」の上に置く。
+	   ★★★板そのものはタップを通す（★空いているところを触れば跳べる） */
+	#gamepad {
+		--pad: clamp(40px, 9vh, 56px);
+		--gap: clamp(6px, 2vh, 14px);
+		position: absolute;
+		inset: 0;
+		display: block;
+		padding: 0;
+		width: auto;
+		flex: none;
+		pointer-events: none;
+	}
+
+	#pad-shop, #pad-pause, #pad-sound, #pad-exit {
+		position: absolute;
+		width: var(--pad);
+		height: var(--pad);
+		pointer-events: auto;      /* ★ボタンだけは、ちゃんと押せる */
+	}
+
+	#pad-shop  { left: var(--gap);  top: var(--gap); }                        /* ★左上 */
+	#pad-pause { right: var(--gap); top: var(--gap); }                        /* ★右上 */
+	#pad-sound { right: var(--gap); top: calc(var(--gap) * 2 + var(--pad)); } /* ★その真下 */
+	#pad-exit  { left: var(--gap);  top: calc(var(--gap) * 2 + var(--pad)); } /* ★ふだん出さない */
+}
