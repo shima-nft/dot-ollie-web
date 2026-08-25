@@ -127,6 +127,14 @@
 	var C_GROUND = 14;  // ★地面（本体）。14=暗い灰（土）
 	//   ★太さは `js/world.js` の `EDGE_*`（★0 にすれば地面が一色に戻る）
 	var C_GROUND_EDGE = 20;
+	// ★★★★2026-08-25、際（草の表面）が**絵**になった（→ js/edge-art.js）
+	//   > 島さん「際（草の表面）だけ描き込みたい」→ ★★島さん「AIに書いてもらう。」
+	//   ★★**土を先に全部塗り、その上に草の絵を置く**（★透明のところは土が見える）。
+	//   ★★★だから**厚みは絵が決めます**（★種の `edgeThickAt` は使いません）
+	//     ＝ ★模様を描いても**見切れません**。
+	//   ★`EDGE_ART_ON = 0` にすると、昔の「際の色でベタ塗り」に戻ります
+	var EDGE_ART_ON = 1;
+	var EDGE_SALT   = 60601;   // ★区画ごとに「どの絵を使うか」を引くための番号
 	var C_RIDGE  = 10;  // ★遠景の稜線。10=濃紺（空より暗い＝遠くのシルエットに見える）
 	var C_TEXT   = 16;  // 距離の数字。16=生成り
 
@@ -3471,6 +3479,43 @@
 		}
 	}
 
+	// ★★★★地面の際（草の表面）の絵を置く（2026-08-25）
+	//
+	//   ★★**どこに何を置くかは「種と区画」から、その場で計算します**
+	//     （★絵は数枚しか持たないので、★★何万メートル走っても重くなりません）。
+	//   ★★★**絵は地面の表面に沿います**（★起伏のとおりに上下する）。
+	//   ★透明のところは、下に塗ってある土がそのまま見えます。
+	//
+	//   ★★継ぎ目について: どの絵も**左端と右端の厚みが同じ**なので
+	//     （`tools/edge2art.js` が毎回測って止めます）、
+	//     ★★★**どの絵がとなり合っても段差が作れません**。
+	function drawEdgeArt(gx) {
+		var E = global.DotEdgeArt;
+		if (!E) return;
+		var PALX = global.DotPalette;
+		for (var c = 0; c < W; c++) {
+			var wx = gx + c;
+			var seg = Math.floor(wx / E.W);                  // ★区画の番号
+			var idx = Math.floor(WD.rand(seg, EDGE_SALT) * E.SHEETS.length);
+			if (idx < 0) idx = 0;
+			if (idx >= E.SHEETS.length) idx = E.SHEETS.length - 1;
+			var col = wx - seg * E.W;                        // ★絵の中の何列目か
+			var rows = E.SHEETS[idx];
+			var top = groundRowAt(c);
+			// ★縦に続く同じ色はまとめて塗る（1ドットずつ塗ると重くなる）
+			var y = 0;
+			while (y < E.H) {
+				var ch = rows[y].charAt(col);
+				if (ch === ".") { y++; continue; }
+				var run = 1;
+				while (y + run < E.H && rows[y + run].charAt(col) === ch) run++;
+				ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+				ctx.fillRect(c, top + y, 1, run);
+				y += run;
+			}
+		}
+	}
+
 	// ★★スタミナバー（★★★2026-08-23、島さんの指定で**画面のいちばん下**へ移した）
 	//   > 島さん「体力バーを液晶の一番下に持って来てください」
 	//   ★★**見た目だけ。** ここは何も書き換えない（読むだけ）
@@ -3853,10 +3898,20 @@
 		//   ★★★新しい描画の仕組みは作っていません。**`fillBelow` を2回呼ぶだけ**。
 		//   ★際の太さは場所で変わります（`js/world.js` の `EDGE_*`）。
 		//     `EDGE_ON = 0` にすると太さが 0 になり、**地面が一色に戻ります**
+		//   ★★★★2026-08-25、際が**絵**になったので、順番が逆になりました:
+		//     ① ★**土で地面ぜんぶを塗る**
+		//     ② ★★**草の絵を上に置く**（★透明のところは土がそのまま見える）
+		//   ★★これで「薄いところ」を島さんが**絵で**決められます（★見切れない）
 		var gx = worldX();
-		fillBelow(groundRowAt, GB[C_GROUND_EDGE]);
-		fillBelow(function (c) { return groundRowAt(c) + WD.edgeThickAt(gx + c); },
-			GB[C_GROUND]);
+		if (EDGE_ART_ON && global.DotEdgeArt) {
+			fillBelow(groundRowAt, GB[C_GROUND]);
+			drawEdgeArt(gx);
+		} else {
+			// ★昔の形（★際の色でベタ塗り → 太さぶん下から土）
+			fillBelow(groundRowAt, GB[C_GROUND_EDGE]);
+			fillBelow(function (c) { return groundRowAt(c) + WD.edgeThickAt(gx + c); },
+				GB[C_GROUND]);
+		}
 
 		// ⑤ ★前景の部品（草・花）。★地面と同じ速さ・フィルターなし＝いちばん濃く鮮やか
 		PD.draw(ctx, worldX(), 1);
@@ -4910,6 +4965,7 @@
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
+				EDGE_ART_ON: EDGE_ART_ON, EDGE_SALT: EDGE_SALT,
 				BAR_ON: BAR_ON, BAR_H: barH(), BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
 				BET_ON: BET_ON, BET_FLASH_MS: BET_FLASH_MS, C_BET: C_BET,
 				SHOP_X: SHOP_X,   // ★テストが「行が画面に収まるか」を測るため（2026-08-23）
