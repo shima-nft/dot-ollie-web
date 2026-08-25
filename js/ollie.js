@@ -140,6 +140,46 @@
 	var RIDER_FOOT = 10;   // RIDER_X から右へ何ドットの所の地面に乗るか
 
 	// ============================================================
+	// ★★★★主役の接地を、地面より下へ沈める（2026-08-23 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「スケーターの地面接地の基準をｘpx下に出来ますか。」
+	//   > 島さん「食い込んでみえてもよいので 8px 下げてください。
+	//   >   考えかたとしては**地面を真横からみていたのを、
+	//   >   若干見下ろすような見え方にしたい**のです。
+	//   >   そのため**地面に奥行きがほしい**のです」
+	//
+	//   ■ ★★★狙いは「地面に奥行きを出す」こと
+	//     ★主役が地面に**食い込む**と、★★地面の帯が
+	//     「真横から見た壁」ではなく、★★★**「手前に広がる面」**に見えます。
+	//     ★★食い込んで見えるのは**島さんが良しとした形**です（★直さないこと）。
+	//
+	//   ★地面の基準線はそのままで、★★**主役だけを下へ下げます**。
+	//   ★★★だから**地形・障害物・背景は1ドットも動きません**。
+	//
+	//   ■ ★★この1つを変えるだけで、**ついてくるもの**
+	//     ・主役の絵の位置
+	//     ・★★**コインを拾う足の行**（★見た目と当たり判定がずれない）
+	//     ・頭上のポップアップの高さ
+	//     ・（保留中の）飛ぶ敵の高さ
+	//
+	//   ★★★**AIへ: この数字を `riderGroundRow()` 以外へ直書きしないこと。**
+	//     ★散らすと、★★**絵だけ下がって、拾える高さは元のまま**になります
+	//     （★ 2026-08-23 の二段ジャンプで実際に踏んだ罠）。
+	//   ★ 0 にすれば、2026-08-23 より前の見た目に戻ります
+	//
+	//   ■ ★★まだやっていないこと（★島さんの「あとでいい」）
+	//     ★障害物（コーン・敵）と拾えるコインは、★★**地面のまま**です。
+	//     ★★★だからコインは、主役から見て**沈めたぶん高く**なっています
+	//       （★実測: 拾える時間 0.28秒 → **0.10秒**）。
+	//     ★揃えるなら、コインの行にも `RIDER_SINK` を足すのが筋です
+	// ★★★★2026-08-23、島さんの指定で**元に戻しました**:
+	//   > 島さん「確認しました。スケーターを元の基準に戻してください」
+	//   ★★**仕組みは残してあります**（★数字を入れれば、いつでもまた沈められます）。
+	//   ★★★**AIへ: 勝手に 0 以外へ戻さないこと**（★見た目は島さんが決めます）
+	var RIDER_SINK = 0;    // ★地面より何ドット下に立つか（★0 = 地面のまま）
+
+	// ============================================================
 	// ■ ★三角コーン（2026-08-10 島さんが描いて「置いてみて。間隔はランダムに」）
 	// ============================================================
 	//   ★いまは**置いてあるだけ**。ぶつかりません（当たり判定はまだ入れていない）。
@@ -813,7 +853,13 @@
 	//   ★★**画面のいちばん上に、横いっぱい。** 文字を増やさずに残量が分かる。
 	//   ★★**見た目は見た目だけ。** バーを描いてもスタミナ・距離・倍率は1ドットも変わらない
 	var BAR_ON     = 1;    // 0 にするとバーが出なくなる
-	var BAR_H      = 3;    // バーの高さ（ドット）
+	// ★★★★2026-08-25、島さんがバーを描き直した（★塗りつぶし → **絵**）
+	//   > 島さん「体力バーをデザインしなおしたい。Aseprite で編集するので現状のものを出力して」
+	//   ★★**高さは絵が決めます**（★ここに数字を書きません）。
+	//     ★島さんが `assets/shapes/bar-now-export.png` を描き替えて
+	//       `node tools/bar2art.js` を走らせれば、**置き場所も自動でそろいます**
+	//   ★`BAR_H_FALLBACK` は、絵が読めなかったときだけ使う予備の高さ
+	var BAR_H_FALLBACK = 3;
 	// ============================================================
 	// ★★★MAXdrink（回復アイテム）—— 2026-08-22 島さんの指定
 	// ============================================================
@@ -1851,7 +1897,9 @@
 	function groundRowAt(col) { return GROUND - WD.groundAt(worldX() + col); }
 
 	// スケーターの足元の行（＝いま乗っている地面）
-	function riderGroundRow() { return groundRowAt(RIDER_X + RIDER_FOOT); }
+	// ★★主役が乗る行。★★★**描くところも拾うところも、全部ここを通る**
+	//   ★だから `RIDER_SINK` をここに入れるだけで、★★**見た目と当たり判定が必ずさわる**
+	function riderGroundRow() { return groundRowAt(RIDER_X + RIDER_FOOT) + RIDER_SINK; }
 
 	// 次のコーンまでの間隔をランダムに引く
 	// ★★1回の技のあいだに進む距離（★いまの速さとジャンプ倍率で**毎回計算する**）
@@ -3435,39 +3483,67 @@
 		return BAR_STEPS[BAR_STEPS.length - 1].color;
 	}
 
+	// ★★★★バーの絵（2026-08-25、島さんが描いた）
+	//   ★★**高さも中身の幅も、絵から聞きます**（★ここに数字を書かない）
+	function barArt() { return global.DotBarArt || null; }
+	function barH()   { var A = barArt(); return A ? A.H : BAR_H_FALLBACK; }
+
 	// ★★バーのいちばん上の行（★画面のいちばん下に置く）
-	function barTop() { return H - BAR_H; }
+	function barTop() { return H - barH(); }
 
 	function drawStaminaBar() {
 		if (!BAR_ON) return;
+		var A = barArt();
+		if (!A) return;
 		var by = barTop();
 		// ★★このランの満タンで割る（★STAMINA を上げるとバーの目盛りも伸びる）
 		var r = Math.max(0, Math.min(1, st.stamina / (st.staminaMax || STAMINA_MAX)));
+
 		// ★★2026-08-15、島さんの指定で**「尽きたら全部赤」にはしない**。
 		//   ★残量が減るほど短くなり、色が 緑 → 黄 → 橙 → 赤 と変わって、**そのまま尽きる**
-		// ★減った側（★「どれだけ減ったか」が見える）
-		ctx.fillStyle = GB[C_BAR_BACK];
-		ctx.fillRect(0, by, W, BAR_H);
-		// ★残っている側。★残量で色が変わる（緑 → 黄 → 橙 → 赤）
-		var w = Math.round(W * r);
-		if (w > 0) {
-			ctx.fillStyle = GB[barColorFor(r)];
-			ctx.fillRect(0, by, w, BAR_H);
-		}
+		var live = GB[barColorFor(r)];   // ★残っている側
+		var back = GB[C_BAR_BACK];       // ★減った側（★「どれだけ減ったか」が見える）
+
 		// ★★★全回復の演出（2026-08-22 島さん「ゲージ全回復時演出」）
-		//   ★★**バー全体が白く点滅**します（★満タンになったことが一目で分かる）。
+		//   ★★**中身が白く点滅**します（★満タンになったことが一目で分かる）。
 		//   ★点滅は「時間を間隔で割った余り」で作る（★新しい時計を増やさない）
 		//   ★★★これは**見た目だけ**。スタミナの値には1ドットも触りません
 		if (st.reviveMs > 0 && Math.floor(st.reviveMs / REVIVE_BLINK) % 2 === 0) {
-			ctx.fillStyle = GB[16];                  // 16 = 生成り（★いちばん明るい白）
-			ctx.fillRect(0, by, W, BAR_H);
+			live = back = GB[16];            // 16 = 生成り（★いちばん明るい白）
 		}
-		// ★★★★BET を払った瞬間（2026-08-23）。★**バーが赤く点滅する** ＝ 払ったのが見える
+		// ★★★★BET を払った瞬間（2026-08-23）。★**中身が赤く点滅する** ＝ 払ったのが見える
 		//   ★★全回復（白）と対にしてある。★★★これも**見た目だけ**（値には触らない）
 		if (BET_ON && st.betFlashMs > 0 &&
 			Math.floor(st.betFlashMs / BET_BLINK) % 2 === 0) {
-			ctx.fillStyle = GB[C_BET];
-			ctx.fillRect(0, by, W, BAR_H);
+			live = back = GB[C_BET];
+		}
+
+		// ★★★残量の境目（★**絵の中の緑がどこからどこまでか**で決まる）
+		//   ★★コードに幅の数字を1つも書いていないので、
+		//     ★島さんが緑の形を変えれば、伸び縮みする形もそのまま変わります
+		var edge = A.FILL_X0 + Math.round((A.FILL_X1 - A.FILL_X0 + 1) * r);
+
+		// ★絵を1行ずつ置く。★横に続く同じ色はまとめて塗る（1ドットずつだと重い）
+		for (var y = 0; y < A.H; y++) {
+			var line = A.rows[y], x = 0;
+			while (x < line.length) {
+				var ch = line.charAt(x);
+				if (ch === ".") { x++; continue; }        // ★透明（背景がそのまま見える）
+				var col = (ch === A.FILL_CHAR) ? (x < edge ? live : back)
+					: GB[global.DotPalette.indexOfChar(ch)];
+				var run = 1;
+				while (x + run < line.length) {
+					var c2 = line.charAt(x + run);
+					if (c2 === ".") break;
+					var col2 = (c2 === A.FILL_CHAR) ? (x + run < edge ? live : back)
+						: GB[global.DotPalette.indexOfChar(c2)];
+					if (col2 !== col) break;
+					run++;
+				}
+				ctx.fillStyle = col;
+				ctx.fillRect(x, by + y, run, 1);
+				x += run;
+			}
 		}
 	}
 
@@ -3533,7 +3609,9 @@
 			//   ★★★これで「**足元が BIRD_LIFT に届いた瞬間に、頭が鳥の下端に触れる**」が
 			//     ★**構造として保証**されます（★`test/screen.test.js` が描いたドットで測ります）。
 			//   ★地面に沿わせます（★コーン・敵と同じ）。★★画面の行で持つと坂でずれます
-			if (o.kind === "bird") y += riderTopOff() - BIRD_LIFT;
+			//   ★★★`RIDER_SINK` を足す（★主役が沈んだぶん、★鳥も一緒に下げる）。
+			//     ★忘れると「足元 BIRD_LIFT で当たる」がズレます
+			if (o.kind === "bird") y += riderTopOff() - BIRD_LIFT + RIDER_SINK;
 			// ★★止められた扉だけ、白く塗って光らせる（★形はそのまま）
 			if (flash && o.kind === "gate" && o.resolved && !o.opened) {
 				drawArtFlat(f, cx, y, GB[C_GATE_FLASH]);
@@ -4787,6 +4865,7 @@
 			return {
 				SPEED: SPEED, RIDER_X: RIDER_X, SCORE_DOTS: SCORE_DOTS,
 				GROUND_FROM_BOTTOM: GROUND_FROM_BOTTOM, RIDER_FOOT: RIDER_FOOT,
+				RIDER_SINK: RIDER_SINK,   // ★★★★主役を地面より何ドット下へ沈めるか（2026-08-23）
 				COLORS: { BG: C_BG, GROUND: C_GROUND, RIDGE: C_RIDGE, TEXT: C_TEXT,
 					GROUND_EDGE: C_GROUND_EDGE },
 				// ★世界のかたち（js/world.js。テストが「起伏の分だけ余白があるか」を測るのに使う）
@@ -4831,7 +4910,7 @@
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
-				BAR_ON: BAR_ON, BAR_H: BAR_H, BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
+				BAR_ON: BAR_ON, BAR_H: barH(), BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
 				BET_ON: BET_ON, BET_FLASH_MS: BET_FLASH_MS, C_BET: C_BET,
 				SHOP_X: SHOP_X,   // ★テストが「行が画面に収まるか」を測るため（2026-08-23）
 				OVER_FADE_MS: OVER_FADE_MS, C_GAMEOVER: C_GAMEOVER,
