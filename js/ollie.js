@@ -151,6 +151,13 @@
 	// ★★繰り返すたびに横へずらす量（★64 と互いに素にすると、よくばらけます）
 	//   > 島さん「繰り返しているのがわかりすぎて違和感」（2026-08-25）
 	var SOIL_SHIFT  = 23;
+	// ★★★★めずらしい草（根が垂れている絵）—— 2026-08-25 島さんの指定
+	//   > 島さん「これも加えてください。これは５％の出現率でお願いします。」
+	//   > ★★島さん「出現率半分にして。」（2026-08-25）→ ★5% → **2.5%**
+	//   ★区画（64ドット）ごとに、この割合で出ます。★★0 にすると出なくなります
+	//   ★★根の先が体力バーに隠れることがありますが、★★★島さんの判断で**このまま**
+	var EDGE_RARE_RATE = 0.025;
+	var EDGE_RARE_SALT = 80808;
 	var C_RIDGE  = 10;  // ★遠景の稜線。10=濃紺（空より暗い＝遠くのシルエットに見える）
 	var C_TEXT   = 16;  // 距離の数字。16=生成り
 
@@ -3628,6 +3635,39 @@
 		}
 	}
 
+	// ★★★★めずらしい草（根が垂れている絵）を置く（2026-08-25 島さんの指定）
+	//
+	//   ★区画ごとに `EDGE_RARE_RATE` の割合で出ます。
+	//   ★★**絵の上端が地面の表面**に来ます（★ふつうの草と同じ高さから始まる）。
+	//   ★★★透明のところは、ふつうの草と土がそのまま見えます。
+	//     ★だから「ふつうの草の上に、ときどき根が生えている」ように見えます。
+	function drawRareEdge(gx) {
+		var A = global.DotEdgeRareArt;
+		if (!A || EDGE_RARE_RATE <= 0) return;
+		var PALX = global.DotPalette;
+		for (var c = 0; c < W; c++) {
+			var wx = gx + c;
+			var seg = Math.floor(wx / A.W);
+			// ★この区画に出るか（★種で決まるので、戻れば同じところに出る）
+			if (WD.rand(seg, EDGE_RARE_SALT) >= EDGE_RARE_RATE) continue;
+			var col = wx - seg * A.W;
+			var top = groundRowAt(c);
+			// ★縦に続く同じ色はまとめて塗る
+			var y = 0;
+			while (y < A.H) {
+				var ch = A.rows[y].charAt(col);
+				if (ch === ".") { y++; continue; }
+				var run = 1;
+				while (y + run < A.H && A.rows[y + run].charAt(col) === ch) run++;
+				if (top + y < H) {
+					ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+					ctx.fillRect(c, top + y, 1, Math.min(run, H - (top + y)));
+				}
+				y += run;
+			}
+		}
+	}
+
 	// ★★草の絵の「列ごとの下端」（★1回だけ数えて覚えておく）
 	//   ★毎コマ数えると無駄なので、最初に1度だけ作ります
 	var _edgeBottoms = null;
@@ -4039,6 +4079,7 @@
 			fillBelow(groundRowAt, GB[C_GROUND]);
 			if (SOIL_ART_ON) drawSoilArt(gx);   // ★★土の模様（★草より先＝草が上に乗る）
 			drawEdgeArt(gx);
+			drawRareEdge(gx);                   // ★★★★めずらしい草（★いちばん上に乗る）
 		} else {
 			// ★昔の形（★際の色でベタ塗り → 太さぶん下から土）
 			fillBelow(groundRowAt, GB[C_GROUND_EDGE]);
@@ -5100,6 +5141,7 @@
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
 				EDGE_ART_ON: EDGE_ART_ON, EDGE_SALT: EDGE_SALT,
 				SOIL_ART_ON: SOIL_ART_ON, SOIL_SALT: SOIL_SALT, SOIL_REPEAT: SOIL_REPEAT, SOIL_SHIFT: SOIL_SHIFT,
+				EDGE_RARE_RATE: EDGE_RARE_RATE, EDGE_RARE_SALT: EDGE_RARE_SALT,
 				BAR_ON: BAR_ON, BAR_H: barH(), BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
 				BET_ON: BET_ON, BET_FLASH_MS: BET_FLASH_MS, C_BET: C_BET,
 				SHOP_X: SHOP_X,   // ★テストが「行が画面に収まるか」を測るため（2026-08-23）
