@@ -24,59 +24,111 @@
 	"use strict";
 	global.DotEdgeArt = {
 		W: 64, H: 10,
-		EDGE_THICK: 7,   // ★左端と右端の厚み（★全部の絵で同じ）
+		EDGE_THICK: 8,   // ★左端と右端の厚み（★全部の絵で同じ）
 		SHEETS: [
 			// 1段目
 			[
-				"kxkxkxkxkxkxkxqxkxqxkxkxkxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkxkxkxkx",
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
 				"xkxkxkxkxkxkxqxkxkxkxkxkxkxkxqxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkxk",
+				"kxkxkxkxkxkxkxqxkxkxkxkxkxkxkxqxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkx",
 				"kkkkkkkkkkkkkqqkkkqkkkkkkkkkkqqkkkqyqkqyqyqyqkqkkkqkqkqkqkqkqkkk",
 				"kqkqkqkqkqkqkqyqkqyqkqkqkqkqkqyqkqyyyqyyyyyyyqyqkqyqyqyqyqyqyqyq",
 				"ykykykykykykqyyyqyyyqyqyqyqyqyyyqycccycccyyyyyyyqyyyyyyyyyyyyyyy",
 				"yyyyyyyyyyyyycccycccyyyyyyyyycccyc...c...c.c.c.cyc.c.c.c.c.c.cyc",
 				"cycycycycycyccc.c.cycycycycyccc.c...............c.............cy",
 				".c.c.c.c.c.c.......c.c.c.c.c....................................",
-				"................................................................",
 				"................................................................"
 			],
 			// 2段目
 			[
-				"kxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxkxkxqxkxqxkxkxqxkxkxqxkxkxkxkxkx",
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
 				"xkxkxkxkxkxkxkxkxkxkxkxkxyxqxkxkxkxkxqxkxqxkxkxkxkxqxkxkxkxkxkxk",
+				"kxkxkxkxkxkxkxqxkxkxkxkxkxkxkxqxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkx",
 				"kkkkkkkkkkkkkkkkkkkkkkqkqyyqqkkkkkkkqqkkqqkkkkqkkkkqkkqkqyqkqkkk",
 				"kqkqkqkqkykqkqkqkqkqkqyqyccyyqkqkqkqqqkqqqkqkqqqkqkqkqyqycyqyqkq",
 				"ykykykykyyqyqyqqqyqyqycyc..ccyqyqyqyqyqyqyqyqykyqyqyqycyc.cycyqy",
 				"yyyyyyyyycycycyyycycyc.c.....cycyyyyycyyycycycyyycycyc.c...c.cyc",
 				"cycycycyc.c.c.cyc.c.c.........c.cycycccyc.c.c.cyc.c.c.........cy",
 				".c.c.c.c.......c.................c.c...c.......c................",
-				"................................................................",
 				"................................................................"
 			],
 			// 3段目
 			[
-				"kxkxkxkxqxkxqxkxkxqxkxkxkxkxkxqxkxkxkxkxkxkxkxkxqxkxkxkxkxkxkxkx",
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
 				"xkxkxkxqxqxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxk",
+				"kxkxkxkxkxkxkxqxkxkxkxkxkxkxkxqxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkx",
 				"kkkkkkkqqqkkqkqkqyykqkkkkkkkkkqkykqkqkkkqkqkkkkkqkkkkkkkqyqkqkkk",
 				"kqkqkykqqqkqqqyqyccyyqkqkqkqkqqyyyyqyqkqyqyqkqkqyqkqkqkqycyqyqkq",
 				"ykqkyyyyyyqyyycyc.cycyqkqkqyqyyycycycyqycycyqyqkykqqqyqyc.cycyqy",
 				"yyyyycycccyccc.c...c.cyyyqycyccc.c.c.cyc.c.cycyyyyqyycyc...c.cyc",
 				"cycyc.c.ccc...........cycycycyc.......c.....c.cycyyyc.c.......cy",
 				".c.c...................c.cyc.c.................c.cyc............",
-				"..........................c.......................c.............",
-				"................................................................"
+				"..........................c.......................c............."
 			],
 			// 4段目
 			[
-				"kxkxkxkxqxkxkxkxkxqxkxqxkxkxkxkxkxkxqxkxkxkxkxkxkxkxkxkxkxkxkxkx",
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
 				"xkxkxkxkxqxkxkxkxkxqxqxkxkxkxqxkxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxk",
+				"kxkxkxkxkxkxkxqxkxkxkxkxkxkxkxqxkxkxqxkxqxkxkxkxkxkxkxkxkxkxkxkx",
 				"kkkkkkkkqqkkqyqkkkqqkqqkqkqkqqkkkkkkqqkkkqkkqyqkkkkkkkkkqkqkqkkk",
 				"kqkqkqkqqqkqycyqkqqqkqqqyqyqyqkqkqkqqqkqkqkqycyqkqkqkqkqyqyqyqkq",
 				"qyqyqyqyyqkyc.cyqyyqqyyycycycyqyqyqyyyqyqyqyc.cyqyqkqyqycycycyqy",
 				"ycycycycccyc...cyccyyccc.c.c.cycycycccycycyc...cycyqycyc.c.c.cyc",
 				"cyc.cycyc.c.....cyccccc.......c.c.c.cccyc.c.....cycycyc.......cy",
 				".c...c.c.........c.cyc.................c.........c.cyc..........",
-				"....................c...............................c...........",
+				"....................c...............................c..........."
+			],
+			// 1段目（左右反転）
+			[
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+				"kxkxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxqxkxkxkxkxkxkxkxqxkxkxkxkxkxkx",
+				"xkxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxqxkxkxkxkxkxkxkxqxkxkxkxkxkxkxk",
+				"kkkqkqkqkqkqkqkkkqkqyqyqyqkqyqkkkqqkkkkkkkkkkqkkkqqkkkkkkkkkkkkk",
+				"qyqyqyqyqyqyqyqkqyqyyyyyyyqyyyqkqyqkqkqkqkqkqyqkqyqkqkqkqkqkqkqk",
+				"yyyyyyyyyyyyyyyqyyyyyyycccycccyqyyyqyqyqyqyqyyyqyyyqkykykykykyky",
+				"cyc.c.c.c.c.c.cyc.c.c.c...c...cycccyyyyyyyyycccycccyyyyyyyyyyyyy",
+				"yc.............c...............c.cccycycycycyc.c.cccycycycycycyc",
+				"....................................c.c.c.c.c.......c.c.c.c.c.c.",
 				"................................................................"
+			],
+			// 2段目（左右反転）
+			[
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+				"kxkxkxkxkxkxqxkxkxkxkxqxkxqxkxkxkxkxqxyxkxkxkxkxkxkxkxkxkxkxkxkx",
+				"xkxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxqxkxkxkxkxkxkxkxqxkxkxkxkxkxkxk",
+				"kkkqkqyqkqkkqkkkkqkkkkqqkkqqkkkkkkkqqyyqkqkkkkkkkkkkkkkkkkkkkkkk",
+				"qkqyqycyqyqkqkqkqqqkqkqqqkqqqkqkqkqyyccyqyqkqkqkqkqkqkykqkqkqkqk",
+				"yqycyc.cycyqyqyqykyqyqyqyqyqyqyqyqycc..cycyqyqyqqqyqyqyykykykyky",
+				"cyc.c...c.cycycyyycycycyyycyyyyycyc.....c.cycycyyycycycyyyyyyyyy",
+				"yc.........c.c.cyc.c.c.cycccycyc.c.........c.c.cyc.c.c.cycycycyc",
+				"................c.......c...c.c.................c.......c.c.c.c.",
+				"................................................................"
+			],
+			// 3段目（左右反転）
+			[
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+				"kxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxkxqxqxkxkxkx",
+				"xkxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxqxkxkxkxkxkxkxkxqxkxkxkxkxkxkxk",
+				"kkkqkqyqkkkkkkkqkkkkkqkqkkkqkqkykqkkkkkkkkkqkyyqkqkqkkqqqkkkkkkk",
+				"qkqyqycyqkqkqkqyqkqkqyqyqkqyqyyyyqqkqkqkqkqyyccyqyqqqkqqqkykqkqk",
+				"yqycyc.cyqyqqqkykqyqycycyqycycycyyyqyqkqkqycyc.cycyyyqyyyyyykqky",
+				"cyc.c...cycyyqyyyycyc.c.cyc.c.c.cccycyqyyyc.c...c.cccycccycyyyyy",
+				"yc.......c.cyyycyc.c.....c.......cycycycyc...........ccc.c.cycyc",
+				"............cyc.c.................c.cyc.c...................c.c.",
+				".............c.......................c.........................."
+			],
+			// 4段目（左右反転）
+			[
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+				"kxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxkxqxkxkxkxqxqxkxkxkxkxqxkxkxkxkx",
+				"xkxkxkxkxkxkxkxkxkxkxkxqxkxqxkxkxqxkxkxkxkxkxkxkxqxkxkxkxkxkxkxk",
+				"kkkqkqkqkkkkkkkkkqyqkkqkkkqqkkkkkkqqkqkqkqqkqqkkkqyqkkqqkkkkkkkk",
+				"qkqyqyqyqkqkqkqkqycyqkqkqkqqqkqkqkqyqyqyqqqkqqqkqycyqkqqqkqkqkqk",
+				"yqycycycyqyqkqyqyc.cyqyqyqyyyqyqyqycycycyyyqqyyqyc.cykqyyqyqyqyq",
+				"cyc.c.c.cycyqycyc...cycycycccycycyc.c.c.cccyyccyc...cycccycycycy",
+				"yc.......cycycyc.....c.cyccc.c.c.c.......cccccyc.....c.cycyc.cyc",
+				"..........cyc.c.........c.................cyc.c.........c.c...c.",
+				"...........c...............................c...................."
 			]
 		]
 	};

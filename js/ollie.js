@@ -135,6 +135,22 @@
 	//   ★`EDGE_ART_ON = 0` にすると、昔の「際の色でベタ塗り」に戻ります
 	var EDGE_ART_ON = 1;
 	var EDGE_SALT   = 60601;   // ★区画ごとに「どの絵を使うか」を引くための番号
+	// ★★★★2026-08-25、土（地面の本体）にも模様が入った（→ js/soil-art.js）
+	//   > 島さん「次は土部分の模様を描いてくれる？」
+	//   ★★**草の下端から**置きます。★土が見える高さは 3〜28ドットと場所で変わるので、
+	//     ★絵は途中で切られますが、★★★**絵の下端が土の基本の色**なので、
+	//     その先に続く無地の土とつながって**切れ目が見えません**。
+	//   ★`SOIL_ART_ON = 0` にすると、昔の「土は一色ベタ塗り」に戻ります
+	var SOIL_ART_ON = 1;
+	var SOIL_SALT   = 70707;   // ★草とは別の番号（★同じだと草と土が必ずセットで動く）
+	// ★★★★絵より深いところは、絵の「下 SOIL_REPEAT 行」を縦に繰り返します。
+	//   > 島さん「下端が一色なの気になります」（2026-08-25）
+	//   ★大きくすると模様の周期が長くなり、★小さくすると細かく繰り返します。
+	//   ★★1 にすると「下端の1行を伸ばす」＝ 縦縞になるので注意
+	var SOIL_REPEAT = 6;
+	// ★★繰り返すたびに横へずらす量（★64 と互いに素にすると、よくばらけます）
+	//   > 島さん「繰り返しているのがわかりすぎて違和感」（2026-08-25）
+	var SOIL_SHIFT  = 23;
 	var C_RIDGE  = 10;  // ★遠景の稜線。10=濃紺（空より暗い＝遠くのシルエットに見える）
 	var C_TEXT   = 16;  // 距離の数字。16=生成り
 
@@ -3499,6 +3515,11 @@
 			var idx = Math.floor(WD.rand(seg, EDGE_SALT) * E.SHEETS.length);
 			if (idx < 0) idx = 0;
 			if (idx >= E.SHEETS.length) idx = E.SHEETS.length - 1;
+			// ★★★★AIへ: ここに「横ずらし」を入れないこと（2026-08-25 に試して却下）
+			//   ★土（drawSoilArt）には入れてあるが、★★**草には使えません**。
+			//   ★草は「**両端の厚みがそろっている**」ことで継ぎ目を消しているので、
+			//     ★★★途中から読むと**厚みが合わず、段差が8ドット出ました**（★実測）。
+			//   ★しかも繰り返しは 4.99 → 3.25倍にしか下がらず、割に合わなかった。
 			var col = wx - seg * E.W;                        // ★絵の中の何列目か
 			var rows = E.SHEETS[idx];
 			var top = groundRowAt(c);
@@ -3514,6 +3535,117 @@
 				y += run;
 			}
 		}
+	}
+
+	// ★★★★土（地面の本体）の模様を置く（2026-08-25）
+	//
+	//   ★★**草の下端から**始めます（★列ごとに、草の絵がどこまで届いているかを見る）。
+	//   ★下は体力バーの上まで。★足りないところで切られますが、
+	//     ★★★絵の下端が土の基本の色なので、**その先の無地とつながります**。
+	function drawSoilArt(gx) {
+		var S = global.DotSoilArt, E = global.DotEdgeArt;
+		if (!S) return;
+		var PALX = global.DotPalette;
+		// ★★★★2026-08-25、島さん「体力バーの上も先ほどの一色になっています」
+		//   ★体力バーの絵には**透明なところが1599ドット**あり、
+		//   ★★そこから**下の地面が見えます**。
+		//   ★★★だから土の模様は「バーの上まで」ではなく、**画面のいちばん下まで**描く
+		//     （★前は barTop() までで止めていたので、★そこだけ一色に見えていた）
+		var bottom = H;
+		var eb = edgeBottoms();                // ★草の下端（段ごと・列ごと）
+		for (var c = 0; c < W; c++) {
+			var wx = gx + c;
+			// ★草がどこまで届いているか（★草の絵を使っていなければ、種の太さで測る）
+			var off = 0;
+			if (eb && E) {
+				var eseg = Math.floor(wx / E.W);
+				var ei = Math.floor(WD.rand(eseg, EDGE_SALT) * E.SHEETS.length);
+				if (ei < 0) ei = 0;
+				if (ei >= E.SHEETS.length) ei = E.SHEETS.length - 1;
+				off = eb[ei][wx - eseg * E.W];
+			} else {
+				off = WD.edgeThickAt(wx);
+			}
+			var top = groundRowAt(c) + off;
+			if (top >= bottom) continue;
+
+			var seg = Math.floor(wx / S.W);
+			var idx = Math.floor(WD.rand(seg, SOIL_SALT) * S.SHEETS.length);
+			if (idx < 0) idx = 0;
+			if (idx >= S.SHEETS.length) idx = S.SHEETS.length - 1;
+			// ★★★★区画ごとに「絵のどこから読むか」を横にずらす（2026-08-25）
+			//   > 島さん「繰り返しているのがわかりすぎて違和感」
+			//   ★段を選ぶだけだと、★★**64ドットごとに同じ模様が同じ位置に来ます**
+			//     （★実測 1.63倍。★ずらしを入れて 1.0倍近くになる）。
+			//   ★★土は粒状なので、どこでつないでも継ぎ目は見えません
+			var sft = Math.floor(WD.rand(seg, SOIL_SALT + 7) * S.W);
+			var col = ((wx - seg * S.W) + sft) % S.W;
+			var rows = S.SHEETS[idx];
+			// ★縦に続く同じ色はまとめて塗る
+			var y = 0, lim = Math.min(S.H, bottom - top);
+			while (y < lim) {
+				var ch = rows[y].charAt(col);
+				var run = 1;
+				while (y + run < lim && rows[y + run].charAt(col) === ch) run++;
+				ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+				ctx.fillRect(c, top + y, 1, run);
+				y += run;
+			}
+			// ★★★★絵より下は、**その列の下端の色**でそのまま伸ばす（2026-08-25）
+			//   ★★土が見える高さは 3〜28ドットと場所で変わるので、絵は途中で切られます。
+			//   ★★★下端の色を続けるので、**どこで切れても切れ目が見えません**。
+			//     ★はじめは「絵の下端は土の基本の色にすること」という決まりにしていたが、
+			//     ★★島さんが土を茶色に描き直したので、★**仕組みのほうで解いた**
+			//       ＝ ★★★島さんは下端の色を気にせず描ける
+			// ★★★★絵より下は、**絵の「下のほう」を縦に繰り返す**（2026-08-25）
+			//   > 島さん「下端が一色なの気になります」→ ★1色をやめて繰り返しにした
+			//   > 島さん「繰り返しているのがわかりすぎて違和感」
+			//     → ★★★**繰り返すたびに、別の段を使い、横にもずらす**
+			//
+			//   ★これで縦にも横にも変化が出るので、★★同じ模様が真下に並びません。
+			//   ★上のほう（草のすぐ下の影）は繰り返しません（★何度も影が出て不自然）
+			var rep = Math.min(SOIL_REPEAT, S.H);
+			var depth = bottom - top;
+			var yy = S.H;
+			while (yy < depth) {
+				var repI = Math.floor((yy - S.H) / rep);       // ★何回目の繰り返しか
+				var sh2 = S.SHEETS[(idx + repI + 1) % S.SHEETS.length];   // ★段を変える
+				var col2 = ((col + repI * SOIL_SHIFT) % S.W + S.W) % S.W; // ★横にずらす
+				var src = S.H - rep + ((yy - S.H) % rep);
+				var ch2 = sh2[src].charAt(col2);
+				// ★まとめるのは「同じ繰り返しの中」だけ（★またぐと段も横位置も変わる）
+				var repEnd = Math.min(depth, S.H + (repI + 1) * rep);
+				var run2 = 1;
+				while (yy + run2 < repEnd) {
+					var s2 = S.H - rep + ((yy + run2 - S.H) % rep);
+					if (sh2[s2].charAt(col2) !== ch2) break;
+					run2++;
+				}
+				ctx.fillStyle = GB[PALX.indexOfChar(ch2)];
+				ctx.fillRect(c, top + yy, 1, run2);
+				yy += run2;
+			}
+		}
+	}
+
+	// ★★草の絵の「列ごとの下端」（★1回だけ数えて覚えておく）
+	//   ★毎コマ数えると無駄なので、最初に1度だけ作ります
+	var _edgeBottoms = null;
+	function edgeBottoms() {
+		var E = global.DotEdgeArt;
+		if (!E) return null;
+		if (_edgeBottoms) return _edgeBottoms;
+		_edgeBottoms = [];
+		for (var s = 0; s < E.SHEETS.length; s++) {
+			var arr = [];
+			for (var x = 0; x < E.W; x++) {
+				var b = 0;
+				for (var y = 0; y < E.H; y++) if (E.SHEETS[s][y].charAt(x) !== ".") b = y + 1;
+				arr.push(b);
+			}
+			_edgeBottoms.push(arr);
+		}
+		return _edgeBottoms;
 	}
 
 	// ★★スタミナバー（★★★2026-08-23、島さんの指定で**画面のいちばん下**へ移した）
@@ -3905,6 +4037,7 @@
 		var gx = worldX();
 		if (EDGE_ART_ON && global.DotEdgeArt) {
 			fillBelow(groundRowAt, GB[C_GROUND]);
+			if (SOIL_ART_ON) drawSoilArt(gx);   // ★★土の模様（★草より先＝草が上に乗る）
 			drawEdgeArt(gx);
 		} else {
 			// ★昔の形（★際の色でベタ塗り → 太さぶん下から土）
@@ -4966,6 +5099,7 @@
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
 				// ★★スタミナバーとコインのカウントアップ（2026-08-15）
 				EDGE_ART_ON: EDGE_ART_ON, EDGE_SALT: EDGE_SALT,
+				SOIL_ART_ON: SOIL_ART_ON, SOIL_SALT: SOIL_SALT, SOIL_REPEAT: SOIL_REPEAT, SOIL_SHIFT: SOIL_SHIFT,
 				BAR_ON: BAR_ON, BAR_H: barH(), BAR_STEPS: BAR_STEPS, C_BAR_BACK: C_BAR_BACK,
 				BET_ON: BET_ON, BET_FLASH_MS: BET_FLASH_MS, C_BET: C_BET,
 				SHOP_X: SHOP_X,   // ★テストが「行が画面に収まるか」を測るため（2026-08-23）
