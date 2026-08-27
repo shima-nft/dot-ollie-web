@@ -89,7 +89,9 @@
 		return {
 			name: T.name, label: T.label, art: global[T.art], ms: T.ms,
 			how: HOW[T.name] || null,      // 技なら「どの操作で出るか」/ 地上の姿なら null
-			idle: IDLE[T.name] || null     // 地上の姿なら "loop" か "once"
+			idle: IDLE[T.name] || null,    // 地上の姿なら "loop" か "once"
+			// ★★★★主役の姿かどうか（2026-08-27）。★敵は 0（→ js/frames.js の `rider`）
+			rider: (T.rider === 0 ? 0 : 1)
 		};
 	});
 
@@ -338,6 +340,20 @@
 	var ENEMY_ON      = 1;    // 1=出す / 0=出さない
 	var ENEMY_GAP_MIN = 140;  // ★丘での間隔（ドット）。★ここから
 	var ENEMY_GAP_MAX = 320;  //   ★ここまでの間でランダム（★約2〜4.5秒に1個）
+	// ============================================================
+	// ★★★★丘の敵その2（鳥）—— 2026-08-27 島さんの指定
+	// ============================================================
+	//   > 島さん「敵としての仕様はスライムと同じです。
+	//   >   他の障害物とケンカにならないように出現率を調整してください。
+	//   >   スライムより出現率を低くしてください。」
+	//
+	//   ★★**スライムより広い間隔**にしてあります（★＝出やすさが低い）。
+	//   ★★★さらに「**ケンカにならない**」ために、置く前に**近くを見て**、
+	//     ★ほかの障害物が `TORI_KEEP` より近ければ**置きません**（★次の機会にまわす）。
+	var TORI_ON      = 1;
+	var TORI_GAP_MIN = 420;   // ★スライム（140〜320）より広い ＝ ★出にくい
+	var TORI_GAP_MAX = 900;
+	var TORI_KEEP    = 90;    // ★★ほかの障害物とは、これだけ離す（ドット）
 
 	// ============================================================
 	// ■■■ ★★★★飛ぶ敵（BIRD）—— 「ここは跳ばない」を作る ■■■
@@ -864,6 +880,34 @@
 	//   ★★★**揺れは描画だけ。** 距離・倍率・当たり判定には1ドットも触らない
 	var SHAKE_MS = 220;       // 揺れている長さ
 	var SHAKE_PX = 2;         // 揺れ幅（ドット）
+	// ============================================================
+	// ★★★★ダメージのフラッシュ —— 2026-08-27 島さんの指定
+	// ============================================================
+	//   > 島さん「フラッシュは1コマ」
+	//
+	//   ★★桜井資料: **画面フラッシュ・画面振動の併用で手応えが大きく変わる**
+	//     （出典: 閃光､爆発､残煙 / `03-graphics.md`）。★いままでは振動だけでした。
+	//
+	//   ★★★**時間ではなく「コマ数」で数えます**（★島さんの指定が「1コマ」なので）。
+	//     ★時間（ミリ秒）で持つと、★★遅い機械では2コマ以上光ってしまいます。
+	//
+	//   ★★これは**見た目だけ**。★当たり判定・速さ・間隔には1ドットも触りません。
+	var HIT_FLASH_ON     = 1;
+	var HIT_FLASH_FRAMES = 1;    // ★★何コマ光らせるか（★島さんの指定は1）
+	// ★★★★光る色（2026-08-27、島さんが**赤（純）**を選んだ）
+	//   > 桜井資料「フラッシングは手応えと**状態変化の表現**（無敵=白、掴まれ無敵=黄 など
+	//   >   **意味を持たせる**）」（出典: フラッシング / `03-graphics.md`）
+	//
+	//   ★★★**この作品では、白はもう別の意味に使われています**:
+	//     ・MAXdrink の全回復 … ★**白い点滅**（★良いこと）
+	//     ・ゴールの光        … ★**白**（★良いこと）
+	//   ★★だからダメージも白にすると、**良いことと悪いことが同じ見え方**になります。
+	//
+	//   ★実測（★ふだんの画面の明るさ 0.378）:
+	//     赤（純）#e00000 … 明るさ 0.158 / ★変化 0.220 / ★★**消えるドット 0.0%**
+	//     白      #fcf5fd … 明るさ 0.931 / 変化 0.552 / ★★消えるドット **9.1%**（鳥・コーンの白）
+	//   ★★桃は却下（★背景と明るさがほぼ同じで、光ったと分からない）
+	var C_HIT_FLASH      = 25;   // ★25=赤（純）#e00000
 
 	// ★★距離の節目（★進むほど間隔が広がる。★距離は報酬の主役ではない）
 	//
@@ -1132,6 +1176,11 @@
 	//   > 「障害物の岩を敵01に差し替えて」
 	var ENEMY = global.DotEnemyArt;
 	var ENEMY_W = ENEMY.FRAMES[0].rows[0].length;
+	// ★★★★丘の敵その2（鳥）。2026-08-27、島さんの指定で追加
+	//   > 島さん「敵としての仕様はスライムと同じです」
+	//   ★★**地面に立ちます**（★空を飛ぶ敵 `bird` とは別もの。★あちらは BIRD_ON = 0 で停止中）
+	var TORI = global.DotToriArt || null;
+	var TORI_W = TORI ? TORI.FRAMES[0].rows[0].length : 0;
 
 	// ★★★★飛ぶ敵（2026-08-23 島さんの指定で新設）。★★いまは**仮の絵**（→ `js/bird-art.js`）
 	var BIRD = global.DotBirdArt;
@@ -1152,6 +1201,7 @@
 	// ★障害物1つの絵と幅（★2か所に持たない）
 	function obArt(o) {
 		if (o.kind === "enemy") return ENEMY;
+		if (o.kind === "tori") return TORI;
 		if (o.kind === "bird")  return BIRD;
 		if (o.kind === "key")  return KEY;
 		if (o.kind === "camp") return CAMP;
@@ -1168,6 +1218,7 @@
 	}
 	function obWidth(o) {
 		if (o.kind === "enemy") return ENEMY_W;
+		if (o.kind === "tori") return TORI_W;
 		if (o.kind === "bird")  return BIRD_W;
 		if (o.kind === "gate" || o.kind === "goal") return GATE_W;
 		if (o.kind === "key")  return KEY_W;
@@ -1880,6 +1931,11 @@
 			shopOpen: false,       // ★★ショップボタンで開いているか（2026-08-16）
 			overFadeMs: 0,         // ★★GAMEOVER の暗転が、どこまで進んだか（2026-08-16）
 			coin: 0,               // ★★積分した稼ぎ（毎コマ「距離 × そのときの倍率」を足す）
+			// ★★★★絵を動かすための時計（2026-08-27。★敵のコマ送りに使う）
+			//   ★★**見た目だけの時計**。★遊び（当たり判定・距離・コイン）には1ドットも触りません。
+			//   ★★★止まっているとき（PAUSE / READY / エンディング）は進みません
+			animMs: 0,
+			hitFlash: 0,           // ★★★★ダメージのフラッシュ。★残りコマ数（2026-08-27）
 			reviveMs: 0,           // ★★MAXdrink で全回復した演出の残り（2026-08-22）
 			// ★★★★BET（2026-08-23 島さんの指定）。★どれも**そのランのあいだだけ**
 			betMul: 1,             // ★いまコインが何倍か（★1 = 賭けていない）
@@ -1904,6 +1960,7 @@
 		if (startAtM > 0) st.dist = startAtM * SCORE_DOTS;
 		st.nextCone = nextConeGap();
 		st.nextEnemy = nextEnemyGap();
+		st.nextTori = nextToriGap();      // ★★★★丘の敵その2（鳥）。2026-08-27
 		st.nextBird = nextBirdGap();      // ★★★★飛ぶ敵（2026-08-23）
 		st.nextPush = nextPushWait();
 		// ★★やり直しは「もう走り出している」ところから始める。
@@ -2054,6 +2111,32 @@
 	// ★丘の敵までの間隔をランダムに引く（★種で決めない ＝ 覚えゲーにしない）
 	function nextEnemyGap() {
 		return enemyGapMin() + Math.random() * (ENEMY_GAP_MAX - ENEMY_GAP_MIN);
+	}
+
+	// ★★★★丘の敵その2（鳥）。★下限はスライムとまったく同じ作り（★速さについてくる）
+	function toriGapMin() { return Math.max(TORI_GAP_MIN, trickTravelDots() * GAP_SAFETY); }
+	function nextToriGap() {
+		return toriGapMin() + Math.random() * (TORI_GAP_MAX - TORI_GAP_MIN);
+	}
+
+	// ★★★★「ケンカにならないか」を見る（2026-08-27 島さんの指定）
+	//   > 島さん「他の障害物とケンカにならないように出現率を調整してください」
+	//   ★★これから置こうとする場所の**まわり `TORI_KEEP` ドット**に、
+	//     ★ほかの障害物（コーン・スライム・扉…）が居たら**置きません**。
+	//   ★★★出現率を下げるだけでは「たまたま重なる」が起きます。★ここで**構造的に**防ぎます
+	//   ★★★★2026-08-27、**両方が互いを見ます**。
+	//     ★はじめは鳥だけが見ていましたが、★★**鳥を置いたあとにスライムが近づいて**きて、
+	//       ★実測で「3ドットしか離れていない組み合わせ」が20個できました。
+	//     ★★★片側だけでは防げません（★置く順番はどちらが先か分からない）。
+	function tooCloseForTori(wx, mine) {
+		for (var i = 0; i < st.cones.length; i++) {
+			var o2 = st.cones[i];
+			if (o2.taken) continue;
+			if (mine && o2.kind === mine) continue;      // ★同じ種類どうしは、それぞれの間隔にまかせる
+			var w2 = obWidth(o2) || 0;
+			if (Math.abs((o2.wx || 0) - wx) < TORI_KEEP + w2) return true;
+		}
+		return false;
 	}
 
 	// ★★★★飛ぶ敵（2026-08-23 島さんの指定）
@@ -2447,6 +2530,7 @@
 		//   ★越えられなかった ＝ `gainCoin` が呼ばれない ＝ **稼ぎ損ねる**のが損
 		st.slowMs = HIT_SLOW_MS;        // ★しばらく減速する
 		st.shakeMs = SHAKE_MS;          // ★★揺れる（★描画だけ。遊びには触らない）
+		st.hitFlash = HIT_FLASH_FRAMES; // ★★★★光る（★これも描画だけ）
 		sound(220, 0.12);
 	}
 
@@ -3078,6 +3162,8 @@
 			st.reviveMs = REVIVE_MS;            // ★演出
 			reviveSound();                      // ★心地よい音
 		}
+		// ★★★★絵の時計を進める（2026-08-27）。★見た目だけ
+		st.animMs += dt * 1000;
 		if (st.reviveMs > 0) st.reviveMs = Math.max(0, st.reviveMs - dt * 1000);
 		// ★★★★BET を払った瞬間の点滅（2026-08-23）
 		if (st.betFlashMs > 0) st.betFlashMs = Math.max(0, st.betFlashMs - dt * 1000);
@@ -3212,11 +3298,31 @@
 					var enemyAt = worldX() + W + 4;
 					// ★丘のときだけ（＝まっすぐな道ではないとき）
 					//   ★★★扉の前後は何も置かない（2026-08-23 島さんの指定）
-					if (WD.flatnessAt(enemyAt) <= 0 && !inGoalClear(enemyAt)) {
+					// ★★★★2026-08-27、**鳥が近ければ置きません**（★島さん「ケンカにならないように」）。
+					//   ★鳥のほうが数が少ないので、★★**先に居るほうを残します**
+					if (WD.flatnessAt(enemyAt) <= 0 && !inGoalClear(enemyAt) &&
+						!(TORI_ON && TORI && tooCloseForTori(enemyAt, "enemy"))) {
 						st.cones.push({ x: W + 4, wx: enemyAt, kind: "enemy" });
 						st.enemiesBorn++;
 					}
 					st.nextEnemy = nextEnemyGap();
+				}
+			}
+
+			// ★★★★丘の敵その2（鳥）。2026-08-27、島さんの指定で新設
+			//   ★★**仕様はスライムと同じ**（★丘にだけ置く／地面に立つ／扉の前後は空ける）。
+			//   ★★★ちがうのは2つだけ:
+			//     ① ★間隔が広い（★出やすさが低い）
+			//     ② ★★ほかの障害物が近ければ**置かない**（★ケンカを構造的に防ぐ）
+			if (TORI_ON && TORI) {
+				st.nextTori -= moved;
+				if (st.nextTori <= 0) {
+					var toriAt = worldX() + W + 4;
+					if (WD.flatnessAt(toriAt) <= 0 && !inGoalClear(toriAt) && !tooCloseForTori(toriAt, "tori")) {
+						st.cones.push({ x: W + 4, wx: toriAt, kind: "tori" });
+						st.toriBorn = (st.toriBorn || 0) + 1;
+					}
+					st.nextTori = nextToriGap();
 				}
 			}
 
@@ -3807,6 +3913,28 @@
 	// ★三角コーン。**絵のいちばん下が地面に乗る**（島さんが描いたまま）
 	//   ★2026-08-11 から、コーンも**その場所の地面の高さ**に乗る（坂の上では高い）
 	//   ★★2026-08-15: コーン（まっすぐな道）と敵（丘）を**同じ道具で描く**
+	// ★★★★敵の「いま何コマ目か」（2026-08-27）
+	//   ★★世界の位置を種にしてズラすので、★**となり合う敵が同じ動きにならない**。
+	//   ★★★絵が1コマしか無ければ 0 を返すだけ（★昔の絵に戻しても動く）
+	function enemyFrame(o, A) {
+		if (!A || !A.FRAMES || A.FRAMES.length <= 1) return 0;
+		if (o.kind !== "enemy" && o.kind !== "tori") return 0;
+		var ms = global.DotFrames &&
+			(o.kind === "tori" ? global.DotFrames.TORI_MS : global.DotFrames.ENEMY_MS);
+		if (!ms || !ms.length) return 0;
+		var total = 0, k;
+		for (k = 0; k < ms.length; k++) total += ms[k];
+		if (total <= 0) return 0;
+		// ★この敵ごとに始まりをずらす（★世界の位置から決めるので、戻れば同じ動き）
+		var off = ((o.wx || 0) * 37) % total;
+		var t = (st.animMs + off) % total;
+		for (k = 0; k < ms.length; k++) {
+			if (t < ms[k]) return Math.min(k, A.FRAMES.length - 1);
+			t -= ms[k];
+		}
+		return 0;
+	}
+
 	function drawCones() {
 		// ★★扉が光っているあいだ、点滅させる（★2026-08-16 のレビュー C-1）
 		//   ★描画だけ。★遊びには1ドットも触らない
@@ -3814,7 +3942,11 @@
 		for (var i = 0; i < st.cones.length; i++) {
 			var o = st.cones[i];
 			if (o.taken) continue;            // ★拾った鍵は、もう描かない
-			var A = obArt(o), f = A.FRAMES[0];
+			// ★★★★敵だけ、時間でコマが進む（2026-08-27 島さんの指定「30msで」）
+			//   ★★コマの長さは `js/frames.js` の `ENEMY_MS`（★島さんの持ち場）。
+			//     ★★★**GIF のように絵へ埋め込まない**ので、あとから速さだけ直せます。
+			//   ★見た目だけ。★★当たり判定は**1コマ目の形**のまま（→ `obArt`／`obW`）
+			var A = obArt(o), f = A.FRAMES[enemyFrame(o, A)];
 			var half = Math.floor(f.rows[0].length / 2);
 			var cx = Math.round(o.x);
 			var y = groundRowAt(cx + half) - 1 - A.FEET_ROW + f.y;
@@ -4238,6 +4370,26 @@
 		// ★★★キャンプの選択（2026-08-16 / Phase D）
 		else if (st.phase === "camp") {
 			drawCampScreen();
+		}
+
+		// ============================================================
+		// ★★★★ダメージのフラッシュ（2026-08-27 島さんの指定「フラッシュは1コマ」）
+		// ============================================================
+		//   ★★**いちばん最後に、画面ぜんぶを1色で塗ります**（★1コマだけ）。
+		//   ★★★桜井資料「画面フラッシュ・画面振動の併用で手応えが大きく変わる」。
+		//     ★いままでは振動だけでした。
+		//
+		//   ★★★★2026-08-27、**この上に置けるようになった経緯**:
+		//     ★以前は「道のすぐ上10行は必ず明るいまま」という決まりがあり、
+		//       ★★画面を光らせると障害物が見えなくなる、と考えていました。
+		//     ★★★調べたら**その決まりは役目を終えていました**（時間帯も天気も無い）。
+		//       → 見分けを支えているのは**黒い縁取り**のほう。★だから1コマなら問題ありません。
+		//
+		//   ★これは**見た目だけ**。★★数える処理はここに書かない（★描くだけ）
+		if (HIT_FLASH_ON && st.hitFlash > 0) {
+			ctx.fillStyle = GB[C_HIT_FLASH];
+			ctx.fillRect(0, 0, W, H);
+			st.hitFlash--;                 // ★★1コマ描いたら1つ減らす
 		}
 	}
 
@@ -5134,6 +5286,8 @@
 				HIT_SLOW_MS: HIT_SLOW_MS, HIT_SLOW: HIT_SLOW,
 				COIN_PER: COIN_PER,
 				// ★★報酬フィードバック（2026-08-15）
+				HIT_FLASH_ON: HIT_FLASH_ON, HIT_FLASH_FRAMES: HIT_FLASH_FRAMES,
+				C_HIT_FLASH: C_HIT_FLASH,
 				POP_ON: POP_ON, POP_MS: POP_MS, POP_MAX: POP_MAX, POP_RISE: POP_RISE,
 				GAIN_FLASH_MS: GAIN_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
@@ -5152,6 +5306,8 @@
 				CONE_SOURCE: CONE.SOURCE,
 				// ★★丘の敵。2026-08-15、島さんの指定で新設
 				ENEMY_ON: ENEMY_ON, ENEMY_GAP_MIN: ENEMY_GAP_MIN, ENEMY_GAP_MAX: ENEMY_GAP_MAX,
+				TORI_ON: TORI_ON, TORI_GAP_MIN: TORI_GAP_MIN, TORI_GAP_MAX: TORI_GAP_MAX,
+				TORI_KEEP: TORI_KEEP, TORI_W: TORI_W,
 				// ★★★★飛ぶ敵（2026-08-23 島さんの指定）
 				BIRD_ON: BIRD_ON, BIRD_LIFT: BIRD_LIFT, BIRD_COIN: BIRD_COIN,
 				BIRD_GAP_MIN: BIRD_GAP_MIN, BIRD_GAP_MAX: BIRD_GAP_MAX,
@@ -5196,6 +5352,7 @@
 				POSES: POSES.map(function (P) {
 					return {
 						name: P.name, label: P.label, how: P.how, idle: P.idle, x0: P.x0,
+						rider: P.rider,   // ★★2026-08-27: 主役の姿かどうか（★敵は 0）
 						count: P.art.COUNT, feetRow: P.art.FEET_ROW,
 						source: P.art.SOURCE,
 						ms: P.ms, totalMs: FR.totalMs(P.ms), lifts: P.lifts,
