@@ -107,8 +107,26 @@
 		var seed = WD.getSeed();
 		var salt = seed + 7919 * (li + 1) + 31;
 		var base = k * 8191;
-		var total = 0;
-		for (i = 0; i < mine.length; i++) total += (P.PARTS[mine[i]].weight || 1);
+
+		// ============================================================
+		// ★★★★2026-08-27、出やすさを「地域」で変える（→ `js/regions.js`）
+		// ============================================================
+		//
+		//   ★★見るのは「**その部品の足元が、世界のどこか**」＝ `lx / speed`。
+		//     ★奥の層ほど「先の景色」が映ります（★遠山なら 600m 先まで）。
+		//   ★★★`lx` だけで決まるので、**焼き付け（区画ごとの紙）はそのまま効きます**
+		//     （★前の区画を見に行かない＝無限・戻れば同じ・軽さも1つも崩れない）。
+		//   ★地域を使わない（`REGION_ON = 0`）ときは倍率が全部 1 なので、
+		//     ★★**いままでとまったく同じ並びになります**（★サイコロの目も同じ）
+		var RG = global.DotRegions;
+		var spd = L.speed || 1;
+
+		function mulAt(pi, lx) {
+			if (!RG) return 1;
+			var pt = P.PARTS[pi], wx = lx / spd;
+			if (!RG.allowsPart(pt.only, wx, spd)) return 0;   // ★`only:` を書いた部品だけ効く
+			return RG.partMulAt(pt.name, L.name, wx, spd);
+		}
 
 		var out = [];
 		var start = k * CHUNK, end = start + CHUNK;
@@ -119,10 +137,17 @@
 		var n = 0;
 
 		// 出やすさ（weight）で部品を1つ選ぶ
-		function pickOne(seq) {
-			var r = WD.rand(base + seq, salt) * total, pick = mine[0];
-			for (var j = 0; j < mine.length; j++) {
-				r -= (P.PARTS[mine[j]].weight || 1);
+		//   ★★返り値 -1 ＝ **この場所には何も置かない**（★その地域では全部 0 だった）
+		function pickOne(seq, lx) {
+			var w = [], tot = 0, j;
+			for (j = 0; j < mine.length; j++) {
+				var v = (P.PARTS[mine[j]].weight || 1) * mulAt(mine[j], lx);
+				w.push(v); tot += v;
+			}
+			if (tot <= 0) return -1;
+			var r = WD.rand(base + seq, salt) * tot, pick = mine[0];
+			for (j = 0; j < mine.length; j++) {
+				r -= w[j];
 				if (r <= 0) { pick = mine[j]; break; }
 			}
 			return pick;
@@ -153,9 +178,10 @@
 		if (!C) {
 			// ---- ふつうの置き方（前景など、散らしたい層）----
 			while (x < end && n < MAX_PER_CHUNK) {
-				var pick = pickOne(n * 3 + 2);
-				out.push({ pi: pick, lx: x });
-				var g = P.PARTS[pick].gap;
+				var pick = pickOne(n * 3 + 2, x);
+				// ★★何も置かない場所でも、**同じだけ進みます**（★止まると無限に回る）
+				var g = P.PARTS[(pick < 0) ? mine[0] : pick].gap;
+				if (pick >= 0) out.push({ pi: pick, lx: x });
 				x += Math.round(g[0] + WD.rand(base + n * 3 + 3, salt) * (g[1] - g[0]));
 				n++;
 			}
@@ -169,7 +195,8 @@
 			var sz = Math.round(C.size[0] +
 				WD.rand(base + cn * 7 + 4101, salt) * (C.size[1] - C.size[0]));
 			for (var m = 0; m < sz && n < MAX_PER_CHUNK; m++) {
-				out.push({ pi: pickOne(n * 3 + 2), lx: x });
+				var pk = pickOne(n * 3 + 2, x);
+				if (pk >= 0) out.push({ pi: pk, lx: x });
 				// ★塊の中は狭い間隔（＝重なる）
 				x += Math.round(C.inner[0] +
 					WD.rand(base + n * 3 + 3, salt) * (C.inner[1] - C.inner[0]));
@@ -357,7 +384,12 @@
 
 	// 種や時間帯が変わったら、焼いた紙を捨てる
 	function checkStamp() {
-		var s = WD.getSeed() + "/" + TI.time + "/" + W + "x" + H + "/" + GROUND;
+		// ★★★★2026-08-27、**地域の設定**も目印に入れる（→ `js/regions.js`）。
+		//   ★これが無いと、調整ページで枠の長さを変えても**焼いた紙が古いまま**残ります
+		var RGx = global.DotRegions;
+		var s = WD.getSeed() + "/" + TI.time + "/" + W + "x" + H + "/" + GROUND +
+			"/" + (RGx && RGx.stamp ? RGx.stamp() : "-") +
+			"/" + (RGx && RGx.forcedName ? RGx.forcedName() : "-");
 		if (s !== stamp) { stamp = s; caches = []; }
 	}
 

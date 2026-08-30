@@ -133,8 +133,10 @@
 
 	// ★★帯を「画面の行」に直す。★合計が空の高さぴったりになるよう、最後の帯で辻褄を合わせる
 	//   （割合を足しても丸めで1〜2ドット余ることがある。★空いた行は空色のままにしない）
-	function rowsOf(skyBottom, time) {
-		var list = SKY[time || FIXED_TIME] || SKY.DAY;
+	//   ★★★★2026-08-27、**帯を外から渡せる**ようにしました（→ `js/regions.js`）。
+	//     ★渡さなければ、いままでどおり `SKY` の表を使います（＝ 見た目は1ドットも変わらない）
+	function rowsOf(skyBottom, time, bands) {
+		var list = bands || SKY[time || FIXED_TIME] || SKY.DAY;
 		var out = [], y = 0;
 		for (var i = 0; i < list.length; i++) {
 			var last = (i === list.length - 1);

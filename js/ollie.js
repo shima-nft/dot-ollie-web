@@ -57,6 +57,7 @@
 	var WD  = global.DotWorld;          // ★世界のかたち（js/world.js）
 	var SK  = global.DotSkyline;        // ★★最遠景の景観（js/skyline.js）
 	var SKY = global.DotSky;            // ★★空のグラデーション（js/sky.js。2026-08-20）
+	var RG  = global.DotRegions;        // ★★★★地域（js/regions.js。2026-08-27）
 	var PD  = global.DotPartsDraw;      // ★背景の部品（js/parts.js / js/tint.js）
 
 	// ============================================================
@@ -908,6 +909,154 @@
 	//     白      #fcf5fd … 明るさ 0.931 / 変化 0.552 / ★★消えるドット **9.1%**（鳥・コーンの白）
 	//   ★★桃は却下（★背景と明るさがほぼ同じで、光ったと分からない）
 	var C_HIT_FLASH      = 25;   // ★25=赤（純）#e00000
+
+	// ★★★★2026-08-30、**跳んだ軌跡のきらめき**（★島さんの指定）
+	//
+	//   > 島さん「スケーターが飛んだ時に✨のエフェクトがほしい」
+	//   > ★★島さん「**飛んだ後がいい。飛んだ軌跡を描くように。なので手前から後ろ**」
+	//
+	//   ★★**跳んだ瞬間に一度だけ散らすのではありません。**
+	//     ★滞空しているあいだ、**通った道に粒を置いていく**ので、
+	//     ★★**跳躍の弧が、そのまま光の跡**になります。
+	//   ★★★置いた粒は**世界に留まります**（★地面とまったく同じ速さで後ろへ流れる）
+	//     ＝ ★島さんの「手前から後ろ」。★★主役だけが前へ進み、跡は置き去りになる
+	//
+	//   ■ ★★★なぜ「明るい粒 ＋ そのすぐ下に黒い粒」の2ドット1組なのか
+	//
+	//     ★実測（★跳んだ主役のまわり 136,000ドット・100世界ぶんを数えた）:
+	//       白 22.7% ／ 生成り 23.1% ／ 黄 51.3% ／ 純黄 57.5% ／ 橙 91.2% ／ 黒 8.0%
+	//     ★★**単色では、どの色を選んでも必ずどこかで消えます。**
+	//       ★主役のまわりは 青緑の丘 24.9% ／ 藤色の遠山 15.6% ／
+	//       ★★**遠山の白い冠 9.7%**（★明るい色がここで溶ける）／ 黒 8.0%（★暗い色が溶ける）
+	//     → ★★★**明るい芯と黒を組にすると、どちらかが必ず効く**
+	//
+	//   ★★桜井資料「パーティクルは常に制約下にある。**寿命を短く**、出現タイミングと
+	//     位置をずらし、**白黒ドットを混ぜてどんな背景色にも耐えさせる**」
+	//     （出典: パーティクルの限界 / `03-graphics.md`）
+	//
+	//   ★★★これは**見た目だけ**。★当たり判定・速さ・間隔・距離・コインには1ドットも触りません
+	var SPARK_ON     = 1;    // ★★0 にすると仕組みごと止まる
+	var SPARK_MS     = 780;  // ★★1粒が消えるまで（ミリ秒）
+	                         //   ★★★オーリーの滞空（761ms）より少しだけ長くしてある
+	                         //     ＝ ★**着地した瞬間、跳躍の弧がまるごと見えている**
+	                         //   ★短くすると「彗星の尾」に、長くすると跡が長く残ります
+	var SPARK_EVERY  = 100;   // ★★滞空中、何ミリ秒ごとに1粒置くか（★小さいほど跡が濃い）
+	                         //   ★実測: 55=くさりのように繋がる / **95=粒ひとつずつ見える** /
+	                         //     145=まばら（★3つ並べて見くらべた）
+	var SPARK_MAX    = 38;   // ★同時に出る数の上限（★溜まり続けないように）
+	var SPARK_FADE   = 140;  // ★最後、暗い色に落ちる長さ
+	var C_SPARK      = 29;   // ★芯。29=白（ほぼ純白）
+	var C_SPARK_DARK = 9;    // ★★すぐ下に置く粒。9=黒（★単色だと必ず溶けるため）
+	var C_SPARK_LATE = 7;    // ★消える直前の芯。7=銀
+	var SPARK_EDGE   = 0;    // ★★1=黒でふちどる（★0 にすると芯だけ）
+	// ★★★★きらめきの「形」（★島さんの持ち場。★★決めるページ: tools/preview-spark.html）
+	//
+	//   ★★**1つのパターンは「生まれたて → 中ごろ → 消える間ぎわ」の3段。**
+	//     ★生まれた瞬間はパッと光り、だんだん小さくなって消えます
+	//     （★★1ドットの点のままだと「きらめき」ではなく**ほこり**に見えました）。
+	//   ★`[よこ, たて]` のずれ。★[0,0] が粒そのものの場所
+	//
+	//   ■ ★★★2026-08-30、島さんの判断で**形は1つに戻しました**
+	//     > **島さん「確認したところ形のパターンは増やさなくていい。
+	//     >   かわりに中ごろ(5ドット)と消える間際(1ドット)の透明度50％のものを混ぜてほしい」**
+	//     ★一度5種にしてみましたが、★★**形を増やすより「濃い／薄い」を混ぜるほうが良い**
+	//       と島さんが決めました。★仕組みは残してあるので、行を足せばまた増やせます
+	var SPARK_KINDS = [
+		// ★★大きい十字（9ドット）→ 十字（5ドット）→ 点（1ドット）
+		//   ★★★**島さんが `tools/preview-spark.html` で描いたもの**（2026-08-30）
+		[[[0, -2], [0, -1], [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0], [0, 1], [0, 2]],
+			[[0, -1], [-1, 0], [0, 0], [1, 0], [0, 1]], [[0, 0]]]
+];
+
+	// ★★★★透明度50%の粒を混ぜる（2026-08-30 島さんの指定）
+	//
+	//   > **島さん「透明度50％のものを混ぜてほしい」**
+	//   > ★★**島さん「市松に間引かないでください。半透明は追加してよいです。」**
+	//
+	//   ★★★★**この作品で初めて「半透明」を使います。**
+	//     ★はじめ AI は決まり（★半透明を使わない）に従って**市松に間引いて**作りましたが、
+	//     ★★**島さんが見て「間引かないでほしい。半透明を足してよい」と決めました**。
+	//
+	//   ■ ★★★これが決まりの例外になる理由（★AI が勝手に広げないこと）
+	//     ★これまで半透明を禁じてきたのは「**この世界に無い色が生まれる**」ため
+	//       （★暗転・白い光・フラッシュは、どれも横の行をベタ塗りして作っています）。
+	//     ★★★**きらめきだけが例外**です（★エンディングの挿し絵と同じ扱い）。
+	//       ★遊んでいる画面のほかの部分に、この例外を広げないこと
+	//
+	//   ★粒が生まれるとき、この割合で「薄い粒」になります（★毎回ちがう）
+	var SPARK_DIM_RATE  = 0.5;  // ★★0=ぜんぶ濃い / 0.5=半分が薄い / 1=ぜんぶ薄い
+	var SPARK_DIM_ALPHA = 0.5;  // ★★★薄い粒の濃さ（★0.5 = 半透明）
+
+	// ★★★★散り方のばらつき（2026-08-30 島さんの指定「少し散り方もランダム性を持たせて」）
+	//   ★粒を置く場所を、この幅だけ**ランダムにずらします**（★0 にすると一直線）。
+	//   ★★**大きくしすぎると「軌跡」に見えなくなります**（★弧がばらけるため）
+	var SPARK_JITTER_X = 2;  // ★よこのばらつき（★±このドット）
+	var SPARK_JITTER_Y = 2;  // ★たてのばらつき（★±このドット）
+
+	// ============================================================
+	// ■■■ ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）■■■
+	// ============================================================
+	//
+	//   > **島さん「ジャンプ時はボードを地面からはじくかたちになるのだけど、
+	//   >   その際地面の埃や草などの小粒が舞うといい感じにならないかな。
+	//   >   1ドットの緑二〜三種、半透明も(可)。０〜５粒程度がフワッと舞い降りる。」**
+	//
+	//   ★★★きらめき（`SPARK_*`）とは**別もの**です:
+	//     ★きらめき   … ★滞空しているあいだ**ずっと**置き続ける ＝ **軌跡**
+	//     ★★土けむり … ★★**地面を弾いた瞬間に一度だけ**。★そのあと舞い降りて消える
+	//
+	//   ★★★**地上から跳んだときだけ**出ます
+	//     （★二段ジャンプの2回目は**空中**なので出ません。★★弾く地面がそこに無い）
+	//
+	//   ★★★これは**見た目だけ**。★当たり判定・速さ・間隔・距離・コインには1ドットも触りません
+	var DUST_ON    = 1;    // ★★0 にすると仕組みごと止まる
+	var DUST_MIN   = 0;    // ★★1回の踏み切りで出る数（★島さんの指定「０〜５粒程度」）
+	var DUST_NUM   = 5;    //   ★０のときもある ＝ **毎回は出ない**（★★うるさくならない）
+	var DUST_MS    = 760;  // ★★1粒が消えるまで（ミリ秒）
+	                       //   ★★★舞い上がってから**地面に戻るまで**の長さにしてある
+	var DUST_FADE  = 200;  // ★最後、暗い緑に落ちる長さ
+	var DUST_RISE  = 40;   // ★★はじき上げられる速さ（ドット/秒・上向き）
+	                       //   ★実測: この値で**いちばん高い粒が 7〜8ドット**ほど舞う
+	var DUST_GRAV  = 105;  // ★★★落ちてくる速さの増え方（★小さいほど「フワッ」と浮く）
+	                       //   ★★★寿命がちょうど**地面に戻るころ**に来るよう合わせてある
+	var DUST_BACK  = 12;   // ★★後ろへ流れる速さ（★ボードが弾いた向き ＝ 手前から後ろ）
+	var DUST_X     = -8;   // ★★★出る場所を、足元から何ドット後ろにするか
+	                       //   ★★**ボードのテール（後ろ端）から出す**ので、
+	                       //     ★主役の絵に重ならず、★★出た瞬間から見えます（★実測で決めた）
+	var DUST_Y     = 2;    // ★★出る高さ（★地面から何ドット上 ＝ ボードの面のあたり）
+	var DUST_SPREAD = 3;   // ★出る場所のよこのばらつき（★±このドット ＝ ボードの幅ぶん）
+	var DUST_HELD  = 24;   // ★同時に出る数の上限（★溜まり続けないように）
+	// ★★★★粒の色（★島さんの指定「1ドットの緑二〜三種」）★島さんの持ち場
+	//
+	//   ★★**明るさの幅を、できるだけ広く取ってあります**
+	//     （★★★単色では、どこかで必ず背景に溶けます → きらめきと同じ）。
+	//
+	//   ■ ★★★実測（★粒が実際に通った 16,290ドットの背景を数えて選びました）
+	//     ★粒のまわりに多い背景は **丘かげ #1e9674（明るさ0.48）が 36.9%** ／
+	//       明るい草 0.81〜0.89 が 19.0% ／ 青緑 #34b496（0.59）が 8.5%
+	//
+	//       39 木のあかり #b8ffb8（0.92）… ★★溶けるのは 21.0%（★いちばん良い）
+	//       33 草あかり   #66ff66（0.83）… ★★溶けるのは 21.1%
+	//       12 暗い緑     #008751（0.40）… ★溶けるのは 47.2%（★暗い側でいちばん良い）
+	//
+	//     ★★★**外した色**: 34 草なかび #00ad00（0.49）は **67.0% 溶けます**
+	//       ＝ ★背景でいちばん多い「丘かげ 0.48」と、★★明るさがほとんど同じでした
+	var DUST_COLS  = [39, 33, 12];
+	var C_DUST_LATE = 12;  // ★消える直前の色。12=暗い緑（★すっと沈むように消える）
+	// ★★★半透明の粒を混ぜる（★島さんの指定「半透明も(可)」）
+	//   ★★きらめきと**同じ例外**です（★ほかの場所へ広げないこと）
+	//
+	//   ★★★**消えていく粒は、必ず薄くなります**（★これが「フワッと」の正体）。
+	//     ★そのうえで、はじめから薄い粒を `DUST_DIM_RATE` の割合で混ぜます。
+	//   ★★実測で 0.5（半々）から下げました:
+	//     ★半透明の粒は**背景と混ざる**ので、★★★**溶ける割合が 21% → 46%** に増える
+	//       （★出た瞬間が見えないと「弾いた」手応えが消えます）
+	var DUST_DIM_RATE  = 0.3;   // ★★0=ぜんぶ濃い / 0.5=半分が薄い / 1=ぜんぶ薄い
+	var DUST_DIM_ALPHA = 0.5;   // ★★★薄い粒の濃さ
+	// ★★★★1=粒の下に黒を1つ添える（★きらめきの `SPARK_EDGE` と同じ仕組み）
+	//   ★★島さんの指定は「**1ドット**の緑」なので **0（添えない）**にしてあります。
+	//     ★「もっとはっきり見せたい」ときだけ 1 に（★★そのとき粒は2ドットになります）
+	var DUST_EDGE      = 0;
 
 	// ★★距離の節目（★進むほど間隔が広がる。★距離は報酬の主役ではない）
 	//
@@ -1945,6 +2094,13 @@
 			hits: 0,               // ★ぶつかった回数（★テストと実測が見る）
 			// ★★報酬フィードバック（2026-08-15）
 			pops: [],              // ★頭上に出る数字（★1か所に集約）
+			// ★★★★跳んだ軌跡のきらめき（2026-08-30 島さんの指定）
+			//   ★★**世界の座標**で持つ（★画面ではない）＝ 置いたら地面と一緒に後ろへ流れる
+			sparks: [],            // ★いま出ている粒
+			sparkMs: 0,            // ★次の1粒までの時計
+			// ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）
+			//   ★★きらめきと同じく**世界の座標**で持つ（★置いたら後ろへ流れる）
+			dusts: [],             // ★いま舞っている粒
 			shakeMs: 0,            // ★★揺れの残り（★描画だけ）
 			mileIndex: 0,          // ★次に出す距離の節目
 			// ★★コインのカウントアップ（★表示だけ。貯金には触らない）
@@ -1988,6 +2144,10 @@
 	// ★★主役が乗る行。★★★**描くところも拾うところも、全部ここを通る**
 	//   ★だから `RIDER_SINK` をここに入れるだけで、★★**見た目と当たり判定が必ずさわる**
 	function riderGroundRow() { return groundRowAt(RIDER_X + RIDER_FOOT) + RIDER_SINK; }
+	// ★★★主役の足が、いま画面の何行目にいるか
+	//   ★★**高さを2か所に書かないための1か所**（★きらめきもテストの覗き窓もここを通す）。
+	//     ★2026-08-22、当たり判定の数字だけ直して**絵を描くところを直し忘れた**事故があった
+	function riderFootRow() { return riderGroundRow() - 1 - currentLift(); }
 
 	// 次のコーンまでの間隔をランダムに引く
 	// ★★1回の技のあいだに進む距離（★いまの速さとジャンプ倍率で**毎回計算する**）
@@ -2393,6 +2553,87 @@
 		for (var i = st.pops.length - 1; i >= 0; i--) {
 			st.pops[i].ms += dt * 1000;
 			if (st.pops[i].ms >= POP_MS) st.pops.splice(i, 1);   // ★必ず消える
+		}
+	}
+
+	// ★★★★跳んだ軌跡のきらめき —— 出す（2026-08-30 島さんの指定）
+	//
+	//   ★★置く場所は**主役の足元**。★高さは `riderFootRow()`（＝ 絵を描くのと同じ式）
+	//     から作るので、★★★**島さんが絵を描き替えたら、跡も黙って追従します**
+	//   ★★★覚えるのは**世界の座標**（`wx`）。★だから置いたあとは動かず、
+	//     ★★画面のほうが進んでいく ＝ **跡が後ろへ流れる**（★島さんの「手前から後ろ」）
+	function addSpark() {
+		if (!SPARK_ON) return;
+		if (st.sparks.length >= SPARK_MAX) st.sparks.shift();   // ★古いものから捨てる
+		// ★★★形は毎回ちがう ＋ 置く場所も少しずらす（2026-08-30 島さんの指定）
+		//   ★★ずらすのは**見た目だけ**。★当たり判定にも遊びにも1ドットも触りません
+		var jx = Math.round((Math.random() * 2 - 1) * SPARK_JITTER_X);
+		var jy = Math.round((Math.random() * 2 - 1) * SPARK_JITTER_Y);
+		st.sparks.push({
+			wx: worldX() + RIDER_X + RIDER_FOOT + jx,
+			y: riderFootRow() + jy,
+			ms: 0,
+			kind: Math.floor(Math.random() * SPARK_KINDS.length),
+			// ★★★透明度50%の粒を混ぜる（★島さんの指定）
+			dim: (Math.random() < SPARK_DIM_RATE) ? 1 : 0
+		});
+	}
+
+	// ★★きらめきを進める（★寿命が来たら**必ず**消える）
+	//   ★★★空中にいるあいだだけ置いていく。★地上では時計を満タンにしておくので、
+	//     ★**跳んだ瞬間に1粒目がすぐ出ます**（★跳ぶ処理には1文字も触らずに済む）
+	function updateSparks(dt) {
+		if (SPARK_ON && st.air >= 0) {
+			st.sparkMs += dt * 1000;
+			while (st.sparkMs >= SPARK_EVERY) { st.sparkMs -= SPARK_EVERY; addSpark(); }
+		} else {
+			st.sparkMs = SPARK_EVERY;   // ★次に跳んだ瞬間、すぐ1粒目が出るように
+		}
+		for (var i = st.sparks.length - 1; i >= 0; i--) {
+			st.sparks[i].ms += dt * 1000;
+			if (st.sparks[i].ms >= SPARK_MS) st.sparks.splice(i, 1);   // ★必ず消える
+		}
+	}
+
+	// ★★★★跳んだときの土けむり —— 出す（2026-08-31 島さんの指定）
+	//
+	//   > **島さん「地面の埃や草などの小粒が舞うといい感じにならないかな。
+	//   >   ０〜５粒程度がフワッと舞い降りる。」**
+	//
+	//   ★★★**地面を弾いた瞬間に、一度だけ**まとめて出します（★きらめきは滞空中ずっと）。
+	//   ★★覚えるのは**世界の座標**（`wx`）＝ 置いたあとは地面と一緒に後ろへ流れる
+	//   ★★★高さは `riderGroundRow()` を通す（★足元と同じ1か所。★2か所に書かない）
+	function addDust() {
+		if (!DUST_ON) return;
+		// ★★出る数は毎回ちがう（★０のときもある ＝ 毎回は出ない）
+		var n = DUST_MIN + Math.floor(Math.random() * (DUST_NUM - DUST_MIN + 1));
+		var g = riderGroundRow();
+		for (var i = 0; i < n; i++) {
+			if (st.dusts.length >= DUST_HELD) st.dusts.shift();   // ★古いものから捨てる
+			var jx = Math.round((Math.random() * 2 - 1) * DUST_SPREAD);
+			st.dusts.push({
+				wx: worldX() + RIDER_X + RIDER_FOOT + DUST_X + jx,
+				y: g - DUST_Y,                                // ★ボードの面のあたり
+				vx: -DUST_BACK * Math.random(),               // ★★後ろへ（★弾かれた向き）
+				vy: -DUST_RISE * (0.6 + Math.random() * 0.4), // ★上向き（★マイナスが上）
+				ms: 0,
+				col: DUST_COLS[Math.floor(Math.random() * DUST_COLS.length)],
+				dim: (Math.random() < DUST_DIM_RATE) ? 1 : 0
+			});
+		}
+	}
+
+	// ★★土けむりを進める（★寿命が来たら**必ず**消える）
+	//   ★★★ここにあるのは「舞い上がって落ちる」だけ。★★**遊びの物理ではありません**
+	//     （★主役の跳ぶ高さも滞空も、いままでどおり**島さんの絵**が決めています）
+	function updateDusts(dt) {
+		for (var i = st.dusts.length - 1; i >= 0; i--) {
+			var d = st.dusts[i];
+			d.ms += dt * 1000;
+			if (d.ms >= DUST_MS) { st.dusts.splice(i, 1); continue; }   // ★必ず消える
+			d.vy += DUST_GRAV * dt;   // ★だんだん落ちてくる
+			d.wx += d.vx * dt;
+			d.y += d.vy * dt;
 		}
 	}
 
@@ -3196,6 +3437,9 @@
 
 		// ★★見た目だけのもの（★遊びには触らない）を進める
 		updatePops(dt);
+		updateSparks(dt);   // ★★★★跳んだ軌跡のきらめき（★ここは一時停止・ショップ・
+		                    //   GAMEOVER・エンディング・READY を全部くぐった先＝止まると進まない）
+		updateDusts(dt);    // ★★★★跳んだときの土けむり（2026-08-31）
 		if (st.gainFlashMs > 0) st.gainFlashMs = Math.max(0, st.gainFlashMs - dt * 1000);
 		// ★揺れと扉の光りは、**スタミナの判定より前**で進めてある（上を見ること）
 
@@ -3636,6 +3880,7 @@
 			var col = wx - seg * E.W;                        // ★絵の中の何列目か
 			var rows = E.SHEETS[idx];
 			var top = groundRowAt(c);
+			var gm = gmapAt(c);                              // ★★地域ごとの色の置き換え
 			// ★縦に続く同じ色はまとめて塗る（1ドットずつ塗ると重くなる）
 			var y = 0;
 			while (y < E.H) {
@@ -3643,7 +3888,7 @@
 				if (ch === ".") { y++; continue; }
 				var run = 1;
 				while (y + run < E.H && rows[y + run].charAt(col) === ch) run++;
-				ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+				ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
 				ctx.fillRect(c, top + y, 1, run);
 				y += run;
 			}
@@ -3681,6 +3926,7 @@
 			}
 			var top = groundRowAt(c) + off;
 			if (top >= bottom) continue;
+			var gm = gmapAt(c);                              // ★★地域ごとの色の置き換え
 
 			var seg = Math.floor(wx / S.W);
 			var idx = Math.floor(WD.rand(seg, SOIL_SALT) * S.SHEETS.length);
@@ -3700,7 +3946,7 @@
 				var ch = rows[y].charAt(col);
 				var run = 1;
 				while (y + run < lim && rows[y + run].charAt(col) === ch) run++;
-				ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+				ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
 				ctx.fillRect(c, top + y, 1, run);
 				y += run;
 			}
@@ -3734,7 +3980,7 @@
 					if (sh2[s2].charAt(col2) !== ch2) break;
 					run2++;
 				}
-				ctx.fillStyle = GB[PALX.indexOfChar(ch2)];
+				ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch2))];
 				ctx.fillRect(c, top + yy, 1, run2);
 				yy += run2;
 			}
@@ -3758,6 +4004,7 @@
 			if (WD.rand(seg, EDGE_RARE_SALT) >= EDGE_RARE_RATE) continue;
 			var col = wx - seg * A.W;
 			var top = groundRowAt(c);
+			var gm = gmapAt(c);                              // ★★地域ごとの色の置き換え
 			// ★縦に続く同じ色はまとめて塗る
 			var y = 0;
 			while (y < A.H) {
@@ -3766,7 +4013,7 @@
 				var run = 1;
 				while (y + run < A.H && A.rows[y + run].charAt(col) === ch) run++;
 				if (top + y < H) {
-					ctx.fillStyle = GB[PALX.indexOfChar(ch)];
+					ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
 					ctx.fillRect(c, top + y, 1, Math.min(run, H - (top + y)));
 				}
 				y += run;
@@ -3884,6 +4131,97 @@
 				: (late ? C_POP_GAIN_D : C_POP_GAIN);
 			F.drawText(ctx, p.text, p.x, y, GB[col]);
 		}
+	}
+
+	// ★★★★跳んだ軌跡のきらめきを描く（2026-08-30 島さんの指定）
+	//
+	//   ★★**明るい芯 ＋ そのすぐ下に黒**の2ドット1組。
+	//     ★★★単色だと必ずどこかで消えます（★実測: 白22.7% / 黄51.3% / 黒8.0%）。
+	//     ★黒を添えると、明るい所では黒が・暗い所では芯が効く
+	//   ★★消え方は**暗い色に落として**消す（★頭上のポップアップと同じ）。
+	//     ★★★**半透明は使いません**（★この世界に無い色が生まれるため）
+	//   ★★世界の座標から画面の位置を出すので、**地面とぴったり同じ速さ**で流れます
+	function drawSparks() {
+		if (!SPARK_ON) return;
+		var ox = worldX();
+		for (var i = 0; i < st.sparks.length; i++) {
+			var s = st.sparks[i];
+			var x = s.wx - ox;
+			if (x < -2 || x >= W + 2) continue;         // ★画面の外へ流れたら描かない
+			// ★★育ち具合（0=生まれたて → 1=消える）で、形と色が変わる
+			var t = s.ms / SPARK_MS;
+			// ★★その粒の種類（★生まれたときに決まっている）
+			var kind = SPARK_KINDS[s.kind] || SPARK_KINDS[0];
+			var shape = kind[Math.min(kind.length - 1, Math.floor(t * kind.length))];
+			if (!shape || !shape.length) continue;
+			var late = (s.ms > SPARK_MS - SPARK_FADE);
+
+			// ★★★先に黒でふちどる（★これが無いと、白い山の前で消えます）
+			//   ★実測: 単色だと 白22.7% / 黄51.3% / 橙91.2% の場所で背景に溶ける
+			//   ★★桜井資料「明るいエフェクトには暗いものを混ぜる」（出典: 閃光､爆発､残煙）
+			// ★★★★薄い粒は**半透明**で描く（2026-08-30 島さんの指定「半透明は追加してよい」）
+			//   ★★必ず 1 に戻すこと（★戻し忘れると、このあと描くもの全部が薄くなる）
+			var dim = s.dim ? 1 : 0;
+			ctx.globalAlpha = dim ? SPARK_DIM_ALPHA : 1;
+			if (SPARK_EDGE) {
+				ctx.fillStyle = GB[C_SPARK_DARK];
+				for (var e = 0; e < shape.length; e++) {
+					var ex = x + shape[e][0], ey = s.y + shape[e][1];
+					for (var d = 0; d < 4; d++) {
+						var dx = (d === 0 ? -1 : d === 1 ? 1 : 0);
+						var dy = (d === 2 ? -1 : d === 3 ? 1 : 0);
+						var bx = ex + dx, by = ey + dy;
+						if (bx < 0 || bx >= W || by < 0 || by >= H) continue;
+						// ★芯そのものの場所は塗らない（★あとで白が乗るので無駄）
+						var onCore = false;
+						for (var q = 0; q < shape.length; q++)
+							if (x + shape[q][0] === bx && s.y + shape[q][1] === by) { onCore = true; break; }
+						if (!onCore) ctx.fillRect(bx, by, 1, 1);
+					}
+				}
+			}
+
+			// ★★そのうえに芯を乗せる
+			ctx.fillStyle = GB[late ? C_SPARK_LATE : C_SPARK];
+			for (var k = 0; k < shape.length; k++) {
+				var px = x + shape[k][0], py = s.y + shape[k][1];
+				if (px < 0 || px >= W || py < 0 || py >= H) continue;
+				ctx.fillRect(px, py, 1, 1);
+			}
+		}
+		ctx.globalAlpha = 1;   // ★★★必ず戻す（★ここを外すと画面ぜんぶが薄くなる）
+	}
+
+	// ★★★★跳んだときの土けむりを描く（2026-08-31 島さんの指定）
+	//
+	//   ★★**1ドットの点**。★色は緑3種（`DUST_COLS`）から粒ごとに引く。
+	//     ★★★半分は**半透明**（★島さんの指定「半透明も(可)」）
+	//   ★★**地面より下へは行きません**（★埃は地面で止まる）。
+	//     ★地面の高さはその列から読むので、★★坂でもちゃんと地面の上に乗ります
+	function drawDusts() {
+		if (!DUST_ON) return;
+		var ox = worldX();
+		for (var i = 0; i < st.dusts.length; i++) {
+			var d = st.dusts[i];
+			var x = Math.round(d.wx) - ox;
+			if (x < 0 || x >= W) continue;              // ★画面の外へ流れたら描かない
+			var y = Math.round(d.y);
+			var g = groundRowAt(x) - 1;                 // ★その列の地面のすぐ上
+			if (y > g) y = g;                           // ★★地面にめり込ませない
+			if (y < 0 || y >= H) continue;
+			var late = (d.ms > DUST_MS - DUST_FADE);
+			// ★★★★薄い粒は半透明で描く（★必ず 1 に戻すこと）
+			//   ★★**消え際は必ず薄くなる**（★これが「フワッと」の正体）
+			ctx.globalAlpha = (d.dim || late) ? DUST_DIM_ALPHA : 1;
+			// ★★★下に黒を添える（★島さんが「はっきり見せたい」と言ったときだけ）
+			if (DUST_EDGE && y + 1 < H) {
+				ctx.fillStyle = GB[9];
+				ctx.fillRect(x, y + 1, 1, 1);
+			}
+			ctx.fillStyle = GB[late ? C_DUST_LATE : d.col];
+			ctx.fillRect(x, y, 1, 1);
+		}
+		ctx.globalAlpha = 1;   // ★★★必ず戻す（★ここを外すと画面ぜんぶが薄くなる）
 	}
 
 	//   ★★★★2026-08-23、**二段ジャンプの下駄をここにも足しました**（島さんの指摘）。
@@ -4009,12 +4347,34 @@
 	//   → 実測で命令はおよそ 240回 → 40〜60回になる
 	//   rowOf(col) = その列の「面」の行。そこから画面の下まで塗る
 	// ------------------------------------------------------------
+	//   ★★★★2026-08-27、`color` に**関数**も渡せるようにしました（→ js/regions.js）。
+	//     ★列ごとに色が変わる（＝ 地域で地面の色が変わる）ときに使います。
+	//     ★★色が変わるところで、まとめ塗りをちゃんと切ります
+	// ★★★★上端から下端までを塗る（2026-08-27。★山が海に浮かぶため）
+	//   ★`botOf` が液晶の外（＝下端なし）を返したら、いままでどおり画面の下まで塗ります
+	function fillBetween(rowOf, botOf, color) {
+		var fn = (typeof color === "function") ? color : null;
+		if (!fn) ctx.fillStyle = color;
+		for (var c = 0; c < W; c++) {
+			var top = rowOf(c), bot = botOf(c);
+			if (bot > H) bot = H;
+			var y = (top < 0) ? 0 : top;
+			if (y >= bot) continue;
+			if (fn) ctx.fillStyle = fn(c);
+			ctx.fillRect(c, y, 1, bot - y);
+		}
+	}
+
 	function fillBelow(rowOf, color) {
-		ctx.fillStyle = color;
+		var fn = (typeof color === "function") ? color : null;
+		if (!fn) ctx.fillStyle = color;
 		var c = 0;
 		while (c < W) {
 			var top = rowOf(c), run = 1;
-			while (c + run < W && rowOf(c + run) === top) run++;
+			var col = fn ? fn(c) : color;
+			while (c + run < W && rowOf(c + run) === top &&
+				(!fn || fn(c + run) === col)) run++;
+			if (fn) ctx.fillStyle = col;
 			var y = (top < 0) ? 0 : top;
 			if (y < H) ctx.fillRect(c, y, run, H - y);
 			c += run;
@@ -4028,6 +4388,32 @@
 
 	// ★★★帯を1枚描く（2026-08-20。★`snow` があれば「雪 → 本体」の2段に塗る）
 	//   ★★地面の「際」と同じやり方（`fillBelow` を2回）。**新しい仕組みは足していない**
+	// ★★★★その帯が終わった先を「海」で塗る（2026-08-27 島さんの指定）
+	//
+	//   > 島さん「なだらかに終わる遠山の途中から海の境界線をお願いします。」
+	//
+	//   ★★帯を描いたすぐあとに塗るので、★**ランドマークと丘陵は海より手前**になります
+	//     （★島さんの「ランドマークと丘陸で見えなくなる」と、同じ並び）。
+	function drawBandSea(bi, wx) {
+		var B = SK.BANDS[bi];
+		if (!B.sea) return;
+		// ★★★★2026-08-27、**海の色は島さんの絵の並びで**（→ `js/end-shape-art.js`）。
+		//   ★水平線から下へ1ドットずつ色を置き、★★**最後の色は画面の下まで**続きます。
+		//   ★★★島さんが引いた**水平線の濃い線**が、そのまま出ます
+		for (var c = 0; c < W; c++) {
+			var top = SK.seaRowAt(bi, wx, c);
+			if (top >= H) continue;
+			var rows = SK.seaRowsAt(bi, wx, c);
+			var y = (top < 0) ? 0 : top;
+			for (var i = 0; i < rows.length && y < H; i++) {
+				var run = (i === rows.length - 1) ? (H - y) : 1;
+				ctx.fillStyle = GB[SK.colorIndexOf(rows[i])];
+				ctx.fillRect(c, y, 1, run);
+				y += run;
+			}
+		}
+	}
+
 	function drawBand(bi, wx) {
 		var B = SK.BANDS[bi], row = skyBandRow(bi, wx);
 		if (B.snow) {
@@ -4045,25 +4431,31 @@
 			var info = SK.artColAt(bi, wx, ac);
 			if (!info) continue;
 			drewArt = true;
+			// ★★終わりの区間では**下端で切る**（★その下は海。★島さんの「山が海に浮かぶ」）
+			var lim = SK.bandBotRowAt(bi, wx, ac);
+			if (lim > H) lim = H;
 			var ay = row(ac), runs = info.art.COLS[info.xi], lastCi = -1;
 			for (var ar = 0; ar < runs.length; ar++) {
 				var ci = runs[ar][0], an = runs[ar][1];
 				if (ci >= 0) {
 					ctx.fillStyle = GB[ci];
 					var y0 = (ay < 0) ? 0 : ay, y1 = ay + an;
-					if (y1 > 0 && y0 < H) ctx.fillRect(ac, y0, 1, Math.min(y1, H) - y0);
+					if (y1 > lim) y1 = lim;
+					if (y1 > 0 && y0 < lim) ctx.fillRect(ac, y0, 1, y1 - y0);
 					lastCi = ci;
 				}
 				ay += an;
 			}
-			// ★絵の下端から画面の下まで（★地面が上から隠すので、見えるのは一部だけ）
-			if (lastCi >= 0 && ay < H) {
+			// ★絵の下端から、山の下端まで（★地面が上から隠すので、見えるのは一部だけ）
+			if (lastCi >= 0 && ay < lim) {
 				ctx.fillStyle = GB[lastCi];
-				ctx.fillRect(ac, (ay < 0) ? 0 : ay, 1, H - ((ay < 0) ? 0 : ay));
+				ctx.fillRect(ac, (ay < 0) ? 0 : ay, 1, lim - ((ay < 0) ? 0 : ay));
 			}
 		}
 		if (drewArt) return;
-		fillBelow(row, GB[SK.colorIndexOf(B.color)]);
+		// ★★終わりの区間では**下端で切る**（★その下は海）
+		fillBetween(row, function (c) { return SK.bandBotRowAt(bi, wx, c); },
+			GB[SK.colorIndexOf(B.color)]);
 		// ============================================================
 		// ★★★稜線に沿って2色目を置く（2026-08-20 島さんの指定）
 		// ============================================================
@@ -4098,6 +4490,63 @@
 		}
 	}
 
+	// ------------------------------------------------------------
+	// ■ ★★★★空を1枚ぶん塗る（2026-08-27、地域ごとに空を変えるために切り出した）
+	// ------------------------------------------------------------
+	//   rows  … `js/sky.js` が作った帯
+	//   colOk … null = 画面いっぱい / 関数 = **その列だけ**塗る（★移り変わりのとき）
+	//
+	//   ★★中身は 2026-08-20 からの処理そのままです（**見た目は1ドットも変えていない**）。
+	//     ★変わったのは「どの列を塗るか」を選べるようになったことだけ
+	function paintSky(rows, colOk) {
+		var sr, R, y0, y1, x, run;
+		for (sr = 0; sr < rows.length; sr++) {
+			R = rows[sr];
+			y0 = (sr === 0) ? -SHAKE_PX : R.y;
+			y1 = (sr === rows.length - 1) ? (H + SHAKE_PX) : (R.y + R.h);
+			ctx.fillStyle = GB[R.index];
+			if (!colOk) { ctx.fillRect(-SHAKE_PX, y0, W + SHAKE_PX * 2, y1 - y0); continue; }
+			x = 0;
+			while (x < W) {
+				if (!colOk(x)) { x++; continue; }
+				run = 1;
+				while (x + run < W && colOk(x + run)) run++;
+				ctx.fillRect(x, y0, run, y1 - y0);
+				x += run;
+			}
+		}
+		// ★★★色の変わり目に、3ドット分のグラデーション（2026-08-20 島さんの指定）
+		//   ★40色では中間色が作れないので、**ドットを混ぜて**中間に見せる（→ js/sky.js）。
+		//   ★★となり合う同じ色はまとめて塗る（★1ドットずつ塗ると命令が3倍になる）
+		for (var sg = 0; sg + 1 < rows.length && SKY.DITHER > 0; sg++) {
+			var below = rows[sg + 1];
+			ctx.fillStyle = GB[below.index];
+			for (var dk = 0; dk < SKY.DITHER; dk++) {
+				var dy = below.y - SKY.DITHER + dk;
+				if (dy < 0) continue;
+				var dx = 0;
+				while (dx < W) {
+					if (!SKY.ditherOn(dx, dk) || (colOk && !colOk(dx))) { dx++; continue; }
+					var run2 = 1;
+					while (dx + run2 < W && SKY.ditherOn(dx + run2, dk) &&
+						(!colOk || colOk(dx + run2))) run2++;
+					ctx.fillRect(dx, dy, run2, 1);
+					dx += run2;
+				}
+			}
+		}
+	}
+
+	// ------------------------------------------------------------
+	// ■ ★★★★地面の色を、その列の地域で置き換える（2026-08-27）
+	// ------------------------------------------------------------
+	//   ★★**絵の形は1ドットも変わりません。** 変わるのは**色の割り当て**だけ
+	//     （★`js/tint.js` が奥の景色でやっているのと、まったく同じ考え方）。
+	//   ★見るのは「**その列の足元が、世界のどこか**」＝ `worldX() + 列`
+	//   ★★列ごとに1回だけ表を引き、あとはその表で色を引き直します（★速さのため）
+	function gmapAt(col) { return RG ? RG.groundMapAt(worldX() + col, col) : null; }
+	function gidx(m, i) { var t = m ? m[i] : undefined; return (t === undefined) ? i : t; }
+
 	function draw() {
 		// ★★★ぶつかったときの揺れ（2026-08-15）。★**ここから ⑧ までだけを揺らす**
 		//   ★★HUD（距離・倍率・まん中の文字）は揺らさない ＝ 読めなくならない
@@ -4117,32 +4566,18 @@
 		//   ★★25色では中間色が作れないので、**横に長い帯を上から重ねる**。
 		//   ★いちばん上の帯は上へ、いちばん下の帯は下へ伸ばす（★揺れても隙間が出ない）。
 		//   ★★下の帯は、このあと描く山と地面にほとんど隠れます（それでよい）
-		var skyRows = SKY.rowsOf(GROUND);
-		for (var sr = 0; sr < skyRows.length; sr++) {
-			var R = skyRows[sr];
-			var y0 = (sr === 0) ? -SHAKE_PX : R.y;
-			var y1 = (sr === skyRows.length - 1) ? (H + SHAKE_PX) : (R.y + R.h);
-			ctx.fillStyle = GB[R.index];
-			ctx.fillRect(-SHAKE_PX, y0, W + SHAKE_PX * 2, y1 - y0);
-		}
-		// ★★★色の変わり目に、3ドット分のグラデーション（2026-08-20 島さんの指定）
-		//   ★25色では中間色が作れないので、**ドットを混ぜて**中間に見せる（→ js/sky.js）。
-		//   ★★となり合う同じ色はまとめて塗る（★1ドットずつ塗ると命令が3倍になる）
-		for (var sg = 0; sg + 1 < skyRows.length && SKY.DITHER > 0; sg++) {
-			var below = skyRows[sg + 1];
-			ctx.fillStyle = GB[below.index];
-			for (var dk = 0; dk < SKY.DITHER; dk++) {
-				var dy = below.y - SKY.DITHER + dk;
-				if (dy < 0) continue;
-				var dx = 0;
-				while (dx < W) {
-					if (!SKY.ditherOn(dx, dk)) { dx++; continue; }
-					var run = 1;
-					while (dx + run < W && SKY.ditherOn(dx + run, dk)) run++;
-					ctx.fillRect(dx, dy, run, 1);
-					dx += run;
-				}
-			}
+		//   ★★★★2026-08-27、**地域ごとに空の色が変わります**（→ js/regions.js）。
+		//     ★移り変わりの最中は、**まずA地域の空を画面いっぱいに塗り**、
+		//       ★★そのうえに**B地域の空を、ドットを混ぜた列にだけ**重ねます。
+		//     ★★★これで**新しい色を1つも作らずに**、少しずつ入れ替わって見えます
+		//       （★半透明は使わない ＝ 40色の外の色が出ない）。
+		//     ★空は流れないので、見るのは**主役のいる場所**（＝ 画面いっぱいで同じだけ混ざる）
+		var regSky = RG ? RG.at(worldX()) : null;
+		paintSky(SKY.rowsOf(GROUND, null, regSky && regSky.a.sky), null);
+		if (regSky && regSky.a !== regSky.b && regSky.b.sky !== regSky.a.sky) {
+			var mixT = regSky.t;
+			paintSky(SKY.rowsOf(GROUND, null, regSky.b.sky),
+				function (c) { return RG.pickB(mixT, c, 0); });
 		}
 
 		// ② ★遠景の稜線（あれば）。★地面より先に描くので、手前の地面に隠れる
@@ -4179,13 +4614,20 @@
 		//     ★`snow` を持つ帯は**2回塗ります**（雪の色 → その depth ドット下から本体の色）。
 		//     ★★これは地面の「際」とまったく同じやり方です（→ ④）。**新しい仕組みではない**
 		var skx = worldX();
+		// ★★★★2026-08-27、**その帯の「海 → 山」を、帯の順に**描きます。
+		//   ★海が先なので、★★**その帯の山の上にも下にも海**が残ります（山が海に浮かぶ）。
+		//   ★★★**海をぜんぶ先にまとめてはいけません。**
+		//     ★一度そうしたら、★★**奥の山が地面まで塗って、手前の帯の海を隠しました**
+		//       （★島さん「丘陸の海がないです」。★実測: 内部167列 → 画面0列）
+		drawBandSea(0, skx);
 		drawBand(0, skx);
 		fillBelow(function (c) { return SK.lmRowAt(skx, c); },
 			GB[SK.colorIndexOf(SK.LM_COLOR)]);
 		for (var sb = 1; sb < SK.BANDS.length; sb++) {
 			// ★★この帯より「奥」の層を先に置く → 次の行の帯が足元を隠す
 			PD.drawBehind(ctx, skx, SK.BANDS[sb].name);
-			drawBand(sb, skx);
+			drawBandSea(sb, skx);                // ★★その帯の海が先
+			drawBand(sb, skx);                   // ★★★山があと（＝ 海に浮かぶ）
 		}
 
 		// ③ ★★背景の部品（中景など）。→ js/parts.js / js/tint.js
@@ -4208,15 +4650,16 @@
 		//   ★★これで「薄いところ」を島さんが**絵で**決められます（★見切れない）
 		var gx = worldX();
 		if (EDGE_ART_ON && global.DotEdgeArt) {
-			fillBelow(groundRowAt, GB[C_GROUND]);
+			// ★★★★2026-08-27、地面の下地の色も地域ごと（→ js/regions.js）
+			fillBelow(groundRowAt, function (c) { return GB[gidx(gmapAt(c), C_GROUND)]; });
 			if (SOIL_ART_ON) drawSoilArt(gx);   // ★★土の模様（★草より先＝草が上に乗る）
 			drawEdgeArt(gx);
 			drawRareEdge(gx);                   // ★★★★めずらしい草（★いちばん上に乗る）
 		} else {
 			// ★昔の形（★際の色でベタ塗り → 太さぶん下から土）
-			fillBelow(groundRowAt, GB[C_GROUND_EDGE]);
+			fillBelow(groundRowAt, function (c) { return GB[gidx(gmapAt(c), C_GROUND_EDGE)]; });
 			fillBelow(function (c) { return groundRowAt(c) + WD.edgeThickAt(gx + c); },
-				GB[C_GROUND]);
+				function (c) { return GB[gidx(gmapAt(c), C_GROUND)]; });
 		}
 
 		// ⑤ ★前景の部品（草・花）。★地面と同じ速さ・フィルターなし＝いちばん濃く鮮やか
@@ -4230,6 +4673,14 @@
 
 		// ⑦ スケーター
 		drawSkater(currentFrame());
+
+		// ⑦' ★★★★跳んだ軌跡のきらめき（2026-08-30 島さんの指定で**主役の手前**）
+		//   > 島さん「飛んだ後がいい。飛んだ軌跡を描くように。なので手前から後ろ」
+		//   ★★★**奥に置くと、粒の71.4%が主役の絵に隠れて画面に出ません**（★実測）
+		// ⑦'' ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）
+		//   ★きらめきと同じく**主役の手前**（★足に隠れると出した意味が無い）
+		if (DUST_ON) drawDusts();
+		if (SPARK_ON) drawSparks();
 
 		// ⑧ ★★プレイヤーより手前の草花（地面より下がったもの）
 		//   島さん「地面に埋もれているのではなく、**手前にある**という表現に見せたい」
@@ -4845,6 +5296,7 @@
 			refreshPad = opts && opts.refreshPad;
 			GROUND = H - GROUND_FROM_BOTTOM;
 			SK.setup(H, GROUND);         // ★★最遠景の景観に、液晶の高さと地面の位置を教える
+			if (RG && RG.setup) RG.setup(W);   // ★★★★地域に、液晶の幅を教える（★終わりのずれに使う）
 			PD.setup(W, H, GROUND);      // ★背景の部品に、画面の大きさと地面の位置を教える
 			loadSound();
 			loadBest();                  // ★いちばん進んだ距離を思い出す（2026-08-15 / Phase 3）
@@ -5025,6 +5477,9 @@
 				if (st.air < 0) {
 					st.airJumps = 1;
 					st.djBase = 0;
+					// ★★★★地面を弾いた土けむり（2026-08-31 島さんの指定）。
+					//   ★★**地上から跳ぶときだけ**（★空中には弾く地面が無い）
+					addDust();
 				}
 				st.trick = i;
 				st.air = 0;
@@ -5229,7 +5684,12 @@
 		_pickPattern: pickPattern,
 		_makeRow: makeRow, _inGoalClear: inGoalClear,
 		// ★★主役の足がいまどの行にいるか（★テストが「水平か」を測るのに使う）
-		_riderRow: function () { return riderGroundRow() - 1 - currentLift(); },
+		_riderRow: riderFootRow,
+		// ★★★★跳んだ軌跡のきらめきの覗き窓（2026-08-30）
+		_sparks: function () { return st.sparks; },
+		// ★★★★跳んだときの土けむりの覗き窓（2026-08-31）
+		_dusts: function () { return st.dusts; },
+		_addDust: addDust,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
@@ -5288,6 +5748,24 @@
 				// ★★報酬フィードバック（2026-08-15）
 				HIT_FLASH_ON: HIT_FLASH_ON, HIT_FLASH_FRAMES: HIT_FLASH_FRAMES,
 				C_HIT_FLASH: C_HIT_FLASH,
+				// ★★★★跳んだ軌跡のきらめき（2026-08-30 島さんの指定）
+				SPARK_ON: SPARK_ON, SPARK_MS: SPARK_MS, SPARK_EVERY: SPARK_EVERY,
+				SPARK_MAX: SPARK_MAX, SPARK_FADE: SPARK_FADE,
+				C_SPARK: C_SPARK, C_SPARK_DARK: C_SPARK_DARK, C_SPARK_LATE: C_SPARK_LATE,
+				SPARK_KINDS: SPARK_KINDS,
+				SPARK_DIM_RATE: SPARK_DIM_RATE,
+				SPARK_DIM_ALPHA: SPARK_DIM_ALPHA,
+				SPARK_JITTER_X: SPARK_JITTER_X, SPARK_JITTER_Y: SPARK_JITTER_Y,
+				SPARK_EDGE: SPARK_EDGE,
+				// ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）
+				DUST_ON: DUST_ON, DUST_MIN: DUST_MIN, DUST_NUM: DUST_NUM,
+				DUST_MS: DUST_MS, DUST_FADE: DUST_FADE,
+				DUST_RISE: DUST_RISE, DUST_GRAV: DUST_GRAV,
+				DUST_BACK: DUST_BACK, DUST_SPREAD: DUST_SPREAD, DUST_HELD: DUST_HELD,
+				DUST_X: DUST_X, DUST_Y: DUST_Y,
+				DUST_COLS: DUST_COLS, C_DUST_LATE: C_DUST_LATE,
+				DUST_DIM_RATE: DUST_DIM_RATE, DUST_DIM_ALPHA: DUST_DIM_ALPHA,
+				DUST_EDGE: DUST_EDGE,
 				POP_ON: POP_ON, POP_MS: POP_MS, POP_MAX: POP_MAX, POP_RISE: POP_RISE,
 				GAIN_FLASH_MS: GAIN_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
