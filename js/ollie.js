@@ -994,6 +994,29 @@
 	var SPARK_JITTER_Y = 2;  // ★たてのばらつき（★±このドット）
 
 	// ============================================================
+	// ★★★★消えぎわの点滅（2026-08-31 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「✨は小さくなる時から消えて無くなるまでは
+	//   >   細かく点滅するパターンも入れたほうが自然に見えるかな。」**
+	//
+	//   ★★**形が小さくなり始めてから**（＝2段目以降）、消えるまでのあいだ、
+	//     ★★★**細かく点いたり消えたり**します。
+	//
+	//   ■ ★★★粒ごとに「位相」をずらしてある（★ここが要）
+	//     ★きらめきは `SPARK_EVERY`（100ms）ごとに1粒ずつ生まれるので、
+	//       ★★**そのまま点滅させると、全部の粒が同時に点いたり消えたり**します
+	//       （★点滅の間隔と生まれる間隔が、きれいに割り切れてしまうため）。
+	//     ★★★それでは「画面ぜんぶがチカチカする」だけで、**逆に不自然**。
+	//     → ★粒ごとに `ph`（0〜1のずれ）を持たせて、**バラバラに点滅**させています
+	//
+	//   ★★段の数（`SPARK_KINDS` の中の配列の数）に**追従**します。
+	//     ★島さんが段を増やしても、「小さくなり始めてから」のままです
+	var SPARK_BLINK_ON   = 1;    // ★★0 にすると点滅しない（★2026-08-30 までの見え方に戻る）
+	var SPARK_BLINK_STEP = 1;    // ★★★何段目から点滅するか（★1 = 小さくなり始めたら）
+	var SPARK_BLINK_MS   = 45;   // ★★点いている時間・消えている時間（★小さいほど細かい）
+
+	// ============================================================
 	// ■■■ ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）■■■
 	// ============================================================
 	//
@@ -1057,6 +1080,77 @@
 	//   ★★島さんの指定は「**1ドット**の緑」なので **0（添えない）**にしてあります。
 	//     ★「もっとはっきり見せたい」ときだけ 1 に（★★そのとき粒は2ドットになります）
 	var DUST_EDGE      = 0;
+
+	// ============================================================
+	// ■■■ ★★★★着地のけむり（2026-08-31）■■■
+	// ============================================================
+	//
+	//   ★AI の提案 ①「**着地の「ドンッ」がまだ無い**」を、★★島さんが選びました。
+	//
+	//   ■ ★★★何が問題だったか（★コードを調べて分かったこと）
+	//     ★**跳ぶ瞬間**には3つ起きていた: ★技の音／★土けむり／★きらめき。
+	//     ★★ところが**着地の瞬間は、音も演出も1つもなかった**（★主役の姿が変わるだけ）。
+	//     ★★★1ランで **25〜30回**訪れる瞬間です
+	//       （★実測記録: ふつうのランが93秒／障害物は約3.5秒に1個）。
+	//
+	//   ★★桜井資料「**ゲームはアクションに対するリアクションを返すもの。
+	//     操作したのに無反応の状態を作らない**」（出典: ノーリアクションを排除せよ）
+	//
+	//   ■ ★★★★跳ぶときと「見た目で」別物にしてある
+	//
+	//       跳ぶとき … ★**後ろへ**流れながら、★★**高く（5〜7ドット）ゆっくり**舞う
+	//       ★着地   … ★★**左右へ**速く散って、★**低く（2〜3ドット）すぐ**消える
+	//
+	//   ★★★**粒そのものは同じ仕組み**（`st.dusts`）です。★違うのは初速と寿命だけ
+	//     ＝ ★描くところも消えるところも**1か所のまま**（★★2か所に書かない）
+	//
+	//   ★★★これも**見た目だけ**。★当たり判定・速さ・間隔・距離・コインには1ドットも触りません
+	var LAND_ON    = 1;    // ★★0 にすると着地のけむりだけ止まる
+	var LAND_MIN   = 2;    // ★★★**着地は必ず出る**（★跳ぶときは０粒もある）
+	var LAND_NUM   = 5;    //   ★理由: ★★**地面は必ず叩く**ので、毎回返すのが手応えになる
+	var LAND_MS    = 520;  // ★★1粒が消えるまでの**上限**（★跳ぶとき760より短い ＝ キレが出る）
+	var LAND_HOLD  = 60;   // ★★★舞い降りたあと、何ミリ秒だけ残るか（★★0 = 着いた瞬間に消える）
+	var LAND_RISE  = 24;   // ★**低く**舞い上がる（★跳ぶときは40）
+	var LAND_GRAV  = 110;  // ★すぐ落ちてくる
+	var LAND_SIDE  = 34;   // ★★★**左右へ散る速さ**（★ここが跳ぶときとの決定的な違い）
+	var LAND_X     = 0;    // ★出る場所（★足元から何ドット後ろか。★0＝足の真下）
+	var LAND_Y     = 2;    // ★出る高さ（★地面から何ドット上）
+	// ★★★★出るのは「**ボードの両端**」から（2026-08-31。★実測で分かったこと）
+	//   ★★はじめは足元のまん中から出していましたが、
+	//     ★★★**ボードの絵（幅19ドット）に、粒がまるごと重なって見えませんでした**。
+	//   → ★**ボードの端から外へ**散らすと、背景の前に出るので見えます
+	var LAND_EDGE  = 11;   // ★★ボードの幅は19ドット（★これで必ず外へ出る）    // ★ボードの端まで何ドットか（★ここから外向きに散る）
+	var LAND_SPREAD = 2;   // ★出る場所のよこのばらつき（★±このドット）
+	// ★★★★色は「土」（2026-08-31。★★実際に描いて見比べて決めた）★島さんの持ち場
+	//
+	//   ★跳ぶとき … ★★**緑**（★ボードが**草を弾く**）
+	//   ★★着地   … ★★★**茶**（★ボードが**土を叩く**）
+	//
+	//   ★★★**緑のままだと、着地の粒はほとんど見えませんでした。**
+	//     ★理由: 着地の粒は**低い**ので、★★背景の**青緑の丘・暗い緑の森**の前に出る。
+	//       ★そこに緑を置くと**色相まで同じ**になって溶ける
+	//       （★跳ぶときの粒は高く舞うので、空や山の前に出て見えていた）。
+	//
+	//   ■ ★★★実測（★着地の粒が実際に通る 13,485ドットの背景を数えた）
+	//     ★背景でいちばん多いのは **丘かげ #1e9674（明るさ0.48・色み163度）が 29.0%**
+	//
+	//         ★緑3種 … ★★**24.8%** 溶ける（#b8ffb8 18.2% / #66ff66 18.2% / #008751 38.1%）
+	//         ★★土3種 … ★★★**7.8%** 溶ける（#dfaa9a 11.7% / #c7694d 11.7% / #ab5236 0.0%）
+	//
+	//     ★★★**3倍以上、土のほうが見えます。** ★★実際に描いた絵でも一目で分かりました
+	//     ★土あかり・土なかびが 11.7% なのは、★**ボードの桃色 #ff77a8** と近いため
+	//
+	//     35 土あかり #dfaa9a ／ 36 土なかび #c7694d ／ 13 茶 #ab5236
+	var LAND_COLS  = [35, 36, 13];
+	// ★★★★着地の音 —— ★★**まだ鳴りません**（`LAND_SOUND_ON = 0`）
+	//
+	//   ★★★**音は島さんの持ち場**です。★AI は過去に2度、
+	//     ★理屈で音を「良く」しようとして島さんの好みから外れました
+	//     （→ CLAUDE.md「音は理屈で決めない。島さんの耳が正」）。
+	//   ★★仮の音だけ置いてあります。★**`tools/preview-sound.html` で聴き比べて**、
+	//     ★★★島さんが決めたら 1 にします。
+	//   ★★★1ランで **25〜30回**鳴るので、★**うるさくならないか**がいちばんの勘所
+	var LAND_SOUND_ON = 0;
 
 	// ★★距離の節目（★進むほど間隔が広がる。★距離は報酬の主役ではない）
 	//
@@ -2574,6 +2668,8 @@
 			y: riderFootRow() + jy,
 			ms: 0,
 			kind: Math.floor(Math.random() * SPARK_KINDS.length),
+			// ★★★★点滅のずれ（2026-08-31）。★これが無いと**全部が同時に**点滅します
+			ph: Math.random(),
 			// ★★★透明度50%の粒を混ぜる（★島さんの指定）
 			dim: (Math.random() < SPARK_DIM_RATE) ? 1 : 0
 		});
@@ -2603,24 +2699,78 @@
 	//   ★★★**地面を弾いた瞬間に、一度だけ**まとめて出します（★きらめきは滞空中ずっと）。
 	//   ★★覚えるのは**世界の座標**（`wx`）＝ 置いたあとは地面と一緒に後ろへ流れる
 	//   ★★★高さは `riderGroundRow()` を通す（★足元と同じ1か所。★2か所に書かない）
+	// ★★★★粒を1つ置く（★**跳ぶときも着地のときも、必ずここを通る**）
+	//   ★★寿命（`life`）と落ち方（`grav`）を粒ごとに持たせてあるので、
+	//     ★★★**跳ぶけむり（760ms）と着地のけむり（520ms）が、同じ入れ物で共存できる**
+	function pushDust(o) {
+		if (st.dusts.length >= DUST_HELD) st.dusts.shift();   // ★古いものから捨てる
+		st.dusts.push({
+			wx: o.wx, y: o.y, vx: o.vx, vy: o.vy,
+			ms: 0, life: o.life, grav: o.grav,
+			kind: o.kind || 0,       // ★★0＝跳んだとき / 1＝着地（★テストが見分ける印）
+			col: o.cols[Math.floor(Math.random() * o.cols.length)],
+			dim: (Math.random() < DUST_DIM_RATE) ? 1 : 0
+		});
+	}
+
 	function addDust() {
 		if (!DUST_ON) return;
 		// ★★出る数は毎回ちがう（★０のときもある ＝ 毎回は出ない）
 		var n = DUST_MIN + Math.floor(Math.random() * (DUST_NUM - DUST_MIN + 1));
 		var g = riderGroundRow();
 		for (var i = 0; i < n; i++) {
-			if (st.dusts.length >= DUST_HELD) st.dusts.shift();   // ★古いものから捨てる
 			var jx = Math.round((Math.random() * 2 - 1) * DUST_SPREAD);
-			st.dusts.push({
+			pushDust({
 				wx: worldX() + RIDER_X + RIDER_FOOT + DUST_X + jx,
 				y: g - DUST_Y,                                // ★ボードの面のあたり
 				vx: -DUST_BACK * Math.random(),               // ★★後ろへ（★弾かれた向き）
 				vy: -DUST_RISE * (0.6 + Math.random() * 0.4), // ★上向き（★マイナスが上）
-				ms: 0,
-				col: DUST_COLS[Math.floor(Math.random() * DUST_COLS.length)],
-				dim: (Math.random() < DUST_DIM_RATE) ? 1 : 0
+				life: DUST_MS, grav: DUST_GRAV, cols: DUST_COLS, kind: 0
 			});
 		}
+	}
+
+	// ★★★★着地のけむり —— 出す（2026-08-31）
+	//
+	//   ★★★**跳ぶときと、見た目で別物にしてある**:
+	//     ★跳ぶとき … 後ろへ流れながら、**高くゆっくり**舞う
+	//     ★★着地   … **左右へ**速く散って、**低くすぐ**消える
+	//
+	//   ★★**必ず出ます**（★跳ぶときは０粒もある）。★地面は必ず叩くため
+	function addLandDust() {
+		if (!DUST_ON || !LAND_ON) return;
+		var n = LAND_MIN + Math.floor(Math.random() * (LAND_NUM - LAND_MIN + 1));
+		var g = riderGroundRow();
+		for (var i = 0; i < n; i++) {
+			var jx = Math.round((Math.random() * 2 - 1) * LAND_SPREAD);
+			// ★★★左右どちらへ散るかは、粒ごとに決める（★跳ぶときは「後ろだけ」）
+			var dir = (Math.random() < 0.5) ? -1 : 1;
+			// ★★★★寿命は「**地面に戻るまで**」（2026-08-31。★実測で分かったこと）
+			//   ★★はじめは全部 520ms にしていましたが、★弱く弾かれた粒は
+			//     ★★★**早く地面に着いて、そこから寿命まで張り付いて**いました。
+			//   ★★土の粒が**地面の土の上**にあると、色が同じで**消えて見えます**
+			//     （★実測: いちばん悪い瞬間で「25%しか見えない」になっていた）。
+			//   → ★★**上がって戻ってくる時間**を粒ごとに出して、それを寿命にする
+			//     ＝ ★★★**どの粒も「舞い降りたところ」で消える**（★張り付かない）
+			var v0 = LAND_RISE * (0.5 + Math.random() * 0.5);
+			var flight = 2 * v0 / LAND_GRAV * 1000;   // ★上がって戻るまで（ミリ秒）
+			pushDust({
+				// ★★★**ボードの端から、外へ**（★まん中から出すと、絵に隠れて見えない）
+				wx: worldX() + RIDER_X + RIDER_FOOT + LAND_X + dir * LAND_EDGE + jx,
+				y: g - LAND_Y,
+				vx: dir * LAND_SIDE * (0.4 + Math.random() * 0.6),
+				vy: -v0,
+				life: Math.min(LAND_MS, flight + LAND_HOLD),
+				grav: LAND_GRAV, cols: LAND_COLS, kind: 1
+			});
+		}
+	}
+
+	// ★★★★着地の音（★★**まだ鳴りません**。`LAND_SOUND_ON = 0`）
+	//   ★★★音は島さんの持ち場。★`tools/preview-sound.html` で聴き比べてから決めます
+	function landSound() {
+		if (!LAND_SOUND_ON) return;
+		melody([[150, 0.05, 0], [110, 0.06, 40]]);   // ★仮: 低く短い2音（「ドッ」）
 	}
 
 	// ★★土けむりを進める（★寿命が来たら**必ず**消える）
@@ -2630,8 +2780,8 @@
 		for (var i = st.dusts.length - 1; i >= 0; i--) {
 			var d = st.dusts[i];
 			d.ms += dt * 1000;
-			if (d.ms >= DUST_MS) { st.dusts.splice(i, 1); continue; }   // ★必ず消える
-			d.vy += DUST_GRAV * dt;   // ★だんだん落ちてくる
+			if (d.ms >= d.life) { st.dusts.splice(i, 1); continue; }   // ★必ず消える
+			d.vy += d.grav * dt;      // ★だんだん落ちてくる（★粒ごとの落ち方）
 			d.wx += d.vx * dt;
 			d.y += d.vy * dt;
 		}
@@ -3817,6 +3967,11 @@
 			if (FR.frameAt(POSES[st.trick].ms, st.air) < 0) {
 				st.air = -1;                     // 最後まで行った
 				st.djBase = 0;                   // ★★下駄をはずす（2026-08-22）
+				// ★★★★着地のけむり（2026-08-31）。★**跳ぶときと対になる反応**
+				//   ★桜井資料「操作したのに無反応の状態を作らない」
+				//     （出典: ノーリアクションを排除せよ）
+				addLandDust();
+				landSound();
 				// ★★着地したあと、たまにそのままプッシュへ（島さんの指定。そのほうが自然）
 				st.idle = (Math.random() < PUSH_AFTER_TRICK) ? I_PUSH : I_STANDBY;
 				st.idleMs = 0;
@@ -4152,8 +4307,14 @@
 			var t = s.ms / SPARK_MS;
 			// ★★その粒の種類（★生まれたときに決まっている）
 			var kind = SPARK_KINDS[s.kind] || SPARK_KINDS[0];
-			var shape = kind[Math.min(kind.length - 1, Math.floor(t * kind.length))];
+			var stepIdx = Math.min(kind.length - 1, Math.floor(t * kind.length));
+			var shape = kind[stepIdx];
 			if (!shape || !shape.length) continue;
+			// ★★★★消えぎわの点滅（2026-08-31 島さんの指定）
+			//   ★★**小さくなり始めてから**（`SPARK_BLINK_STEP` 段目以降）だけ。
+			//   ★★★生まれたての大きい粒は**点滅しません**（★出た瞬間が消えると弱く見える）
+			if (SPARK_BLINK_ON && stepIdx >= SPARK_BLINK_STEP &&
+				Math.floor(s.ms / SPARK_BLINK_MS + s.ph) % 2 === 1) continue;
 			var late = (s.ms > SPARK_MS - SPARK_FADE);
 
 			// ★★★先に黒でふちどる（★これが無いと、白い山の前で消えます）
@@ -4209,7 +4370,7 @@
 			var g = groundRowAt(x) - 1;                 // ★その列の地面のすぐ上
 			if (y > g) y = g;                           // ★★地面にめり込ませない
 			if (y < 0 || y >= H) continue;
-			var late = (d.ms > DUST_MS - DUST_FADE);
+			var late = (d.ms > d.life - DUST_FADE);
 			// ★★★★薄い粒は半透明で描く（★必ず 1 に戻すこと）
 			//   ★★**消え際は必ず薄くなる**（★これが「フワッと」の正体）
 			ctx.globalAlpha = (d.dim || late) ? DUST_DIM_ALPHA : 1;
@@ -5690,6 +5851,7 @@
 		// ★★★★跳んだときの土けむりの覗き窓（2026-08-31）
 		_dusts: function () { return st.dusts; },
 		_addDust: addDust,
+		_addLandDust: addLandDust,
 		_baseClear: function () { return BASE_CLEAR; },
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
@@ -5757,6 +5919,9 @@
 				SPARK_DIM_ALPHA: SPARK_DIM_ALPHA,
 				SPARK_JITTER_X: SPARK_JITTER_X, SPARK_JITTER_Y: SPARK_JITTER_Y,
 				SPARK_EDGE: SPARK_EDGE,
+				// ★★★★消えぎわの点滅（2026-08-31 島さんの指定）
+				SPARK_BLINK_ON: SPARK_BLINK_ON, SPARK_BLINK_STEP: SPARK_BLINK_STEP,
+				SPARK_BLINK_MS: SPARK_BLINK_MS,
 				// ★★★★跳んだときの土けむり（2026-08-31 島さんの指定）
 				DUST_ON: DUST_ON, DUST_MIN: DUST_MIN, DUST_NUM: DUST_NUM,
 				DUST_MS: DUST_MS, DUST_FADE: DUST_FADE,
@@ -5766,6 +5931,13 @@
 				DUST_COLS: DUST_COLS, C_DUST_LATE: C_DUST_LATE,
 				DUST_DIM_RATE: DUST_DIM_RATE, DUST_DIM_ALPHA: DUST_DIM_ALPHA,
 				DUST_EDGE: DUST_EDGE,
+				// ★★★★着地のけむり（2026-08-31）
+				LAND_ON: LAND_ON, LAND_MIN: LAND_MIN, LAND_NUM: LAND_NUM,
+				LAND_MS: LAND_MS, LAND_HOLD: LAND_HOLD,
+				LAND_RISE: LAND_RISE, LAND_GRAV: LAND_GRAV,
+				LAND_SIDE: LAND_SIDE, LAND_X: LAND_X, LAND_Y: LAND_Y, LAND_EDGE: LAND_EDGE,
+				LAND_SPREAD: LAND_SPREAD, LAND_COLS: LAND_COLS,
+				LAND_SOUND_ON: LAND_SOUND_ON,
 				POP_ON: POP_ON, POP_MS: POP_MS, POP_MAX: POP_MAX, POP_RISE: POP_RISE,
 				GAIN_FLASH_MS: GAIN_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
