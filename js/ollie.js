@@ -1586,7 +1586,56 @@
 	                         //   ★★★2026-09-02、坂にも出るようになったので、
 	                         //     ★**ここを通ることはめったにありません**
 	                         //     （★前は「まっすぐな道が14%しかない」ので毎回ここでした）
-	var RAIL_SOUND_ON = 1;   // ★★乗った・降りたの音（★仮。★島さんが決めたら差し替え）
+	var RAIL_SOUND_ON = 1;   // ★★乗った・降りたの音
+
+	// ============================================================
+	// ★★★★★レールの金属音（2026-09-02 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「レールに接触したときの効果音を気持ち良くしたい。
+	//   >   実際は金属音のはず。脳汁でる音。」**
+	//
+	//   ★★**金属らしさの正体は「倍音が整数比になっていないこと」**です。
+	//     ★ふつうの音（声・笛・弦）は 1 : 2 : 3 : 4 … と**きれいな整数比**。
+	//     ★★★叩いた金属の棒は **1 : 2.76 : 5.40 : 8.93** ＝ **半端な比**。
+	//       ★この「半端さ」を耳が「金属」と聞き分けます。
+	//
+	//   ★★前の音は **880 → 1319 の2音**でした。★どちらも整数比に近く、
+	//     ★★★**構造的に金属には聞こえません**でした（★AI が仮に置いた音）。
+	//
+	//   ★★★★**4つを同時に鳴らします**（★順番にではない ＝ 1つの「カーン」になる）。
+	//     ★高い倍音ほど**早く消える**（★実物の金属と同じ）。
+	//
+	//   ★★★★★**島さんが R⑤（クランク＋きらめき）を選びました**（2026-09-02）。
+	//     ★金属の「カーン」のあとに、★★**3つ駆け上がるきらめき**が続きます。
+	//     ★★★これが「脳汁」の部分（★金属だけだと現実的だが、ごほうび感が薄い）。
+	//
+	//   ★★聴き比べは **`tools/preview-sound.html` の R⓪〜R⑥**（★島さんの持ち場）
+	var RAIL_HZ    = 880;    // ★★音の高さ（★下げると太いトラック／上げると細い手すり）
+	var RAIL_RATIO = [1, 2.76, 5.40, 8.93];   // ★★★金属の倍音比（★整数比にしないこと）
+	var RAIL_DUR   = [0.24, 0.15, 0.09, 0.05]; // ★高い倍音ほど早く消える
+
+	// ★★★★★きらめき（★金属の「カーン」のあとに続く。★島さんが選んだ R⑤ の部分）
+	//   ★形は `[高さ, 長さ, 何ミリ秒後]`。★★**空の配列にすると R① に戻ります**
+	//   ★ここは**駆け上がる形**なので、金属の倍音とちがって**整数比でよい**
+	//     （★「きらめき」は金属の音ではなく、★★**ごほうびの合図**だから）
+	var RAIL_SPARK = [
+		[2637, 0.05,  90],
+		[3520, 0.05, 140],
+		[4699, 0.18, 190]
+	];
+
+	// ★★★★★擦れ続ける音（★グラインド中ずっと）。★★**いまは止めてあります**
+	//   ★★実物のグラインドは「カーン」で終わらず、★**擦れる音が出続けます**。
+	//     ★★★火花とまったく同じ考え方（★**時間ではなく距離で数える**
+	//       ＝ 速く走るほど密になる）。
+	//   ★候補は `tools/preview-sound.html` の **R⑥**。★1 にすると鳴ります
+	//   ★★★**AIへ: 勝手に 1 に戻さないこと**（★`LAND_SOUND_ON` と同じ扱い）
+	var RAIL_SCRAPE_ON    = 0;
+	var RAIL_SCRAPE_EVERY = 4;     // ★★何ドット進むごとに鳴らすか（★小さいほど密）
+	var RAIL_SCRAPE_HZ    = 1600;  // ★擦れの高さ
+	var RAIL_SCRAPE_VAR   = 7;     // ★★高さのばらつき（★機械的にしないため）
+	var RAIL_SCRAPE_DUR   = 0.030;
 
 	var GATE = global.DotGateArt;
 	var KEY  = global.DotKeyArt;
@@ -2295,6 +2344,8 @@
 			trackDots: 0,    // ★★★★トラックの火花のものさし（2026-08-31）
 			nextRail: 0,     // ★次のレールまでの距離
 			railsBorn: 0,    // ★これまでに出したレールの数（★実測用）
+			scrapeDots: 0,   // ★★★擦れ続ける音を「距離で」数える（★火花と同じ）
+			scrapeStep: 0,   // ★★高さを少しずつ変えるための番号
 			enemiesBorn: 0,  // ★これまでに出した敵の数
 			birdsBorn: 0,    // ★★★★これまでに出した飛ぶ敵の数（2026-08-23）
 			// ★★★★ゴールの扉（2026-08-22。★5000m のエンディング）
@@ -2900,6 +2951,34 @@
 		return riderGroundRow() - 1 - railRowAtOff(o, foot - Math.round(o.x));
 	}
 
+	// ============================================================
+	// ★★★★★レールに触れた瞬間の金属音（2026-09-02 島さんの指定）
+	// ============================================================
+	//   ★★**4つを同時に**鳴らします（★`melody()` に「0ミリ秒後」で渡す）。
+	//   ★★★**`setTimeout` を直に書かないこと**（★既存の決まり:
+	//     「音を並べるのは `melody()` の1か所だけ」。★散らすと**音を切っても鳴り残る**）
+	function railSound() {
+		if (!RAIL_SOUND_ON) return;
+		var notes = [];
+		for (var i = 0; i < RAIL_RATIO.length; i++) {
+			var f = Math.round(RAIL_HZ * RAIL_RATIO[i]);
+			if (f > 17000) continue;              // ★高すぎると耳に痛い
+			notes.push([f, RAIL_DUR[i], 0]);
+		}
+		// ★★★きらめきを足す（★島さんが選んだ R⑤）。★`RAIL_SPARK` を空にすれば消える
+		for (i = 0; i < RAIL_SPARK.length; i++) notes.push(RAIL_SPARK[i]);
+		melody(notes);
+	}
+
+	// ★★★擦れ続ける音（★`RAIL_SCRAPE_ON` が 1 のときだけ）
+	//   ★★2つを同時に鳴らすだけ（★同じく整数比にしない ＝ 金属）
+	function railScrape() {
+		var b = RAIL_SCRAPE_HZ + (st.scrapeStep % RAIL_SCRAPE_VAR) * 60;
+		st.scrapeStep++;
+		melody([[b, RAIL_SCRAPE_DUR, 0],
+			[Math.round(b * RAIL_RATIO[1]), RAIL_SCRAPE_DUR * 0.75, 0]]);
+	}
+
 	// ★★乗る。★**技をやめて、立ち姿のままレールの高さに留まる**
 	//   ★★★姿は**仮**です（★いまは立ち姿 STANDBY）。
 	//     ★島さんがグラインドの絵を描いたら、`js/frames.js` に1行足して差し替えます
@@ -2915,7 +2994,7 @@
 		st.airJumps = 1;
 		st.idle = I_STANDBY;      // ★★仮の姿
 		st.idleMs = 0;
-		if (RAIL_SOUND_ON) { sound(880, 0.05); setTimeout(function () { sound(1319, 0.07); }, 55); }
+		railSound();              // ★★★金属音（2026-09-02 島さんの指定）
 	}
 
 	// ★★降りる。★★★**オーリーの絵を流して降りる**（★下駄をレールの高さから 0 へ）
@@ -2999,6 +3078,15 @@
 		//   ★★**進んだ距離**で数える（★速く走るほど密になる）
 		st.trackDots += moved;
 		while (st.trackDots >= TRACK_EVERY) { st.trackDots -= TRACK_EVERY; addTrackSparks(); }
+		// ★★★★★擦れ続ける音（★いまは `RAIL_SCRAPE_ON = 0` で止めてあります）
+		//   ★火花とまったく同じ数え方（★**距離で数える** ＝ 速いほど密になる）
+		if (RAIL_SCRAPE_ON && RAIL_SOUND_ON) {
+			st.scrapeDots += moved;
+			while (st.scrapeDots >= RAIL_SCRAPE_EVERY) {
+				st.scrapeDots -= RAIL_SCRAPE_EVERY;
+				railScrape();
+			}
+		}
 		st.grindDots += moved;
 		st.grindCoin += moved * RAIL_COIN;
 		// ★★整数になったぶんだけ、**静かに**財布へ（★ポップは降りたときに1回）
@@ -6592,6 +6680,9 @@
 				RAIL_LEN: RAIL_LEN, RAIL_GAP_MIN: RAIL_GAP_MIN, RAIL_GAP_MAX: RAIL_GAP_MAX,
 				RAIL_COIN: RAIL_COIN, RAIL_KEEP: RAIL_KEEP, RAIL_RETRY: RAIL_RETRY,
 				RAIL_SOUND_ON: RAIL_SOUND_ON,
+				RAIL_HZ: RAIL_HZ, RAIL_RATIO: RAIL_RATIO, RAIL_DUR: RAIL_DUR,
+				RAIL_SPARK: RAIL_SPARK,
+				RAIL_SCRAPE_ON: RAIL_SCRAPE_ON, RAIL_SCRAPE_EVERY: RAIL_SCRAPE_EVERY,
 				RAIL_H: (RAIL ? RAIL.FRAMES[0].rows.length : 0),
 				RAIL_BAR_ROWS: (RAIL ? (RAIL.BAR_ROWS || 1) : 0),
 				// ★★★★★トラックの火花（2026-08-31 島さんの指定・つぶまきで作った）
