@@ -82,7 +82,11 @@
 	// ★地上の姿（勝手に出るもの）。"loop" = ずっと繰り返す / "once" = 1回だけ流れる
 	var IDLE = {
 		STANDBY: "loop",        // ニュートラル。ふだんはこれ
-		PUSH:    "once"         // プッシュ（走り出し）。★GO の瞬間と、たまに
+		PUSH:    "once",        // プッシュ（走り出し）。★GO の瞬間と、たまに
+		// ★★★★★グラインド（2026-09-02、島さんが描いた）。
+		//   ★★**勝手には出ません**（★`nextIdle()` が選ぶのは STANDBY と PUSH だけ）。
+		//   ★レールに乗ったときだけ `startGrind()` が指名します
+		GRIND:   "loop"
 	};
 
 	// ★★姿の一覧。技も地上の姿も**同じ形で持つ**（描き方が同じなので分ける理由がない）
@@ -102,6 +106,7 @@
 	}
 	var I_STANDBY = poseIndex("STANDBY");
 	var I_PUSH    = poseIndex("PUSH");
+	var I_GRIND   = poseIndex("GRIND");     // ★★★★レールの上のふるまい（2026-09-02）
 
 	// ============================================================
 	// ■■■ 調整値 —— 触るのはここだけ ■■■
@@ -2992,7 +2997,10 @@
 		st.air = -1;              // ★技は終わり（★`currentPose()` が立ち姿を返す）
 		st.djBase = 0;
 		st.airJumps = 1;
-		st.idle = I_STANDBY;      // ★★仮の姿
+		// ★★★★★島さんが描いたグラインドの姿（2026-09-02）
+		//   > **島さん「レール上のふるまい(グラインド)を描きました。」**
+		//   ★★前は**立ち姿のまま**でした（★AI の仮）。★いまは島さんの絵です
+		st.idle = I_GRIND;
 		st.idleMs = 0;
 		railSound();              // ★★★金属音（2026-09-02 島さんの指定）
 	}
@@ -6579,6 +6587,8 @@
 		_makeRow: makeRow, _inGoalClear: inGoalClear,
 		// ★★主役の足がいまどの行にいるか（★テストが「水平か」を測るのに使う）
 		_riderRow: riderFootRow,
+		// ★★★★いま出している姿の名前（★テストが「グラインドの姿か」を見る）
+		_pose: function () { return currentPose().name; },
 		// ★★★★跳んだ軌跡のきらめきの覗き窓（2026-08-30）
 		_sparks: function () { return st.sparks; },
 		// ★★★★レールの覗き窓（2026-08-31）
