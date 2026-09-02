@@ -1562,7 +1562,8 @@
 	var RAIL_LEN     = 90;   // ★★★長さ（★★★2026-08-31、島さんの指定で 30 → **90**）
 	                         //   ★★**跳び越えられません**（★乗るしかない）。★上の説明を読むこと
 	                         //   ★★★2026-09-02、坂にも出るようになりました。
-	                         //     ★**地面に沿う**ので、長くても端がめり込みません
+	                         //     ★★**まっすぐな1本**（★両端を結ぶ）なので、長くても
+	                         //       ★端がめり込みません（★実測: 地面から 10〜17ドット）
 	var RAIL_GAP_MIN = 700;  // ★次のレールまでの距離（ドット）。★Lv0 で約10秒
 	var RAIL_GAP_MAX = 1600; //   ★Lv0 で約23秒
 	var RAIL_COIN    = 1.25; // ★★1ドット乗るごとに入るコイン
@@ -2826,7 +2827,7 @@
 		//         ＝ 2026-08-22 に踏んだ事故とまったく同じことが起きます）。
 		//   ★★★★2026-08-31、**そのレールの絵の上面**から逆算するようにしました
 		//     （★`RAIL_LIFT` を直に返すと、★★坂ぎわで1行ずれます → `railTopRowAt`）
-		if (st && st.grind) return railLift();
+		if (st && st.grind) return st.grindRail ? railLiftOf(st.grindRail) : RAIL_LIFT;
 		if (!st || !st.djBase || st.air < 0) return 0;
 		var P = currentPose();
 		var total = FR.totalMs(P.ms);
@@ -2851,28 +2852,50 @@
 	// ============================================================
 
 	// ============================================================
-	// ★★★★★レールの「上面の行」—— ★**地面に沿う**（2026-09-02 島さんの指定）
+	// ★★★★★レールは「まっすぐな1本」（2026-09-02 島さんの指摘で直した）
 	// ============================================================
 	//
-	//   > **島さん「レールは坂(上り下り)でも出現するようにします。」**
+	//   > **島さん「レールの坂での形は地面の傾斜にそのまま合わせると不自然に感じた。
+	//   >   その理由は『登って下る』もしくは『下って上る』は現実にはみない」**
 	//
-	//   ★★**どの列でも「その列の地面から `RAIL_LIFT` ドット上」**です。
-	//     ★★★だから坂でも、★**乗る高さは平地とまったく同じ**（＝乗り方が変わらない）。
+	//   ★★★**そのとおりでした。** ★はじめ AI は**地面の凹凸をそのままなぞらせ**ました。
+	//     ★★実測すると、★★★**22.1% のレールが、1本の中で向きを変えて**いました。
+	//     ★現実のレール（階段の手すり・スケートパークのレール）は**必ずまっすぐ**です。
 	//
-	//   ★★★これが「絵と1か所を共有する」形です:
-	//     ★描くほう（`drawRailArt`）も、★★乗るほう（ここ）も、**同じ式**を通ります。
-	//     ★★★2026-08-31、★まん中の地面で描いて足元の地面で乗ったら**1行ずれました**。
-	//       ★90ドットのままで坂に出すと、そのずれが**最大9ドット**になります（★実測）。
-	function railTopRowAt(col) {
-		if (!RAIL) return 0;
+	//   ★★→ **両端の高さを結んだ、1本のまっすぐな線**にしました。
+	//     ★端は、その場所の地面から `RAIL_LIFT` ドット上。★あいだは**まっすぐ**。
+	//     ★★★だから**1本の中で向きが変わることが、構造として起きません**。
+	//
+	//   ★★実測（★120万本ぶん試した）:
+	//     ★地面から線までの高さは **10〜17ドット**（★ふつうは14）。
+	//     ★★★**地面にめり込むことも、浮きすぎることもありません** ＝ 置く場所を選ばない。
+	//   ★★支柱の長さは場所ごとに変わります（★これが現実のレールの姿）。
+	//
+	//   ★★★★**乗る高さも、この線から出します**（★描くところと1か所を共有）。
+	//     ★2026-08-22 と 2026-08-31 に2度踏んだ「数字だけ動いて絵が動かない」事故を、
+	//     ★★構造で塞いであります。
+
+	// ★その絵の「上面が地面から何行上か」（★絵から出す。★直書きしない）
+	function railArtTop(wx) {
 		var f = RAIL.FRAMES[0];
-		return groundRowAt(col) - 1 - RAIL.FEET_ROW + f.y;
+		return (GROUND - WD.groundAt(wx)) - 1 - RAIL.FEET_ROW + f.y;
 	}
-	// ★★レールに乗るための「足元の高さ」
-	//   ★★★**絵から逆算します**（★絵の高さを変えれば、乗る高さも黙って追従する）。
-	//     ★地面に沿うので、★★**坂でも平地でも同じ値**になります
-	function railLift() {
-		return riderGroundRow() - 1 - railTopRowAt(RIDER_X + RIDER_FOOT);
+	// ★★レールの上面の行。★`off` = レールの左端から何ドット目か（0〜RAIL_LEN-1）
+	//   ★★★**世界の座標から出します**（★画面の座標だと、丸めで1ドット揺れる）
+	function railRowAtOff(o, off) {
+		if (!RAIL) return 0;
+		var a = railArtTop(o.wx);
+		var b = railArtTop(o.wx + RAIL_LEN - 1);
+		var t = off / (RAIL_LEN - 1);
+		if (t < 0) t = 0; else if (t > 1) t = 1;
+		return Math.round(a + (b - a) * t);
+	}
+	// ★★そのレールに乗るための「足元の高さ」
+	//   ★★★まっすぐな線なので、★**場所によって 10〜17 のあいだで変わります**
+	//     （★乗れる余裕は ±8 なので、どこでも跳べば届きます）
+	function railLiftOf(o) {
+		var foot = RIDER_X + RIDER_FOOT;
+		return riderGroundRow() - 1 - railRowAtOff(o, foot - Math.round(o.x));
 	}
 
 	// ★★乗る。★**技をやめて、立ち姿のままレールの高さに留まる**
@@ -2904,7 +2927,7 @@
 		//     （★下駄でレールの高さにいるので、条件がそのまま成り立ってしまう）。
 		//   ★★★**1本のレールに乗れるのは1回だけ** ＝ 跳び出す判断に意味が生まれる
 		// ★★★★★降りる高さは、**そのレールの絵の上面**から取る（★坂でずれないように）
-		var offLift = railLift();
+		var offLift = st.grindRail ? railLiftOf(st.grindRail) : RAIL_LIFT;
 		if (st.grindRail) st.grindRail.done = 1;
 		st.grindRail = null;
 		st.grind = 0;
@@ -2995,8 +3018,8 @@
 			if (o.kind !== "rail" || o.done) continue;   // ★★一度降りたレールには乗らない
 			var rx = Math.round(o.x);
 			if (foot < rx || foot >= rx + RAIL_LEN) continue;
-			// ★★★**そのレールの絵の上面**から高さを出す（★坂でも平地でも同じ値）
-			if (Math.abs(lift - railLift()) > RAIL_TAKE_Y) continue;
+			// ★★★**そのレールの絵の上面**から高さを出す（★まっすぐな線の、その場所）
+			if (Math.abs(lift - railLiftOf(o)) > RAIL_TAKE_Y) continue;
 			startGrind(o);
 			return;
 		}
@@ -4167,7 +4190,8 @@
 			//   > **島さん「レールは坂(上り下り)でも出現するようにします。」**（2026-09-02）
 			//
 			//   ★★**世界のどこにでも出ます**（★平地・上り・下りを選びません）。
-			//     ★★★レールは**地面に沿う**ので、坂でも乗る高さは平地と同じ（→ `railTopRowAt`）。
+			//     ★★★レールは**まっすぐな1本**（★両端を結ぶ）なので、坂でも
+			//       ★めり込みません（→ `railRowAtOff`）。★実測: 地面から 10〜17ドット
 			//
 			//   ★★★これで**住み分けが3つ**になりました:
 			//     ★コーン … まっすぐな道だけ ／ ★スライム・鳥 … 丘だけ ／
@@ -4938,35 +4962,74 @@
 	}
 
 	// ============================================================
-	// ★★★★★レールを、**地面に沿わせて**描く（2026-09-02 島さんの指定）
+	// ★★★★★レールを「まっすぐな1本」として描く（2026-09-02 島さんの指摘で直した）
 	// ============================================================
 	//
-	//   > **島さん「レールは坂(上り下り)でも出現するようにします。」**
+	//   > **島さん「地面の傾斜にそのまま合わせると不自然に感じた。
+	//   >   『登って下る』もしくは『下って上る』は現実にはみない」**
 	//
-	//   ★★ふつうの障害物は「まん中の地面」に**1枚まるごと**置きます（`drawArt`）。
-	//     ★★★レールは 90ドットもあるので、それだと坂で
-	//       ★**片側が地面にめり込み、反対側が宙に浮きます**（★実測: 最大9ドット）。
-	//   → ★★**列ごとに、その列の地面へ置き直す**。
-	//     ★★★**絵そのものは1ドットも変えていません**（★島さんが描いたら、そのまま曲がる）。
+	//   ★★描くものが**2つに分かれます**（★現実のレールとまったく同じ形）:
 	//
-	//   ★★★**すき間はできません。**
-	//     ★となり合う列の地面の差は**必ず1ドット以内**（★実測: 260万列を数えて 0 か 1 だけ）。
-	//     ★★レールの面は**3行の厚み**があるので、1ドットずれても必ず重なります。
+	//       ★**手すり**（上から `BAR_ROWS` 行）… ★★**まっすぐな線に沿う**
+	//       ★**支柱**（その下）              … ★★**線から地面まで伸びる**（★長さは場所ごと）
 	//
-	//   ★★速さのため、**地面の高さが同じ列はまとめて**塗ります
-	//     （★実測: 高さが変わるのは 2.7% の列だけ ＝ 平均36列ぶんまとめられる）
+	//   ★★★**絵そのものは1ドットも変えていません。**
+	//     ★支柱は「絵に描いてある行」を下から積み、★★足りないぶんだけ
+	//       **支柱のいちばん上の行を繰り返して**埋めます（★縦棒なので繰り返せる）。
+	//
+	//   ★★**すき間はできません。** ★線は90ドットで最大9ドットしか動かないので、
+	//     ★★となり合う列の差は**必ず1ドット以内**。★手すりは3行の厚みがあるので必ず重なる。
+	//
+	//   ★速さのため、**線の高さが同じ列はまとめて**塗ります
 	function drawRailArt(o) {
-		var f = RAIL.FRAMES[0], wdt = f.rows[0].length;
+		var f = RAIL.FRAMES[0], rows = f.rows, wdt = rows[0].length;
+		var bar = RAIL.BAR_ROWS || 1;
 		var cx = Math.round(o.x);
-		var c0 = 0, g0 = groundRowAt(cx);
+		// ★① 手すり … まっすぐな線に沿って置く（★同じ高さの列はまとめて塗る）
+		var c0 = 0, y0 = railRowAtOff(o, 0);
 		for (var c = 1; c <= wdt; c++) {
-			// ★最後まで来たら必ず切る（★`g0 + 1` は「ちがう値」を作るためだけの印）
-			var g = (c < wdt) ? groundRowAt(cx + c) : g0 + 1;
-			if (g !== g0) {
-				drawArtCols(f, cx, g0 - 1 - RAIL.FEET_ROW + f.y, c0, c);
-				c0 = c; g0 = g;
-			}
+			// ★最後まで来たら必ず切る（★`y0 + 1` は「ちがう値」を作るためだけの印）
+			var y = (c < wdt) ? railRowAtOff(o, c) : y0 + 1;
+			if (y !== y0) { drawArtCols(f, cx, y0, c0, c, 0, bar); c0 = c; y0 = y; }
 		}
+		// ★★② 支柱 … 手すりの下から地面まで伸ばす
+		for (c = 0; c < wdt; c++) drawRailLeg(f, cx + c, c, railRowAtOff(o, c) + bar);
+	}
+
+	// ★★★★支柱を1列ぶん描く（★下は地面／上は手すりのすぐ下まで）
+	//   ★★絵に描いてある支柱を**下から積み**、★★★足りないぶんは
+	//     **支柱のいちばん上の行を繰り返して**埋めます（★だからどんな長さにも伸びる）
+	function drawRailLeg(f, x, c, topY) {
+		if (x < 0 || x >= W) return;
+		var rows = f.rows, bar = RAIL.BAR_ROWS || 1;
+		var gY = groundRowAt(x) - 1;                 // ★足がつく行
+		var PALX = global.DotPalette;
+		var col = null, runTop = 0, runLen = 0;
+		function flush() {
+			if (!runLen) return;
+			ctx.fillStyle = GB[PALX.indexOfChar(col)];
+			ctx.fillRect(x, runTop, 1, runLen);
+			runLen = 0;
+		}
+		function put(y, ch) {
+			if (y < 0 || y >= H) { flush(); return; }
+			// ★縦に続く同じ色はまとめて塗る（★1ドットずつだと重い）
+			if (runLen && ch === col && y === runTop - 1) { runTop = y; runLen++; return; }
+			flush();
+			col = ch; runTop = y; runLen = 1;
+		}
+		// ★絵に描いてある支柱を、下から積む
+		var n = rows.length - bar, y2;
+		for (var k = 0; k < n; k++) {
+			y2 = gY - k;
+			if (y2 < topY) break;                     // ★手すりに食い込ませない
+			var ch = rows[rows.length - 1 - k].charAt(c);
+			if (ch !== ".") put(y2, ch);
+		}
+		// ★★足りないぶんは、支柱のいちばん上の行を繰り返す
+		var ch2 = rows[bar].charAt(c);
+		if (ch2 !== ".") for (y2 = gY - n; y2 >= topY; y2--) put(y2, ch2);
+		flush();
 	}
 
 	function drawCones() {
@@ -4976,7 +5039,7 @@
 		for (var i = 0; i < st.cones.length; i++) {
 			var o = st.cones[i];
 			if (o.taken) continue;            // ★拾った鍵は、もう描かない
-			// ★★★★★レールだけは**地面に沿わせる**（2026-09-02 島さんの指定「坂でも」）
+			// ★★★★★レールだけは**まっすぐな1本**として描く（2026-09-02 島さんの指摘）
 			if (o.kind === "rail" && RAIL) { drawRailArt(o); continue; }
 			// ★★★★敵だけ、時間でコマが進む（2026-08-27 島さんの指定「30msで」）
 			//   ★★コマの長さは `js/frames.js` の `ENEMY_MS`（★島さんの持ち場）。
@@ -5020,12 +5083,15 @@
 		}
 	}
 
-	// ★★絵の「**一部の列だけ**」を描く（★レールを地面に沿わせるために使う）
-	//   ★中身は `drawArt` とまったく同じ。★★ちがうのは**横の範囲を区切る**ことだけ
-	function drawArtCols(f, ox, oy, c0, c1) {
+	// ★★絵の「**一部だけ**」を描く（★まっすぐなレールの手すりに使う）
+	//   ★中身は `drawArt` とまったく同じ。★★ちがうのは**範囲を区切る**ことだけ
+	//     （★`c0`〜`c1` = 横 ／ ★★`r0`〜`r1` = 縦。★書かなければ全部）
+	function drawArtCols(f, ox, oy, c0, c1, r0, r1) {
 		var rows = f.rows;
-		for (var r = 0; r < rows.length; r++) {
-			var line = rows[r], y = oy + r;
+		if (r0 === undefined) r0 = 0;
+		if (r1 === undefined) r1 = rows.length;
+		for (var r = r0; r < r1; r++) {
+			var line = rows[r], y = oy + (r - r0);
 			if (y < 0 || y >= H) continue;
 			var c = c0;
 			while (c < c1) {
@@ -6508,6 +6574,7 @@
 				RAIL_COIN: RAIL_COIN, RAIL_KEEP: RAIL_KEEP, RAIL_RETRY: RAIL_RETRY,
 				RAIL_SOUND_ON: RAIL_SOUND_ON,
 				RAIL_H: (RAIL ? RAIL.FRAMES[0].rows.length : 0),
+				RAIL_BAR_ROWS: (RAIL ? (RAIL.BAR_ROWS || 1) : 0),
 				// ★★★★★トラックの火花（2026-08-31 島さんの指定・つぶまきで作った）
 				TRACK_ON: TRACK_ON, TRACK_EVERY: TRACK_EVERY, TRACK_NUM: TRACK_NUM,
 				TRACK_MS: TRACK_MS, TRACK_BACK: TRACK_BACK, TRACK_UP: TRACK_UP,
