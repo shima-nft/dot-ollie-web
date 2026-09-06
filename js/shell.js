@@ -47,7 +47,17 @@
 		//       ★ここも動かしました（★★**ゴールの50m手前**、という関係は同じ）。
 		//   ★★★**BEST は更新しない**ので、記録が汚れない（→ `js/ollie.js` の `testMode`）。
 		//   ★★消したくなったら、**この1行を消すだけ**（★他はどこも触らなくてよい）
-		{ label: "TEST 4950m", skater: 0, startM: 4950,
+		//   ★★★★2026-09-03、島さんの指定で**お金を持たせて**始めるようにした:
+		//
+		//     > 島さん「「TEST 4950m」モードはテストなので
+		//     >   最初から１T分のコインを持たせた状態にして」
+		//
+		//   ★★テストモードは**さらな状態から**始まります（2026-08-23 島さんの指定）。
+		//     ★そのままだと**お店で何ひとつ買えない**ので、確かめようがありませんでした。
+		//   ★★★`startCoin` に書いた額を、**リセットのあとに**渡します。
+		//     ★左上には「1.0T」と出ます（★`shortNum` の単位: K → M → B → **T**）。
+		//   ★★数字を変えたいときは、ここだけ書き換えれば効きます
+		{ label: "TEST 4950m", skater: 0, startM: 4950, startCoin: 1e12,
 			game: function () { return DotOllie; } }
 	];
 
@@ -267,6 +277,28 @@
 	var tapEl = document.body;
 	var SWIPE_PX = 24;          // 上へこれだけ動いたら「なぞった」とみなす(画面の実寸)
 	var swipeFromY = null;      // なぞりはじめの縦位置(null = なぞっていない)
+	// ★★★★★2026-09-04、**横**も覚える（★島さんの指定「画面スライド。液晶外スライド。」）
+	//   ★キャンプの中では、指をスライドした向きへプレイヤーが歩きます。
+	//   ★★`tapEl` は `document.body` なので、**液晶の外をなぞっても効きます**
+	var swipeFromX = null;
+
+	// ============================================================
+	// ★★★★★触ったところを「液晶のドット」に直す（2026-09-04 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「YES/NO選択はスライド選択ではなくボタンタップにします。」
+	//
+	//   ★液晶は画面の中で拡大して出しているので、
+	//     ★★**指の位置（ページの座標）を、240×160 の中のどこかに直します**。
+	//   ★★★液晶の外を触ったときは `null` を返します（★ボタンには当たらない）
+	function lcdPoint(ev) {
+		var r = lcd.getBoundingClientRect();
+		if (!r.width || !r.height) return null;
+		var x = (ev.clientX - r.left) * LCD_W / r.width;
+		var y = (ev.clientY - r.top) * LCD_H / r.height;
+		if (x < 0 || y < 0 || x >= LCD_W || y >= LCD_H) return null;
+		return { x: x, y: y };
+	}
 	var swipeFired = false;     // このなぞりで、もう技を差し替えたか
 
 	function onButton(el) {     // ボタンの上で始まった操作か
@@ -283,7 +315,14 @@
 		if (onButton(ev.target)) return;      // [音][一時停止][もどる] は自分の役目を果たす
 		ev.preventDefault();
 		swipeFromY = ev.clientY;
+		swipeFromX = ev.clientX;
 		swipeFired = false;
+		// ★★★★★液晶の中のボタン（YES / NO）を押したか（2026-09-04 島さんの指定）
+		//   ★ゲームが true を返したら、**跳ぶ・技を出すには渡しません**
+		if (activeGame && activeGame.inputTapAt) {
+			var lp = lcdPoint(ev);
+			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true)) return;
+		}
 		// ============================================================
 		// ★★★タイトル画面だけは「離したときに決める」（2026-08-22 島さんの指定）
 		// ============================================================
@@ -300,7 +339,13 @@
 	});
 
 	tapEl.addEventListener("pointermove", function (ev) {
-		if (swipeFromY === null || swipeFired) return;
+		if (swipeFromY === null) return;
+		// ★★★★★キャンプの中では、指のスライドで歩く（2026-09-04 島さんの指定）
+		//   ★ゲーム側が true を返したら、下の「技の差し替え」はしない
+		//     （★キャンプの中では技を出さないので、取り合いにならない）
+		if (activeGame && activeGame.inputDrag &&
+			activeGame.inputDrag(ev.clientX - swipeFromX, swipeFromY - ev.clientY)) return;
+		if (swipeFired) return;
 		var dy = swipeFromY - ev.clientY;          // ＋が上へ、−が下へ
 		if (Math.abs(dy) < SWIPE_PX) return;
 		swipeFired = true;
@@ -320,10 +365,27 @@
 	//   （★押した瞬間に決めると、なぞろうとした瞬間に決まってしまい、
 	//     ★カーソルを動かすことが構造的に不可能だった —— 実機で見つかった）
 	//   ★`swiped` = このなぞりで、もうカーソルを動かしたか
-	tapEl.addEventListener("pointerup", function () {
+	tapEl.addEventListener("pointerup", function (ev) {
+		// ★★★★★液晶の中のボタン（YES / NO）を離した（2026-09-04）
+		//   ★★**押したボタンの上で離したときだけ**決まります
+		//     （★押しまちがえたら、指をずらせば取り消せる ＝ ふつうのボタンの作法）
+		if (activeGame && activeGame.inputTapAt) {
+			var lp2 = lcdPoint(ev);
+			if (activeGame.inputTapAt(lp2 ? lp2.x : -1, lp2 ? lp2.y : -1, false)) {
+				swipeFromY = null; swipeFromX = null;
+				return;
+			}
+		}
 		if (swipeFromY === null) return;
 		var swiped = swipeFired;
 		swipeFromY = null;
+		// ★★★★★キャンプの中: 指を離したら歩くのをやめる（2026-09-04）
+		if (activeGame && activeGame.inputDrag && activeGame.inputDrag(0, 0)) {
+			swipeFromX = null;
+			padUp("act", swiped);
+			return;
+		}
+		swipeFromX = null;
 		// ★★★タイトル画面は、ここで決める（★なぞっただけのときは決めない）
 		if (mode === "menu") {
 			if (!swiped) { beep(990, 0.06); enterSeed(); }
@@ -331,14 +393,23 @@
 		}
 		padUp("act", swiped);
 	});
-	tapEl.addEventListener("pointercancel", function () { swipeFromY = null; });
+	tapEl.addEventListener("pointercancel", function () {
+		swipeFromY = null; swipeFromX = null;
+		// ★★キャンプの中: 指が外れたら歩くのをやめる
+		if (activeGame && activeGame.inputDrag) activeGame.inputDrag(0, 0);
+		// ★★★ボタンを押したまま指が外れたら、押していないことにする（★決まらない）
+		if (activeGame && activeGame.inputTapAt) activeGame.inputTapAt(-1, -1, false);
+	});
 	tapEl.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
 	// RUN が出すボタン(特大の「跳ぶ」/ 右上の「音」「一時停止」「もどる」)
 	//   ★`sound` の絵は入り切りで変わるので、ゲーム側(DotOllie.padIcons)が上書きする
 	var PAD_ICONS = {
 		act: "BTN_ACT", sound: "BTN_SOUND_ON", pause: "BTN_PAUSE", exit: "BTN_EXIT",
 		// ★★ショップ（2026-08-16 島さんの指定）。★液晶の外の3つ目のボタン
-		shop: "BTN_SHOP"
+		shop: "BTN_SHOP",
+		// ★★★★★キャンプ（2026-09-04 島さんの指定）。★**夜のあいだだけ出る**
+		//   ★出し入れはゲーム側が `refreshPad()` で頼みます（→ `js/ollie.js` の `syncCampPad`）
+		camp: "BTN_CAMP"
 	};
 
 	function renderPadLabels() {
@@ -404,6 +475,9 @@
 			//   ★★そのときは BEST を更新しない（★記録を汚さない）
 			startM: entry.startM || 0,
 			testMode: !!entry.startM,
+			// ★★★★テストモードで最初から持っているお金（2026-09-03 島さんの指定）
+			//   ★ふつうの START には書いていないので **0**（＝いつもどおり空の財布）
+			startCoin: entry.startCoin || 0,
 			// ゲーム側でボタンが増えたとき(例: 何かを習得)に呼んでもらう
 			refreshPad: function () { showPad(activeGame.pad || ["act"], false); },
 			// ★★★ゲームから「メニューへ戻して」と言うための窓口（2026-08-16 / Phase D）

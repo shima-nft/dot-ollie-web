@@ -368,6 +368,26 @@
 	//   ★`draw()` と `drawBehind()` の**両方がここを通る**。
 	//     ★2か所に同じ処理を書くと、片方だけ直したときに見た目が割れる
 	// ------------------------------------------------------------
+	// ★★★★★その層に「空に浮かぶ部品」があるか（2026-09-05）。
+	//   ★一度数えて覚えます（★星80個ぶん毎コマ聞かれるので）
+	var skyLayerMemo = null;
+	function layerHasSky(li) {
+		if (!skyLayerMemo) {
+			skyLayerMemo = [];
+			for (var a = 0; a < P.LAYERS.length; a++) {
+				var has = false;
+				for (var b = 0; b < P.PARTS.length; b++) {
+					if (P.PARTS[b].layer === P.LAYERS[a].name && P.PARTS[b].at === "空") {
+						has = true;
+						break;
+					}
+				}
+				skyLayerMemo.push(has);
+			}
+		}
+		return skyLayerMemo[li];
+	}
+
 	function paintLayer(ctx, li, worldX, sunk) {
 		var L = P.LAYERS[li];
 		var table = TI.tableFor(L.filter);
@@ -460,6 +480,49 @@
 				if (L.behindBand !== bandName) continue;
 				paintLayer(ctx, li, worldX, null);
 			}
+		},
+
+		// ============================================================
+		// ★★★★★そこは「空の部品」（雲）に覆われているか（2026-09-05 島さんの指摘）
+		// ============================================================
+		//
+		//   > 島さん「星の裏に曇が来て違和感」
+		//
+		//   ★★星は**夜（乗算）の手前**に描くので、★そのままだと**雲の上に乗ります**。
+		//     ★★★雲は星より手前にあるものなので、★**星が隠れる**のが自然です。
+		//
+		//   ■ ★★★**置き場所の計算は、この中にしかありません。**
+		//     ★だから判定もここに置きます（★`js/ollie.js` に書き写すと、
+		//     ★★**描くところと判定がずれます** ＝ この作品が何度も踏んだ罠）。
+		//
+		//   ■ ★見るのは「絵の四角」ではなく **1ドットずつ**（★透明なところは覆いません）。
+		//     ★★雲は画面に1〜2個なので、★★★星80個ぶん見ても軽いままです
+		coversSky: function (worldX, sx, sy) {
+			checkStamp();
+			for (var li = 0; li < P.LAYERS.length; li++) {
+				var L = P.LAYERS[li];
+				if (!L.on || L.front) continue;
+				if (!layerHasSky(li)) continue;          // ★`at:"空"` の部品がある層だけ
+				var lx0 = Math.round(worldX * (L.speed || 1));
+				var kFrom = Math.floor(lx0 / CHUNK), kTo = Math.floor((lx0 + W - 1) / CHUNK);
+				for (var k = kFrom - 1; k <= kTo + 1; k++) {
+					var list = placementsIn(li, k);
+					for (var i = 0; i < list.length; i++) {
+						var part = P.PARTS[list[i].pi];
+						if (part.at !== "空") continue;   // ★浮かんでいるものだけ
+						var A = art(part.art);
+						if (!A) continue;
+						var x0 = list[i].lx - lx0;
+						if (sx < x0 || sx >= x0 + A.w) continue;
+						var y0 = topRowOf(L, part, A, list[i].lx, list[i].pi);
+						if (sy < y0 || sy >= y0 + A.h) continue;
+						// ★★その1ドットが、透明でなければ「覆っている」
+						var row = A.rows[sy - y0];
+						if (row && row.charAt(sx - x0) !== ".") return true;
+					}
+				}
+			}
+			return false;
 		},
 
 		// ------------------------------------------------------------

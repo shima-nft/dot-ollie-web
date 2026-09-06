@@ -136,8 +136,12 @@ button.key:active canvas.pad-label {
 #pad-pause { grid-column: 3; grid-row: 1; justify-self: end; }     /* ★★右端 */
 #pad-sound { grid-column: 3; grid-row: 2; justify-self: end; }     /* ★一時停止の真下 */
 #pad-exit  { grid-column: 1; grid-row: 1; justify-self: start; }   /* ★ふだんは出していない */
+/* ★★★★★キャンプ（2026-09-04 島さんの指定）。★ショップの真下（★下段のまん中）
+   ★★ここは**空いていたマス**なので、ほかのボタンは1ドットも動きません
+   （★夜に出たり消えたりしても、指の記憶が壊れない） */
+#pad-camp  { grid-column: 2; grid-row: 2; justify-self: center; }
 
-#pad-sound, #pad-pause, #pad-exit, #pad-shop {
+#pad-sound, #pad-pause, #pad-exit, #pad-shop, #pad-camp {
 	width: clamp(46px, 14vw, 64px);
 	height: clamp(46px, 14vw, 64px);
 }
@@ -212,7 +216,7 @@ canvas.pad-label {
 		pointer-events: none;
 	}
 
-	#pad-shop, #pad-pause, #pad-sound, #pad-exit {
+	#pad-shop, #pad-pause, #pad-sound, #pad-exit, #pad-camp {
 		position: absolute;
 		width: var(--pad);
 		height: var(--pad);
@@ -223,4 +227,7 @@ canvas.pad-label {
 	#pad-pause { right: var(--gap); top: var(--gap); }                        /* ★右上 */
 	#pad-sound { right: var(--gap); top: calc(var(--gap) * 2 + var(--pad)); } /* ★その真下 */
 	#pad-exit  { left: var(--gap);  top: calc(var(--gap) * 2 + var(--pad)); } /* ★ふだん出さない */
+	/* ★★★★★キャンプ（2026-09-04）。★横画面では**ショップの真下**（★左側の2段目）
+	   ★★「もどる」はプレイ中に出さないので、ここでぶつかりません */
+	#pad-camp  { left: var(--gap);  top: calc(var(--gap) * 2 + var(--pad)); }
 }
