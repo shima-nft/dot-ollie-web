@@ -57,15 +57,45 @@
 		//   ★★★`startCoin` に書いた額を、**リセットのあとに**渡します。
 		//     ★左上には「1.0T」と出ます（★`shortNum` の単位: K → M → B → **T**）。
 		//   ★★数字を変えたいときは、ここだけ書き換えれば効きます
-		{ label: "TEST 4950m", skater: 0, startM: 4950, startCoin: 1e12,
+		{ label: "TEST 4950m", skater: 0, test: 1, startM: 4950, startCoin: 1e12,
+			game: function () { return DotOllie; } },
+		// ============================================================
+		// ★★★★★天気を見るテストモード（2026-09-06 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「雨をすぐ見たいから、タイトルに TEST 4950m と並べて
+		//   >   TEST あめ(プラスα便利機能)をたしてください。」
+		//
+		//   ★★**雨が降っているところから走り出します**（★探して置くだけ）。
+		//     ★少し手前に置くので、★★**強くなって、やがて止む**まで見られます。
+		//
+		//   ■ ★★★プラスαの「便利」（★天気をぜんぶ見るため）
+		//
+		//     ① ★**すぐ雨**（`startRain`）……… 走り出しから降っている
+		//     ② ★★**夜がすぐ来る**（`startDayMs`）… ★15秒で暮れはじめる
+		//        （★ふつうは60秒。★★雨の夜＝星が消えるところまで見られる）
+		//     ③ ★**お金 1T**（`startCoin`）…… ★★お店もそのまま試せる
+		//     ④ ★★**BEST を汚さない**（`test`）… ★記録は1ドットも動かない
+		//
+		//   ■ ★★★★なぜ「あめ」ではなく「RAIN」か
+		//     ★この作品の文字は **5×7ドットのフォント**で、
+		//       ★★**ひらがな・漢字が1文字も入っていません**（★入れても潰れて読めない）。
+		//     ★★★この作品はずっと同じやり方をしています
+		//       （★JUMP / CAMP? / WANT TO GO TO SLEEP? …）。
+		//     ★ひらがなが要るなら、`js/font.js` に字を足せば出せます（★島さんの持ち場）
+		{ label: "TEST RAIN", skater: 0, test: 1,
+			startRain: 0.85, startDayMs: 45000, startCoin: 1e12,
 			game: function () { return DotOllie; } }
 	];
 
 	// ★★★公開版（`TEST_MENU_ON = 0`）では、テストモードの項目を外す。
-	//   ★「距離を飛ばせる項目」＝ `startM` を持つ項目、で見分けている
-	//   （★名前で見分けると、島さんが label を変えたときに黙って残る）
+	//   ★★★★2026-09-06、**`test: 1` の印**で見分けるようにした。
+	//     ★前は「`startM` を持つ項目」で見分けていましたが、
+	//     ★★**距離を飛ばさないテスト項目**（★TEST RAIN）を足したので、
+	//     ★★★そのままだと**公開版に漏れます**。
+	//   ★名前（label）で見分けないのは、島さんが名前を変えたときに黙って残るため
 	if (!TEST_MENU_ON) {
-		GAMES = GAMES.filter(function (g) { return !g.startM; });
+		GAMES = GAMES.filter(function (g) { return !g.test; });
 	}
 
 	// ============================================================
@@ -139,7 +169,7 @@
 	//
 	//   ★**両方ここを通すので、行がぴったり重なる**（1行目71 / 2行目81）。
 	//     別々に計算していると、片方だけ直してまたずれる
-	var ROW_H = 10;               // 2行の間隔
+	var ROW_H = DotFont.GLYPH_H + 4;               // 2行の間隔
 	var CUR_W = 5;                // カーソル分の幅(三角3+すき間2)
 
 	// 2行ぶんの1行目が来る行（★液晶のまん中）
@@ -154,11 +184,26 @@
 
 	// ---- ゲーム選択画面 ----
 	function renderMenu() {
+		var journey = global.DotOllie.getJourney();
+		GAMES = GAMES.filter(function (g) { return !g.rank; });
+		if (cursor >= GAMES.length) cursor = 0;
 		lctx.fillStyle = GB[22];                // 選択画面の地の色(藤色)
 		lctx.fillRect(0, 0, LCD_W, LCD_H);
 
+		if (journey.rank) {
+			lctx.fillStyle = GB[19]; lctx.fillRect(7, 7, 3, 3);
+			lctx.fillStyle = GB[9]; lctx.fillRect(8, 8, 1, 1);
+		}
 		var top = twoLineTop();
-		if (TITLE) drawCenterLine(TITLE, top);
+		if (TITLE) {
+			lctx.save();
+			lctx.translate(Math.floor((LCD_W - DotFont.textWidth(TITLE.length) * 2) / 2), top - DotFont.GLYPH_H * 2 - 5);
+			lctx.scale(2, 2); DotFont.drawText(lctx, TITLE, 0, 0, GB[9]);
+			lctx.restore();
+		}
+		if (global.DotOllie && global.DotOllie.getBest) {
+			drawCenterLine("BEST " + global.DotOllie.getBest() + "m", 16);
+		}
 
 		for (var i = 0; i < GAMES.length; i++) {
 			var y = top + ROW_H + i * ROW_H;
@@ -299,6 +344,7 @@
 		if (x < 0 || y < 0 || x >= LCD_W || y >= LCD_H) return null;
 		return { x: x, y: y };
 	}
+	var swipeFromMode = null;  // 画面をまたいだタップを次の画面の決定に使わない
 	var swipeFired = false;     // このなぞりで、もう技を差し替えたか
 
 	function onButton(el) {     // ボタンの上で始まった操作か
@@ -312,16 +358,21 @@
 	}
 
 	tapEl.addEventListener("pointerdown", function (ev) {
+		if (ev.isPrimary === false) return;
 		if (onButton(ev.target)) return;      // [音][一時停止][もどる] は自分の役目を果たす
 		ev.preventDefault();
 		swipeFromY = ev.clientY;
 		swipeFromX = ev.clientX;
 		swipeFired = false;
+		swipeFromMode = mode;
 		// ★★★★★液晶の中のボタン（YES / NO）を押したか（2026-09-04 島さんの指定）
 		//   ★ゲームが true を返したら、**跳ぶ・技を出すには渡しません**
 		if (activeGame && activeGame.inputTapAt) {
 			var lp = lcdPoint(ev);
-			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true)) return;
+			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true)) {
+				try { tapEl.setPointerCapture(ev.pointerId); } catch (e) {}
+				return;
+			}
 		}
 		// ============================================================
 		// ★★★タイトル画面だけは「離したときに決める」（2026-08-22 島さんの指定）
@@ -339,7 +390,13 @@
 	});
 
 	tapEl.addEventListener("pointermove", function (ev) {
+		if (ev.isPrimary === false) return;
 		if (swipeFromY === null) return;
+		if (mode !== swipeFromMode) return;
+		if (activeGame && activeGame.inputPointerMove) {
+			var point = lcdPoint(ev);
+			if (activeGame.inputPointerMove(point ? point.x : -1, point ? point.y : -1)) return;
+		}
 		// ★★★★★キャンプの中では、指のスライドで歩く（2026-09-04 島さんの指定）
 		//   ★ゲーム側が true を返したら、下の「技の差し替え」はしない
 		//     （★キャンプの中では技を出さないので、取り合いにならない）
@@ -366,6 +423,7 @@
 	//     ★カーソルを動かすことが構造的に不可能だった —— 実機で見つかった）
 	//   ★`swiped` = このなぞりで、もうカーソルを動かしたか
 	tapEl.addEventListener("pointerup", function (ev) {
+		if (ev.isPrimary === false) return;
 		// ★★★★★液晶の中のボタン（YES / NO）を離した（2026-09-04）
 		//   ★★**押したボタンの上で離したときだけ**決まります
 		//     （★押しまちがえたら、指をずらせば取り消せる ＝ ふつうのボタンの作法）
@@ -388,12 +446,13 @@
 		swipeFromX = null;
 		// ★★★タイトル画面は、ここで決める（★なぞっただけのときは決めない）
 		if (mode === "menu") {
-			if (!swiped) { beep(990, 0.06); enterSeed(); }
+			if (!swiped && swipeFromMode === "menu") { beep(990, 0.06); enterSeed(); }
 			return;
 		}
 		padUp("act", swiped);
 	});
-	tapEl.addEventListener("pointercancel", function () {
+	tapEl.addEventListener("pointercancel", function (ev) {
+		if (ev.isPrimary === false) return;
 		swipeFromY = null; swipeFromX = null;
 		// ★★キャンプの中: 指が外れたら歩くのをやめる
 		if (activeGame && activeGame.inputDrag) activeGame.inputDrag(0, 0);
@@ -474,7 +533,13 @@
 			//   ★`startM` を持つ項目を選んだときだけ、そこから走り出す。
 			//   ★★そのときは BEST を更新しない（★記録を汚さない）
 			startM: entry.startM || 0,
-			testMode: !!entry.startM,
+			// ★★★★2026-09-06、テストモードの印は `test`（★`startM` ではない）
+			testMode: !!entry.test,
+			// ★★★★★天気を見るためのテストモード（2026-09-06 島さんの指定）
+			//   ★`startRain` … この強さの雨が降っている場所から走り出す
+			//   ★★`startDayMs` … 昼と夜の時計を、この時刻から始める
+			startRain: entry.startRain || 0,
+			startDayMs: (typeof entry.startDayMs === "number") ? entry.startDayMs : -1,
 			// ★★★★テストモードで最初から持っているお金（2026-09-03 島さんの指定）
 			//   ★ふつうの START には書いていないので **0**（＝いつもどおり空の財布）
 			startCoin: entry.startCoin || 0,
@@ -573,7 +638,10 @@
 			ev.preventDefault();
 			return;
 		}
-		if (ev.key === "Escape") { backToMenu(); ev.preventDefault(); return; }
+		if (ev.key === "Escape") {
+			if (activeGame && activeGame.inputEscape && activeGame.inputEscape()) { ev.preventDefault(); return; }
+			backToMenu(); ev.preventDefault(); return;
+		}
 		if (!ev.repeat) padDown(keyToAction(ev.key));
 		ev.preventDefault();
 	});

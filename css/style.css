@@ -160,6 +160,112 @@ canvas.pad-label {
 	pointer-events: none;
 }
 
+/* An expanded pixel cabinet: 2 × 3 in portrait, 3 × 2 in landscape.
+   The native dialog blocks game input and respects the phone's safe areas. */
+#pixel-shop {
+	--shop-edge: #5f574f;
+	position: fixed;
+	inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+	color: #fff1e8;
+	background: #10141e;
+	border: 3px solid var(--shop-edge);
+	box-shadow: inset 0 0 0 2px #000, 0 0 0 3px #000;
+	width: min(1000px, calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+	height: min(820px, calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+	max-width: none;
+	max-height: none;
+	margin: auto;
+	padding: 16px;
+	overflow: hidden;
+	touch-action: none;
+}
+#pixel-shop[open] {
+	display: grid;
+	grid-template-rows: 48px 44px minmax(0, 1fr);
+	gap: 12px;
+}
+#pixel-shop::backdrop { background: #01020bf2; }
+#pixel-shop canvas { image-rendering: pixelated; pointer-events: none; max-width: 100%; }
+.shop-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.shop-title, .shop-wallet { display: flex; align-items: center; min-width: 0; }
+.shop-header canvas, .shop-tabs canvas, .shop-product-name canvas, .shop-product-meta canvas { height: 14px; object-fit: contain; }
+.shop-title { border-left: 3px solid #ffec27; padding-left: 8px; }
+.shop-control {
+	min-height: 44px;
+	min-width: 64px;
+	border: 0;
+	background: #3a3839;
+	box-shadow: inset 0 2px #afb3b5, inset 0 -3px #000;
+	padding: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+.shop-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.shop-tabs [aria-pressed="true"] { background: #1d2b53; box-shadow: inset 0 -3px #ffec27; }
+.shop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 12px; min-height: 0; }
+.shop-grid.gear { grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.shop-product {
+	position: relative;
+	display: grid;
+	grid-template-rows: 14px minmax(0, 1fr) 14px;
+	gap: 8px;
+	min-width: 0;
+	min-height: 44px;
+	padding: 12px;
+	border: 2px solid #83769c;
+	background: #1d2b53;
+	box-shadow: inset 0 2px #afb3b5, inset 0 -3px #10141e;
+	text-align: left;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+.shop-product::after { content: ""; position: absolute; right: 5px; top: 5px; width: 2px; height: 2px; background: #afb3b5; }
+.shop-product[data-item="recover"] { grid-column: span 2; }
+.shop-product-name { display: flex; align-items: center; }
+.shop-demo { width: 100%; height: 100%; object-fit: contain; align-self: center; }
+.shop-product-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.shop-product-meta span { display: flex; align-items: center; min-width: 0; }
+.shop-product[aria-disabled="true"] { border-color: #5f574f; box-shadow: inset 0 2px #5f574f, inset 0 -3px #10141e; }
+.shop-product.bought { border-color: #00e436; box-shadow: inset 0 0 0 2px #008751; }
+/* ★★★★★転生（REBORN）のパネル（2026-09-12 島さんの指定） */
+.shop-grid.reborn { grid-template-rows: repeat(4, minmax(0, 1fr)); }
+.shop-product[data-item="prestige"] { border-color: #ffec27; box-shadow: inset 0 2px #ffec27, inset 0 -3px #10141e; }
+/* ★グリッチフェードイン … ★★**steps(1)** なのでなめらかにならず、カタカタ揃います。
+   ★★★長さ（--glitch-ms）は `js/ollie.js` の `PRESTIGE_GLITCH_MS` から渡ってきます */
+.shop-product.glitch-in { animation: shop-glitch var(--glitch-ms, 700ms) steps(1, end) 1; }
+@keyframes shop-glitch {
+	0%   { transform: translateX(-9px); clip-path: inset(0 0 62% 0); opacity: .45; }
+	16%  { transform: translateX(8px);  clip-path: inset(46% 0 0 0);  opacity: .8; }
+	32%  { transform: translateX(-6px); clip-path: inset(18% 0 34% 0); opacity: .6; }
+	48%  { transform: translateX(5px);  clip-path: inset(0 0 16% 0);  opacity: 1; }
+	64%  { transform: translateX(-3px); clip-path: inset(9% 0 0 0); }
+	80%  { transform: translateX(2px);  clip-path: inset(0 0 0 0); }
+	100% { transform: translateX(0);    clip-path: inset(0 0 0 0); }
+}
+/* ★★★★★一段はさむ問いかけ（★キャンプの「CAMP?」と同じ考え方） */
+.shop-ask { position: absolute; inset: 0; display: grid; place-items: center; background: #01020be6; z-index: 2; }
+.shop-ask-box { display: grid; gap: 14px; justify-items: center; padding: 18px 22px; background: #10141e; border: 3px solid #ffec27; }
+.shop-ask-btns { display: flex; gap: 14px; }
+.shop-ask canvas { image-rendering: pixelated; height: 18px; }
+@media (prefers-reduced-motion: reduce) { .shop-product.glitch-in { animation: none; } }
+#pixel-shop button:focus-visible { outline: 3px solid #ffec27; outline-offset: -5px; }
+#pixel-shop button.pressed { transform: translateY(2px); box-shadow: inset 0 2px #000; }
+@media (orientation: landscape) {
+	#pixel-shop[open] { grid-template-rows: 44px 44px minmax(0, 1fr); padding: 12px; gap: 8px; }
+	.shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; }
+	.shop-grid.gear { grid-template-rows: minmax(0, 1fr); }
+	.shop-product { padding: 8px; gap: 4px; }
+}
+@media (max-width: 359px), (max-height: 359px) {
+	#pixel-shop[open] { padding: 8px; gap: 6px; }
+	.shop-grid { gap: 6px; }
+	.shop-product { padding: 7px; gap: 4px; }
+	.shop-title { padding-left: 4px; }
+}
+
 /* ============================================================
    ★★★★横画面（スマホを寝かせたとき）—— 2026-08-23 島さんの指定
    ============================================================

@@ -12,7 +12,7 @@
 //   → **音は素通しにして、Safari に任せる。**
 //     音がオフラインで鳴らなくても `AUDIO_GUIDE` 決まり1
 //     「音が出せない環境でも遊べる」を満たしているので、遊びには影響しない
-var CACHE = "dot-ollie-v100";
+var CACHE = "dot-ollie-v114";
 
 // このパスを含むものは、サービスワーカーが一切触らない
 function isPassThrough(url) {
@@ -65,7 +65,10 @@ var FILES = [
 	"./js/parts-temp.js",
 	"./js/parts.js",
 	"./js/parts-draw.js",
+	"./js/progression.js",
+	"./js/fishing.js",
 	"./js/ollie.js",
+	"./js/shop.js",
 	"./js/shell.js",
 	// ★音のファイルはここに入れない(上の説明のとおり素通しにする)
 	"./icons/icon-180.png",

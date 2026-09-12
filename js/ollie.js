@@ -114,7 +114,7 @@
 
 	var SPEED       = 70;   // 進む速さ（ドット/秒）。**一定**。だんだん速くはならない
 	var RIDER_X     = 26;   // スケーターの左端x
-	var SCORE_DOTS  = 10;    // 何ドット進むごとに距離が1増えるか
+	var SCORE_DOTS  = 7;    // 何ドット進むごとに距離が1増えるか
 
 	// ■ 色（数字は `js/palette.js` の何番か）
 	// ★★2026-08-13、色が35色 → 25色になったので番号を付け替えた（→ js/palette.js）。
@@ -542,19 +542,22 @@
 	//     ★★**C（2段）の上の段が、はじめから届く**（＝ご褒美がそのまま活きる）。
 	//   ★★扉の前後20mは何も置かないので、★実際に出はじめるのは **5020m** から。
 	//   ★★★**ここは `GOAL_M`（ゴールの扉）と同じ数にそろえること**（★ずれると意味が壊れる）
-	var PICK_FROM_M  = 5000;   // ★★ここから出はじめる（メートル）★島さんの指定
+	var PICK_FROM_M  = 0;      // 2026-09-10: コインは最初から登場。MAGNETも序盤から効く。
 	var PICK_VALUE   = 10;     // ★★1枚いくらか ★島さんの指定「一旦一枚10コイン」
 	// ★★★COIN のレベルを効かせるか（0 = 効かせない ＝ いつでも10枚）。
 	//   ★★1 にすると「越えたときの取得」と同じように増えていきます。
 	//     ★★★実測: 1000m まで来ると「越えて入る額」は**1個で数百枚**になるので、
 	//       ★0 のままだと拾えるコインは**おまけ**になります（→ 島さんの判断待ち）
-	var PICK_SCALES  = 0;
+	var PICK_SCALES  = 1;
 	var PICK_N       = 5;      // ★（下の表の「ふつう」が使う）1列に何枚並べるか
 	var PICK_STEP    = 12;     // ★★となりのコインまでの距離（ドット）。★絵は5ドット幅
 	// ★★★★コーンの真上に置く割合（★D案。2026-08-23 島さんの指定）
 	var PICK_OVER_CONE = 0.35;
 	var PICK_GAP_MIN = 420;    // ★次の弧までの距離（ドット）。★約6秒
 	var PICK_GAP_MAX = 900;    //   ★ここまでの間でランダム。★約13秒
+	var PICK_MAX = 48;        // Upper bound on natural active coins, including an incoming group.
+	var PICK_FOOTPRINT = 53;  // Preserve the old common row's reserved space / spawn opportunity.
+	var PICK_REST_EXTRA = 900; // Compensate for predictable bursts; keep total coin supply near the old layout.
 	// ★★★**足の高さで拾う**（★体ぜんぶで拾うと、走っているだけで取れてしまう）。
 	//   ★この数字が「どれくらいずれても拾えるか」＝ ★★やさしさのつまみ
 	var PICK_TAKE_Y  = 8;
@@ -604,11 +607,15 @@
 	//
 	//   ★★決めるページ: **`tools/preview-picks.html`**（★見ながら直せます）
 	var PICK_PATTERNS = [
-		{ name: "ふつう", weight: 84, rows: [{ n: 5, step: 12, lift: 1.00 }] },
-		{ name: "短い", weight: 8, rows: [{ n: 3, step: 10, lift: 1.00 }] },
-		{ name: "2段", weight: 4, rows: [{ n: 5, step: 10, lift: 1.00 }, { n: 5, step: 10, lift: 1.40 }] },
-		{ name: "3段", weight: 4, rows: [{ n: 8, step: 10, lift: 1.00 }, { n: 8, step: 10, lift: 1.40 }, { n: 8, step: 10, lift: 1.80 }] },
-		{ name: "６段", weight: 4, rows: [{ n: 10, step: 10, lift: 1.00 }, { n: 10, step: 10, lift: 1.40 }, { n: 10, step: 10, lift: 1.80 }, { n: 10, step: 10, lift: 2.20 }, { n: 10, step: 10, lift: 2.60 }, { n: 10, step: 10, lift: 3.00 }] }
+		// Same formations at every magnet level: growing changes what you can reach.
+		// Full rows / full columns only. No diagonals, junctions or symbol shapes.
+		{ name: "短い水平", phase: 0, weight: 1, rows: [{ n: 3, step: 12, lift: 0.72 }] },
+		{ name: "短い垂直", phase: 0, weight: 1, rows: [{ n: 1, step: 12, lift: 0.56 }, { n: 1, step: 12, lift: 1.12 }, { n: 1, step: 12, lift: 1.68 }] },
+		{ name: "離れた水平二列", phase: 1, weight: 1, rows: [{ n: 4, step: 12, lift: 0.8 }, { n: 4, step: 12, lift: 1.92 }] },
+		{ name: "垂直二列", phase: 1, weight: 1, rows: [{ n: 2, step: 24, lift: 0.56 }, { n: 2, step: 24, lift: 1.16 }, { n: 2, step: 24, lift: 1.76 }, { n: 2, step: 24, lift: 2.36 }] },
+		{ name: "水平四列", phase: 2, weight: 1, rows: [{ n: 5, step: 12, lift: 0.56 }, { n: 5, step: 12, lift: 1.36 }, { n: 5, step: 12, lift: 2.16 }, { n: 5, step: 12, lift: 2.96 }] },
+		{ name: "垂直四列", phase: 2, weight: 1, rows: [{ n: 4, step: 12, lift: 0.56 }, { n: 4, step: 12, lift: 1.16 }, { n: 4, step: 12, lift: 1.76 }, { n: 4, step: 12, lift: 2.36 }, { n: 4, step: 12, lift: 2.96 }] },
+		{ name: "余白", phase: 3, weight: 0, rest: true, rows: [] }
 	];
 
 	// ============================================================
@@ -673,7 +680,7 @@
 	// ============================================================
 	var GOAL_ON       = 1;       // ★0 にすると仕組みごと止まる（★扉も出ない）
 	// ★★★★ここを変えたら、いっしょに動かすものが3つあります（★ばらけると意味が壊れる）:
-	//     ① `PICK_FROM_M`（拾えるコイン。★ゴールの先に出る約束）
+	//     ① `PICK_FROM_M`（2026-09-10: 序盤から出す指定で0に変更。GOAL_Mとは独立）
 	//     ② `js/shell.js` の `startM`（★テストモード。★ゴールの50m手前）
 	//     ③ ★画面の文字は `{M}` で自動（★手で書き換えない）
 	var GOAL_M        = 5000;    // ★★ここに扉が立っている（メートル）★2026-08-23 島さんの指定
@@ -958,11 +965,58 @@
 	//     表示だけ別に直書きすると、あとで倍率を変えたときに
 	//     **「実際は +1.0 なのに画面は +0.5」**という同期バグが必ず起きる
 	var POP_ON       = 1;     // 0 にするとポップアップが出なくなる
-	var POP_MS       = 850;   // ★1つが出ている長さ（ミリ秒）
+	var POP_MS       = 800;   // ★1つが出ている長さ（ミリ秒）
 	var POP_RISE     = 16;    // ★その間に上へ何ドット上がるか
-	var POP_FADE_MS  = 260;   // ★最後、暗い色に落ちる長さ
+	var POP_FADE_MS  = 270;   // ★最後、暗い色に落ちる長さ
 	var POP_MAX      = 6;     // ★同時に出る数の上限（★溜まり続けないように）
 	var POP_TOP_GAP  = 54;    // ★主役の足元から何ドット上に出すか（＝頭のすこし上）
+	// ============================================================
+	// ★★★★★頭上の数字の「出方」（2026-09-12 島さんの指定で、見比べられるようにした）
+	// ============================================================
+	//
+	//   > **島さん「…取り入れた際に見比べたい。
+	//   >   バウンス: 数字が「ポンッ」と小さく出現し、一瞬目標サイズより
+	//   >   大きくなってから元のサイズに落ち着く動き。
+	//   >   パラボラ: 数字が左右斜め上に飛び出してから重力に従って下に落ちて消える挙動」**
+	//
+	//   ★★**いまは 0（いままでどおり）です**。★島さんが見て選んだら、ここを変えます。
+	//   ★★★見比べるページ: **`tools/preview-pop.html`**（★本物のゲームをそのまま動かします）。
+	//
+	//   ★★★★**文字のポップ（KICKFLIP / KEY など）にはかかりません**。
+	//     ★あれは「手に入った」という**知らせ**なので、★★まっすぐ上へ出します。
+	//     ★★★飛ぶのは**数字のポップだけ**です。
+	var POP_STYLE = 1;        // ★★**0 = いままでどおり / ★★1 = バウンス（島さんが選んだ）** / 2 = パラボラ
+	// ★バウンス（★大きさは**2つの面を切り替えて**作ります。★★★**拡大は使いません**）
+	var POP_BOUNCE_IN_MS  = 0;   // ★出た直後、小さいままの長さ
+	var POP_BOUNCE_BIG_MS = 130;  // ★★そのあと、ひとまわり大きい面で出す長さ
+	var POP_BOUNCE_LIFT   = 2;    // ★大きいあいだ、何ドット上げるか
+	// ★パラボラ（★★斜め上へ飛び出して、重力で落ちて消える）
+	var POP_PARA_VX = 34;     // ★横へ飛び出す速さ（ドット／秒。★左右は半々）
+	var POP_PARA_VY = 92;     // ★★上へ飛び出す速さ（★頂点は 16 ドット ＝ いまの `POP_RISE` と同じ）
+	var POP_PARA_G  = 260;    // ★重力（★大きいほど、すぐ落ちてくる）
+	// ============================================================
+	// ★★★★★消えぎわの出方（2026-09-12 島さんの指定で見比べられるようにした）
+	// ============================================================
+	//
+	//   > **島さん「数字が上に上がっていきフェードアウトするとき
+	//   >   パーティクルディゾルブかスモークフェードかグリッチフェードか
+	//   >   ピクセルディスプレイスメントかブラーフェードアウトで見比べたい」**
+	//
+	//   ★★**いまは 0（いままでどおり ＝ 暗い色に落とす）**です。
+	//   ★★★見比べるページ: **`tools/preview-popfade.html`**
+	//
+	//   ★★★★**飛ぶのは数字のポップだけ**（★言葉のポップにはかかりません）。
+	//
+	//   ★★★★★2026-09-12、島さんが**「ぼかし・拡大を使わない」制限を外しました**。
+	//     ★だから ②⑥ は**本物のぼかし**（`ctx.filter`）を使います。
+	//     ★★使ったあとは**必ず `none` と `1` に戻すこと**
+	//       （★★★戻し忘れると、次のコマから**画面ぜんぶがぼけます**）。
+	var POP_FADE = 5;          // ★0=いまのまま / 1=粒に散る / 2=けむり / 3=グリッチ / 4=ドットずらし / 5=ぼかし
+	var POP_FADE_SPREAD = 7;  // ★①④ どれだけ散るか（ドット）
+	var POP_FADE_RISE   = 14;  // ★② どれだけ上がるか（ドット）
+	var POP_FADE_GLITCH = 2;   // ★③ 横ずれの大きさ（ドット）
+	var POP_FADE_STEPS  = 6;   // ★③ 何段階でガタつくか
+	var POP_FADE_BLUR   = 1;   // ★②⑤ ぼかしの大きさ（px）
 	var C_POP_GAIN   = 16;    // 得の色。16=生成り
 	var C_POP_GAIN_D = 7;     // ★得が消える直前の色。7=銀
 	var C_POP_LOSS   = 17;    // 損の色。17=赤
@@ -1109,6 +1163,64 @@
 	//     ★戻すときは、`test/screen.test.js`【4.5】の表もいっしょに直すこと
 	var NIGHT_OVER_UI    = 0;   // ★情報（文字・HP・お店）に夜をかけるか
 	var NIGHT_OVER_TRACK = 0;   // ★★トラックの火花に夜をかけるか
+
+	// ============================================================
+	// ★★★★★空気遠近法（かすみ）—— ★★まだ止めてあります（2026-09-11）
+	// ============================================================
+	//
+	//   > **島さん「地面より奥のレイヤーとして screen で fcf5fd を 0〜50%（要調整）を
+	//   >   いれるのはどうだろう。ただし今の夜や雨に影響しないよう。」**
+	//   > **島さん「空気遠近法は各レイヤーごとに割合を変えた方がよいかな？」**
+	//
+	//   ★★**まだ島さんが見比べている途中です。`HAZE_ON = 0` で完全に止めてあります**
+	//     （★0 のあいだ、画面は1ドットも変わりません）。
+	//     ★決めるページ: **`tools/preview-haze.html`**
+	//
+	//   ■ ★★★なぜ「各レイヤーごと」が正しいのか
+	//
+	//     ★空気遠近法は「**遠いものほど霞む**」。★★1枚かぶせるだけでは、
+	//     ★★★空も手前の森も**同じだけ**霞んでしまい、遠近が出ません。
+	//
+	//   ■ ★★★★だから「順に少しずつ重ねる」形にしてあります
+	//
+	//     ```
+	//     空を描く      → かすみ①      ← ★空は ①+②+③+④ ぶん霞む（いちばん奥）
+	//     遠山を描く    → かすみ②      ← ★遠山は ②+③+④
+	//     丘の帯を描く  → かすみ③      ← ★丘は ③+④
+	//     背景の部品    → かすみ④      ← ★部品は ④ だけ
+	//     ─────────────── ★ここから手前は霞ませない ───────────────
+	//     地面 → コーン → 主役
+	//     ```
+	//     ★★1つ1つは小さな数でよく、★★★**奥ほど自動的に濃くなります**。
+	//
+	//   ■ ★★★★★夜と雨には影響させない（島さんの指定）
+	//
+	//     ★かすみは**夜（乗算）より手前で描く**ので、放っておくと夜にも残ります。
+	//     → ★**夜が濃くなるほど、かすみを消す**（`HAZE_NIGHT_OFF`）。
+	//     ★★雨のときも消す（`HAZE_RAIN_OFF`）。
+	//
+	//     ★★★★**`nightAlpha()` は「読むだけ」**。★★ここに何かを足さないこと
+	//       （★星・青スライム・キャンプボタンが同じものを見ています。
+	//        ★★足すと昼に星が出ます ＝ 2026-09-06 に実際に確かめた事故）。
+	//
+	//   ■ ★★★夜空の星は崩れません（★島さん「今の夜空の星は素晴らしいので崩したくない」）
+	//
+	//     ★星は**夜（乗算）の手前**に screen で描きます（2026-09-05(13)）。
+	//     ★★かすみは**ずっと奥**（地面より前）なので、描く場所がそもそも違います。
+	//     ★★★そのうえ**完全な夜では かすみ = 0**（上の決まり）なので、
+	//       ★**星が出ている時間帯には、かすみは1ドットも描かれません**。
+	//
+	//   ■ ★★42色の外の色ができます（★星・夜・きらめきに続く例外）
+	//     ★★★入れるかどうかは**島さんが決めること**です。
+	var HAZE_ON     = 1;          // ★★1 にすると効きます（★いまは止めてある）
+	var HAZE_COLOR  = "#fcf5fd";  // ★島さんの指定（★29 = 白）
+	// ★かぶせる量（★奥から順に。★★小さくてよい ＝ 重なって濃くなる）
+	var HAZE_SKY    = 0.25;   // ① 空のうしろ
+	var HAZE_FAR    = 0.25;   // ② 遠山・ランドマークのうしろ
+	var HAZE_MID    = 0.25;   // ③ 丘の帯のうしろ
+	var HAZE_NEAR   = 0.25;   // ④ 背景の部品のうしろ
+	var HAZE_NIGHT_OFF = 1;   // ★1 = 夜になるほど消える（★島さんの指定）
+	var HAZE_RAIN_OFF  = 1;   // ★1 = 雨のときも消える（★島さんの指定）
 
 	// ============================================================
 	// ★★★★★2026-09-04、**キャンプモード**（★島さんの指定）
@@ -1766,6 +1878,38 @@
 	var RAIN_THRESH  = 0.56;
 	var RAIN_MAX     = 50;     // ★★いちばん強い雨のとき、画面に降っている**雨すじ**の数
 	// ============================================================
+	// ★★★★★「降り出したら、もう少ししっかり降る」（2026-09-09 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「降り出したらもう少ししっかり雨降ってほしい」**
+	//
+	//   ★実測すると、★★**雨のところの半分（50%）が「ぽつぽつ」（降水量 0.2 未満）**でした。
+	//     ★そのとき画面に出ている雨は **12ドット**だけ（★240×160 の中で）。
+	//     ★★★「降っているのに、降っている気がしない」のは、ここが理由です。
+	//
+	//   ★★直すのは**強さの出かた**だけ（★`rainAt()` の最後に1回かけるだけ）:
+	//
+	//       1.0  … ★2026-09-06 までの降りかた（★ぽつぽつが 50%）
+	//       0.65 … ★ぽつぽつ 32%
+	//       ★0.31（いま） … ★★**ぽつぽつ 8%**（★2026-09-09 島さんの指定「ぽつぽつを8％に」）
+	//
+	//   ★★★**両端はそのまま**です（★晴れ 0 は 0 のまま／どしゃ降り 1 は 1 のまま）。
+	//
+	//   ★★★★**雨の広さ（世界の何%が雨か）は1ドットも動きません**
+	//     （★あれを決めるのは `RAIN_THRESH`。★ここは触っていません）。
+	//
+	//   ■ ★★★★★下げると一緒に動くもの（★実測。★島さんの判断材料）
+	//
+	//       ぽつぽつ … 50% → 32% → ★**8%**
+	//       どしゃ降り … 4% → 8% → ★★**22%**
+	//       雨のときの平均降水量 … 0.274 → 0.383 → ★**0.581**
+	//       ★★降りはじめ（0 → 0.2 になるまで）… 69m → 42m → ★★★**11m（約1.6秒）**
+	//
+	//   ★★★**ここは避けられない引き換えです**: 「弱い雨がめったに無い」ほど、
+	//     ★**弱い雨で過ごす距離が短い** ＝ **降りはじめが急になります**。
+	//     ★★ゆるやかに戻したいときは、この数字を上げてください（★0.65 で 42m）。
+	var RAIN_FULL    = 1;      // ★★1.0 = 2026-09-06 までの降りかたに戻る
+	// ============================================================
 	// ★★★★★1本の雨すじは「粒を数つぶ、たてに並べた」もの（2026-09-06）
 	// ============================================================
 	//   ★はじめ**1つぶだけ**で降らせたら、★★**ほこりが舞っているように見えました**。
@@ -1778,6 +1922,52 @@
 	var RAIN_VY      = 260;    // ★落ちる速さ（ドット／秒）
 	var RAIN_VX      = -26;    // ★★横へのぶれ（★マイナス ＝ 後ろへ。★風のぶん）
 	var RAIN_VJIT    = 0.18;   // ★粒ごとの速さのばらつき（★±この割合）
+	// ============================================================
+	// ★★★★★ゆっくり落ちる雨すじを、少し混ぜる（2026-09-09 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「雨粒の落下スピードが遅いものを少し混ぜてもいいんじゃないかしら」**
+	//
+	//   ★★**「少し混ぜて」** ＝ ★★★**ぜんぶが遅くなるのではありません**。
+	//     ★水しぶきの「も混ぜて」（★4割だけ跳ねる）と**まったく同じ考え方**です。
+	//
+	// ★★★★★2026-09-12、**軌道が不自然だったのを直しました**（島さんの指摘）
+	//
+	//   > **島さん「雨粒で軌道と速度が不自然なものが含まれたので直して」**
+	//
+	//   ★前は**落ちる速さだけ**を遅くしていました。★★ところが横への流れ（★走る速さ）は
+	//     そのままだったので、★★★**遅い粒だけが極端に寝て**見えていました。
+	//
+	//   ★実測（★画面の上で、実際に粒を追いかけて測った傾き。★垂直が 0度）:
+	//
+	//   ```
+	//   ふつうの粒   … 中央 **19.5度**（9.8〜28.4）
+	//   ★ゆっくりの粒 … 中央 **32.4度**（19.5〜★★**40.6**）  ← ★★★ここ
+	//   ```
+	//
+	//   ★★★★**一つの雨の中で、傾きが 2 種類に割れていた**のです。
+	//     ★実物の雨は、同じ風の中では**ほぼ同じ角度**で降ります。
+	//     ★★別々の角度で降ると「雨」ではなく「**別の何かが飛んでいる**」に見えます。
+	//
+	//   ★★★★★**直し方: ゆっくりの粒は「遅い粒」ではなく「★遠くを降っている粒」にした**
+	//
+	//     ★遠くのものは、**落ちるのも・横に流れるのも、同じだけ遅く見えます**。
+	//     ★★だから `vx` も `vy` も `par`（★流れる速さ）も、**同じ割合で遅く**します。
+	//     ★★★すると**傾きはそのまま**で、★**速さだけが遅い** ＝ 遠くの雨になります。
+	//
+	//     ★すじの長さも同じ割合で短くします。
+	//       ★★すじは「★★★**速さのぶんだけ伸びた残像**」なので、
+	//       ★遅く見える粒が同じ長さのすじを引くのは★★**棒が飛んでいる**ように見えます。
+	//
+	//   ★★実測（★直したあと）はこのすぐ下の `addRain()` にあります。
+	//
+	//   ★★★★**速さは「1本ごと」に決めます**（★1つぶごとではない）。
+	//     ★すじの中の粒は**必ず同じ速さ**（★★★ここを 1 つぶごとにするとすじがほどけます）。
+	//
+	//   ★★AI へ: ★★★**`par` を 1 に戻さないこと**（★戻すと、また遅い粒だけが寝ます）。
+	var RAIN_SLOW_RATE  = 0;     // ★★遠くを降っているすじの割合（★0 = 混ぜない ＝ 昔どおり）
+	var RAIN_SLOW_SCALE = 0.55;  // ★★★その見かけの速さ（★近くの何割か。★1 に近いほど差が小さい）
+
 	var RAIN_SPAWN_Y = -2;     // ★どこから降ってくるか（★画面の上のすぐ外）
 	// ★★右のほうが空かないように、画面の外からも降らせる
 	//   （★粒は落ちながら後ろへ流れるので、右端が空きます）
@@ -1840,6 +2030,15 @@
 	//
 	//   ■ ★1 = どしゃ降りで**星が1つも生まれない** ／ ★★0 = 減らさない（★昨日までの形）
 	var RAIN_STAR_CUT = 1;
+	// ★★★★★「TEST RAIN」で、強い雨の**どれだけ手前**に置くか（ドット）。
+	//   ★★ここが 0 だと**いちばん強いところ**から始まり、あとは弱くなる一方です。
+	//   ★少し手前に置くと、★★**強くなって、やがて止む**まで見られます
+	var RAIN_TEST_BEFORE = 700;
+	// ★★★★★ゴールから、これだけ手前までで探す（メートル）。
+	//   ★★ゴールより先から走り出すと、★★★**数秒でエンディングが始まります**
+	var RAIN_TEST_MARGIN_M = 1000;
+	// ★★★「もう降っている」とみなす強さ（★これより弱いところまでは戻さない）
+	var RAIN_TEST_MIN = 0.35;
 	// ============================================================
 	// ★★★★★雨粒が地面で跳ねる —— **小さな水しぶき**（2026-09-06 島さんの指定）
 	// ============================================================
@@ -2032,6 +2231,8 @@
 		return lit;
 	}
 	var C_FADE        = 9;     // 9 = まっ黒
+	var C_BEST       = 15;    // 既存BESTは控えめな灰色
+	var C_NEW_BEST   = 19;    // 更新したランだけ黄色
 	var C_GAMEOVER    = 17;    // ★GAMEOVER の文字。17=赤
 
 	var COUNT_MS      = 1200;  // ★0 から稼いだ額まで数えるのにかける時間
@@ -2453,14 +2654,6 @@
 		}
 		return 0;
 	}
-	// ★その技の「拘束距離」（技を出してから次が出せるまでに進む距離）
-	function lockDotsOf(name) {
-		for (var i = 0; i < POSES.length; i++) {
-			if (POSES[i].name !== name) continue;
-			return Math.round(FR.totalMs(POSES[i].ms) / 1000 * SPEED);
-		}
-		return 0;
-	}
 	// ★★★「Lv0 のときに越えられる幅」＝ 障害物の大きさを決める基準
 	//   ★★アップグレードが乗る前の値なので、**世界の側は永久に変わらない**。
 	//     だからこそ「前は越えられなかったコーンが越えられた」が起きる
@@ -2761,6 +2954,11 @@
 	//       **本当の記録が上書きされてしまう**
 	//   ★★遊びの中身は1つも変えていない（★走り出す場所だけが違う）
 	var startAtM = 0;       // ★何メートルから走り出すか（0 = ふつうに 0m から）
+	// ★★★★★天気を見るためのテストモード（2026-09-06 島さんの指定）
+	//   ★`startAtRain` … この強さの雨が降っている場所から走り出す（0 = ふつう）
+	//   ★★`startAtDay` … 昼と夜の時計を、この時刻から始める（★-1 = ふつうに朝から）
+	var startAtRain = 0;
+	var startAtDay = -1;
 	var testMode = false;   // ★★テストモードのあいだは BEST を更新しない
 
 	function loadBest() {
@@ -2827,7 +3025,7 @@
 		if (!CAMPMODE_ON || !st) return false;
 		if (!isMonster(kind)) return false;
 		st.met[kind] = (st.met[kind] || 0) + 1;   // ★数 … ★★死ねば消える
-		meetKind(kind);                            // ★★★種類 … ★永久に残る
+		if (meetKind(kind)) st.moment = "NEW CREATURE MET"; // ★★★種類 … ★永久に残る
 		return true;
 	}
 
@@ -2840,6 +3038,7 @@
 	//
 	//   ★★覚え方は 音・BEST・コインと**まったく同じ**（`localStorage` ＋ `try/catch`）
 	var UP = global.DotUpgrades;
+	var PR = global.DotProgression;
 	var upgLv = {};        // id → いまのレベル（0 から）
 	var unlocked = {};     // id → 覚えている技かどうか
 
@@ -2904,6 +3103,124 @@
 	}
 
 	function upgLevel(id) { return upgLv[id] || 0; }
+
+	// ============================================================
+	// ★★★★★転生（プレステージ）―― 2026-09-12 島さんの指定
+	// ============================================================
+	//
+	//   > **島さん「プレステージ(転生システム)」**
+	//   > **島さん「「残るのは記録だけ」←こだわらない」**
+	//
+	//   ★★★★★**これは、島さんが外した 5 つ目の決まりです**
+	//     （★半透明 08-30 / 色の制限 09-02 / ぼかし・拡大 09-12 に続く）。
+	//     ★★これまでは「★★★**力になるものは 1 つも残さない**」でした。
+	//     ★★★★**AI へ: 勝手に戻さないこと。決めたのは島さんです。**
+	//
+	//   ■ 島さんが決めた 4 つ
+	//
+	//   ```
+	//   持ち帰る   … ★**上限が伸びる**（★稼ぎの倍率でも、新系統でもない）
+	//   引き金     … ★★**どれか 1 項目でも MAX になったら**お店に出る
+	//   伸びる範囲 … ★★★**転生した瞬間に MAX だった項目だけ**
+	//   差し出す   … コイン・レベル・道具 ＋ ★**いま走った距離**（★★BEST は残る）
+	//   ```
+	//
+	//   ★「MAX にした項目だけ伸びる」が設計の芯です。
+	//     ★★**早く転生する（1 項目だけ伸びる）**か、
+	//     ★★**もっと育ててから転生する（重いが複数伸びる）**か ―― ★★★毎周選べます。
+	var PRESTIGE_ON   = 1;    // ★★0 にすると仕組みごと止まる（★`GATE_ON` / `BET_ON` と同じ作法）
+	var PRESTIGE_STEP = 3;    // ★★一度の転生で、上限が何段伸びるか
+	                          //   ★★★**実測してから島さんが決めます**（★いまは仮の 3）
+	// ============================================================
+	// ★★★★★知らせるのは「画面」ではなく「パネル」（2026-09-12 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「特殊フェードインとは画面を光らせるのではなく
+	//   >   新項目のパネルについてです。ではこのパネルを
+	//   >   グリッチフェードインでお願いします。」**
+	//
+	//   ★前は**画面ぜんぶを光らせて**いました。★★島さんの意図は
+	//     ★★★**新しく出てきたパネルそのもの**でした。
+	//
+	//   ★★**グリッチフェードイン** … パネルを横の帯に切って、
+	//     ★帯ごとに**横へずらし**、★★**いくつかの帯を抜く**。
+	//     ★★★それを**カタカタと数段階だけ**動かして、だんだん揃っていきます。
+	//   ★★★★仕掛けは、頭上の数字の「グリッチフェード」（`POP_FADE === 3`）と同じ
+	//     ＝ ★**`popNoise()` を使う**（★★**`Math.random()` は呼ばない**。
+	//     ★★★呼ぶと**世界のサイコロがずれます** ―― 2026-09-12 に実際に踏んだ罠）
+	var PRESTIGE_GLITCH_MS    = 700;   // ★フェードインの長さ（ミリ秒）
+	var PRESTIGE_GLITCH_BANDS = 7;     // ★★パネルを横に何本の帯へ切るか
+	var PRESTIGE_GLITCH_SHIFT = 8;     // ★帯を横へずらす最大（ドット）
+	var PRESTIGE_GLITCH_STEPS = 6;     // ★★カタカタ動く段数（★なめらかにしない）
+	var PRESTIGE_GLITCH_DROP  = 0.55;  // ★★★出はじめに、帯が抜ける割合
+
+	// ============================================================
+	// ★★★★★押しまちがいを防ぐ、一段の問いかけ（2026-09-12 島さんの指定）
+	// ============================================================
+	//
+	//   > **島さん「重要な選択なので押し間違いを防ぐためにも
+	//   >   一段選択肢をはさみましょう。」**
+	//
+	//   ★★キャンプの「CAMP?」と**まったく同じ形**です
+	//     （★島さんが描いた YES / NO のボタンをそのまま使います）。
+	//   ★★★転生は**取り返しがつきません**（★育てたものを差し出す）。
+	//     ★★★★**AI へ: ここを飛ばせるようにしないこと**（★キャンプの CAMP? と同じ）
+	var PRESTIGE_ASK_TEXT = "REBORN?";
+	var PRESTIGE_WORD = "REBORN";  // ★お店に出る言葉（★島さんの持ち場。
+	                               //   ★★フォントにある字だけ＝大文字。
+	                               //   ★★★`test/sprites.test.js` が見張ります）
+
+	// ★★この項目の、いまの天井（★転生で伸びたぶんを足す）
+	//   ★★★★**上限を見るのはこの 1 か所だけ**。
+	//     ★前は `shopRows()` と `canBuy()` の 2 か所で見ていました。
+	//     ★★離すと「★★★**片方だけ直す**」事故が起きます（★この作品で 2 度踏んでいます）。
+	// ★★★★★伸びた天井の**控え**を持ちます（2026-09-12）
+	//   ★`PR.snapshot()` は**丸ごとコピー**するので、★★毎コマ呼ぶと重い。
+	//   ★★★お店を開いているあいだは `shopRows()` が毎コマ回るので、
+	//     ★**読むのは旅のはじめと、転生した瞬間だけ**にしてあります。
+	var prestigeCaps = {};
+	function reloadCaps() {
+		prestigeCaps = (PR && !testMode) ? (PR.snapshot().caps || {}) : {};
+	}
+
+	function capOf(u) {
+		if (!u || u.maxLevel === null || u.maxLevel === undefined) return null;   // ★上限なし
+		if (!PRESTIGE_ON || testMode) return u.maxLevel;
+		return u.maxLevel + (prestigeCaps[u.id] || 0);
+	}
+
+	// ★★★いま MAX に届いている項目の id 一覧（★転生で伸びるのはこれだけ）
+	function maxedIds() {
+		if (!UP) return [];
+		var out = [];
+		UP.UPGRADES.forEach(function (u) {
+			var cap = capOf(u);
+			if (cap !== null && upgLevel(u.id) >= cap) out.push(u.id);
+		});
+		return out;
+	}
+
+	// ★転生の行を出すか（★★どれか 1 項目でも MAX なら出る）
+	function canPrestige() {
+		return !!(PRESTIGE_ON && PR && !testMode && st && maxedIds().length > 0);
+	}
+	function magnetRadius() { return upgLevel("magnet") ? UP.magnetRadius(upgLevel("magnet")) : (knowsTrick("KICKFLIP") ? 10 : 0); }
+	function recoverDistance() { return UP.recoverDistance(upgLevel("recover")); }
+	function updateRecover(distance, dt) {
+		st.recoverFlash = Math.max(0, (st.recoverFlash || 0) - dt);
+		if (!upgLevel("recover") || st.phase !== "play" || st.stamina <= 0 ||
+			st.stamina >= st.staminaMax) { st.recoverProgress = 0; return; }
+		var interval = recoverDistance();
+		st.recoverProgress = (st.recoverProgress || 0) + distance;
+		if (st.recoverProgress >= interval) {
+			var heal = Math.floor(st.recoverProgress / interval);
+			st.stamina = Math.min(st.staminaMax, st.stamina + heal);
+			st.recoverProgress %= interval;
+			if (st.stamina >= st.staminaMax) st.recoverProgress = 0;
+			st.recoverFlash = 0.45;
+			sound(1040, 0.045);
+		}
+	}
 
 	// ============================================================
 	// ■ ★★★持ち物（2026-08-16 / Phase C）
@@ -2988,13 +3305,32 @@
 	//   ■ ★★消さないもの（★「育てたもの」ではないから）
 	//     ・**BEST**（いちばん進んだ距離）… ★★記録。★これだけが唯一ランをまたぐ
 	//     ・**音の入り切り** … 設定
+	// Hybrid rule: clear the run only; learned actions and journey records live in PR.
 	function resetStatus() {
+		if (st) { st.fishing = null; st.fishBtn = ""; }
 		coins = 0;
 		upgLv = {};
-		unlocked = {};
+		unlocked = !testMode && PR ? PR.snapshot().tricks : {};
 		bag = {};                   // ★★★持ち物も無くなる（★コインやレベルと同じ）
 		buys = {};                  // ★★買った回数も忘れる ＝ 値段が 120 に戻る
 		items = {};                 // ★拾った鍵も忘れる（★保留中の仕組み）
+		// ============================================================
+		// ★★★★★テストモードでは「覚えているもの」に1ドットも触らない（2026-09-09）
+		// ============================================================
+		//
+		//   ★`saveCoins` / `saveUpg` / `saveItems` には `if (testMode) return;` があるのに、
+		//     ★★**ここだけ `localStorage` を直に消していました**。
+		//   ★★★その結果、★**TEST 4950m / TEST RAIN を選ぶたびに、
+		//     ふつうの遊びの 財布・レベル・技・道具が消えていました**
+		//     （★`start()` は testMode のとき必ずここを通ります）。
+		//
+		//   ★★上の「その場の値を空にする」は**そのまま残します**
+		//     （★テストは、いままでどおり**さらな状態から**始まります）。
+		//     ★★★消さないようにしたのは、★**覚えているほう（localStorage）だけ**です。
+		//
+		//   ★2026-09-03 の決まり「★★テストは記録を汚さない」に、ここもそろえました。
+		//   ★★★**AIへ: この1行を外さないこと**（★外すと、また島さんの記録が消えます）。
+		if (testMode) return true;
 		try {
 			localStorage.setItem("dotollie-coins", "0");
 			localStorage.setItem("dotollie-upg", JSON.stringify({ lv: {}, un: {} }));
@@ -3007,6 +3343,7 @@
 	//   ★★★**AIへ: 中身をここに書き戻さないこと**（★消すものが増えたとき、
 	//     ★★**片方だけ直す**という事故が構造的に作れなくなる）
 	function resetAll() {
+		if (PR && !testMode) PR.clear();
 		resetStatus();              // ★★育てたものを全部消す（★中身はあちら1か所だけ）
 		best = 0;                   // ★★★ここだけが違い ＝ **記録も消す**
 		try {
@@ -3022,7 +3359,7 @@
 	//   JUMP    … ★コマの進みを遅くする → 滞空が伸びる → ★越えられる幅が広がる
 	//   STAMINA … ランの長さ
 	//   COIN    … ★★障害物1個あたりのコイン（2026-08-16。★前は「最後に掛ける倍率」）
-	function curSpeed()   { return SPEED * upgMul("speed"); }
+	function curSpeed()   { return SPEED + 5 * upgLevel("speed"); }
 	// ★★「ジャンプ力」ではなく「**ジャンプ持続倍率**」。
 	//   ★★★絵を引き伸ばして高さを変えるのではなく、**同じ絵をゆっくり再生する**。
 	//     → `CLAUDE.md` の「高さは絵が決める／物理を足し戻さない」を守っている
@@ -3038,7 +3375,7 @@
 	//   > 「体感出来る最小の成長をもっと序盤に設定したい」
 	//   ★スタミナは「あと何回ミスできるか」なので、5.4回 では**何も変わっていない**。
 	//     ★★丸めることで、**1段買えば必ず1回ぶん増える**（＝ 買った実感が出る）
-	function curStaminaMax()   { return Math.round(STAMINA_MAX * upgMul("stamina")); }
+	function curStaminaMax()   { return STAMINA_MAX + upgLevel("stamina"); }
 	// ★★障害物を1つ越えたときのコイン（★COIN Lv で増える）。
 	//   ★2026-08-16、COIN は「最後にまとめて掛ける倍率」だった。
 	//     ★★**1個あたりの枚数**に変えた（島さん「コイン獲得枚数が上がるように」）
@@ -3125,6 +3462,7 @@
 			nextPick: 0,    // ★次の弧を出すまでの残り距離
 			picksBorn: 0,   // ★このランで出した弧の数（★実測用）
 			picksGot: 0,    // ★★拾った枚数（★実測用）
+			pickBeat: 0, pickQuiet: false,
 			conesBorn: 0,  // ★これまでに出したコーンの数（テストが見張るためだけの数）
 			// ★★★★レール（2026-08-31 島さんの指定）
 			grind: 0,        // ★★いま乗っているか（0/1）
@@ -3147,7 +3485,7 @@
 			endPage: 0,       // ★★★いま何ページ目を見せているか（2026-08-22）
 			pageMs: 0,        // ★★そのページを見せはじめてからの時間（2026-08-23）
 			// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
-			dj: false,        // ★★このランで二段ジャンプを授かったか（★死ぬと消える）
+			dj: !testMode && PR ? PR.snapshot().doubleJump : false, // Learned at 5000m; retained across journeys.
 			airJumps: 0,      // ★いまの滞空で、もう何回跳んだか
 			djBase: 0,        // ★★二段目を出したときの「足元の高さ」（★下駄）
 			giftMs: 0,        // ★授かる場面の進み具合（ミリ秒）
@@ -3180,6 +3518,11 @@
 			stamina: curStaminaMax(),     // ★0 になったらラン終了
 			staminaMax: curStaminaMax(),  // ★★このランの満タン（★バーの割合に使う）
 			gainFlashMs: 0,        // ★コインが増えた瞬間の跳ね（★描画だけ）
+			// ★★★★★転生（2026-09-12）。★どちらも**見た目だけ**です
+			prestigeMs: 0,         // ★パネルのグリッチフェードインの残り（ミリ秒）
+			prestigeAsk: false,    // ★★「REBORN?」を聞いているところ
+			prestigeBtn: "",       // ★★★いま押しているボタン（"yes" / "no"）
+			prestigeSeen: false,   // ★★行が出るのをもう知らせたか
 			shopOpen: false,       // ★★ショップボタンで開いているか（2026-08-16）
 			// ★★★★★キャンプモード（2026-09-04 島さんの指定）
 			//   ★**お店とまったく同じ形**（★開くと世界が止まる ＝ `update()` の early return）。
@@ -3191,6 +3534,8 @@
 			//     "" / "ask" / "in" / "bag"（リュックに近づいた）/ "box"（中身）/
 			//     "sleep"（出ますか）/ "fade"（眠りにつく暗転）
 			campPhase: "",
+			lastMark: !testMode && PR ? PR.snapshot().lastDistance : 0, moment: "", hpGrowMs: 0,
+			fishing: null, fishBtn: "", // 釣果はこのランだけ。再訪時は保持。
 			campBagMs: 0,          // ★リュックに近づいてからの時間（★通りすがりよけ）
 			// ★★★★★いま指で押しているボタン（2026-09-04）。"" / "yes" / "no"
 			//   ★押しているあいだだけ、島さんの「押した絵」（緑）に変わります
@@ -3259,6 +3604,46 @@
 		//   ★★地形も背景も**種と場所から毎回その場で計算している**ので、
 		//     いきなり 4950m に置いても**そこの景色がちゃんと出る**（★貯めていない強み）
 		if (startAtM > 0) st.dist = startAtM * SCORE_DOTS;
+		// ============================================================
+		// ★★★★★「雨のところから走り出す」（2026-09-06 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「雨をすぐ見たいから、タイトルに TEST 4950m と並べて
+		//   >   TEST あめ(プラスα便利機能)をたしてください。」
+		//
+		//   ★★天気は**種と場所**で決まるので、★★★**強く降っている場所を探して、
+		//     そこへ置くだけ**です（★天気の仕組みには1ドットも触っていません）。
+		//   ★少し手前に置くので、★★**だんだん強くなって、やがて止む**まで見られます。
+		//   ★★★見つからなければ、いちばん強かったところへ置きます（★必ずどこかで降る）
+		//   ★★★★★**ゴールより手前で探すこと**（★ここを間違えて一度踏んだ罠）。
+		//     ★探す幅を広げすぎると、★★**ゴール（5000m）より先から走り出して**、
+		//     ★★★**走り出して数秒でエンディングが始まりました**（★実際にそうなった）。
+		if (startAtRain > 0 && RAIN_ON) {
+			var far = (GOAL_M - RAIN_TEST_MARGIN_M) * SCORE_DOTS;   // ★ここまでで探す
+			var bx = -1, bestR = 0;
+			for (var rx = 0; rx < far; rx += 50) {
+				var rr = rainAt(rx);
+				if (rr > bestR) { bestR = rr; bx = rx; }
+				if (bestR >= startAtRain) break;
+			}
+			// ★見つからなければ、★★**その幅でいちばん強かったところ**を使う
+			if (bx >= 0) {
+				// ★★★少し手前へ戻して、**強くなっていくところから**見せる。
+				//   ★★ただし「**もう降っている**」ところまで
+				//     （★戻しすぎると、★★★晴れから始まってしまいます）
+				var sx = bx;
+				for (var back = 25; back <= RAIN_TEST_BEFORE; back += 25) {
+					var px = bx - back;
+					if (px < 0) break;
+					if (rainAt(px) < RAIN_TEST_MIN) break;
+					sx = px;
+				}
+				st.dist = sx;
+			}
+		}
+		// ★★★★★昼と夜の時計を、途中から始める（★天気をぜんぶ見るため）
+		//   ★時計は `st.dayMs` の**1つだけ**（★新しい時計は足していません）
+		if (startAtDay >= 0) st.dayMs = startAtDay;
 		st.nextCone = nextConeGap();
 		st.nextEnemy = nextEnemyGap();
 		st.nextTori = nextToriGap();      // ★★★★丘の敵その2（鳥）。2026-08-27
@@ -3321,16 +3706,20 @@
 	}
 
 	// ★★並びを1つ引く（★表の `weight` にしたがう。★種では決めない）
-	function pickPattern() {
-		var total = 0, i;
-		for (i = 0; i < PICK_PATTERNS.length; i++) total += PICK_PATTERNS[i].weight;
-		if (total <= 0) return null;
-		var r = Math.random() * total;
-		for (i = 0; i < PICK_PATTERNS.length; i++) {
-			r -= PICK_PATTERNS[i].weight;
-			if (r < 0) return PICK_PATTERNS[i];
+	function pickPattern(beat) {
+		var options = PICK_PATTERNS;
+		if (typeof beat === "number") {
+			options = PICK_PATTERNS.filter(function (p) { return p.phase === beat % 4; });
 		}
-		return PICK_PATTERNS[PICK_PATTERNS.length - 1];
+		var total = 0, i;
+		for (i = 0; i < options.length; i++) total += options[i].weight;
+		var r = Math.random() * total;
+		if (total <= 0) return options[0];
+		for (i = 0; i < options.length; i++) {
+			r -= options[i].weight;
+			if (r < 0) return options[i];
+		}
+		return options[options.length - 1];
 	}
 
 	// ★1つの並びのかたち … [{ dx（先頭からの横のずれ）, lift（足元の高さ）}, …]
@@ -3399,10 +3788,14 @@
 	function nextPickGap() {
 		return PICK_GAP_MIN + Math.random() * (PICK_GAP_MAX - PICK_GAP_MIN);
 	}
+	function pickRowAllowed(row) {
+		var wx = worldX();
+		return row.every(function (p) { return !inNoSpawn(wx + p.x - 1) && !inNoSpawn(wx + p.x + PICK_W + 1); });
+	}
 
 	// ★★1枚いくらか（★`PICK_SCALES` が 1 のときだけ COIN のレベルが効く）
 	function pickValue() {
-		return PICK_SCALES ? Math.max(1, Math.round(PICK_VALUE * upgMul("coin"))) : PICK_VALUE;
+		return PICK_SCALES ? Math.max(1, Math.round(curCoinPer() * 2 / 20)) : PICK_VALUE;
 	}
 
 	// ★★★障害物どうしの最小の間隔（→ 上の「欠陥」の説明）
@@ -3812,6 +4205,27 @@
 	//     ★★構造で塞いであります。
 
 	// ★その絵の「上面が地面から何行上か」（★絵から出す。★直書きしない）
+
+	function railCoinPerDot() { return curCoinPer() * 3 * (1 + upgLevel("rail") * 0.2) / RAIL_LEN; }
+	function learnJourneyAction(id, label) {
+		if (unlocked[id]) return;
+		unlocked[id] = true; st.moment = label;
+		if (!testMode && PR) PR.learn(id);
+		addPop(label, "gain");
+		var notice = st.pops[st.pops.length - 1];
+		if (notice && notice.text === label) notice.y = Math.max(32, notice.y - currentLift());
+		giftSound();
+	}
+	function drawJourneyMarks() {
+		var markX = st.lastMark * SCORE_DOTS + RIDER_X + RIDER_FOOT - worldX();
+		if (st.lastMark > 0 && markX > -30 && markX < W) {
+			var gy = groundRowAt(Math.round(markX));
+			ctx.fillStyle = GB[15]; ctx.fillRect(Math.round(markX), gy - 13, 1, 13);
+			ctx.fillRect(Math.round(markX) + 1, gy - 13, 4, 3);
+			global.DotFont.drawText(ctx,"LAST",Math.round(markX) - 12,gy - 23,GB[15]);
+		}
+	}
+
 	function railArtTop(wx) {
 		var f = RAIL.FRAMES[0];
 		return (GROUND - WD.groundAt(wx)) - 1 - RAIL.FEET_ROW + f.y;
@@ -3887,6 +4301,8 @@
 	//   ★これは二段ジャンプが既にやっている動き ＝ **地面へ瞬間移動しません**
 	//   ★★`jump` が真なら「自分から跳び出した」（★タップ）
 	function endGrind(jump) {
+		// A deliberate ollie-out after a steady slide teaches POP; falling off does not.
+		if (jump && st.grindDots >= 45) learnJourneyAction("pop", "POP LEARNED");
 		var total = st.grindPaid;
 		// ★★★★このレールには、もう乗りません（2026-08-31）
 		//
@@ -3925,10 +4341,12 @@
 		// ============================================================
 		if (jump) {
 			st.air = 0;
-			st.djBase = offLift;   // ★★レールの高さから始めて、着地までに 0 へ戻る
+			st.djBase = offLift + Math.min(5, upgLevel("rail"));   // ★★レールの高さから始めて、着地までに 0 へ戻る
 		} else {
 			st.air = fallStartMs(POSES[st.trick], offLift);
-			st.djBase = 0;         // ★★★下駄は要らない（★絵の高さがそのまま落ちてくる）
+			st.djBase = 0;
+			var peak = Math.max.apply(null, POSES[st.trick].lifts);
+			if (offLift > peak) { st.air = poseTopMs(POSES[st.trick]); st.djBase = offLift - peak; }
 		}
 		if (total > 0) addPop("+" + shortNum(total), "gain");
 		if (RAIL_SOUND_ON && jump) sound(990, 0.06);
@@ -3973,8 +4391,10 @@
 				railScrape();
 			}
 		}
-		st.grindDots += moved;
-		st.grindCoin += moved * RAIL_COIN;
+		var paidDistance = Math.max(0, Math.min(moved, RAIL_LEN - st.grindDots));
+		st.grindDots += paidDistance;
+		if (st.grindDots >= 45) learnJourneyAction("kickflip", "KICKFLIP LEARNED");
+		st.grindCoin += paidDistance * railCoinPerDot();
 		// ★★整数になったぶんだけ、**静かに**財布へ（★ポップは降りたときに1回）
 		var whole = Math.floor(st.grindCoin) - st.grindPaid;
 		if (whole > 0) { gainCoin(whole, "grind"); st.grindPaid += whole; }
@@ -4010,16 +4430,46 @@
 	//
 	//   ★x は主役の中心／y は頭のすこし上から上昇／★画面の上端で止まる／
 	//     ★寿命で必ず消える（★溜まり続けない）
+	// ★★★★★その文字列を**数字の面（5×7）で出せるか**（2026-09-12）
+	//   ★数字の面には、HUD が出す字しか入っていません。
+	//   ★★だから「KICKFLIP」のような言葉は、★★★**自動で本文の面に戻ります**
+	//     （★こうしておけば、★★**字が黙って欠けることが構造的に起きません**）。
+	function popFace(text) {
+		var F = global.DotFont, N = F.NUM;
+		if (!N) return F;
+		for (var i = 0; i < text.length; i++) if (!N.has(text.charAt(i))) return F;
+		return N;
+	}
+
 	function addPop(text, kind) {
 		if (!POP_ON) return;
-		var F = global.DotFont;
+		var F = popFace(text);
 		var w = F.textWidth(text.length);
 		// ★主役の中心にそろえる。画面からはみ出さないように寄せる
 		var cx = RIDER_X + RIDER_FOOT;
 		var x = Math.max(0, Math.min(W - w, Math.round(cx - w / 2)));
 		var y = Math.max(0, riderGroundRow() - POP_TOP_GAP);
 		if (st.pops.length >= POP_MAX) st.pops.shift();   // ★古いものから捨てる
-		st.pops.push({ text: text, kind: kind, x: x, y: y, ms: 0 });
+		// ★`small` … 数字の面で出しているか（★飛ばせるのはこれだけ）
+		// ============================================================
+		// ★★★★★`dir`（パラボラでどちらへ飛ぶか）に**サイコロを使わない**
+		// ============================================================
+		//
+		//   ★はじめ `Math.random()` で決めていたところ、
+		//   ★★`test/magnet.test.js` が**落ちました**。
+		//
+		//   ★★★理由: ★**サイコロは世界と共用**です。
+		//     ★見た目が 1 つ余分に振るだけで、★★**その先の障害物やコインの出方がずれます**。
+		//     ★★★マグネットの段ごとにポップの数が違うので、
+		//       ★**段によって世界が変わってしまっていました**。
+		//
+		//   ★★★★だから**交互に左右へ**振ります（★見た目だけの数え。★★サイコロを使わない）。
+		//   ★★**AI へ: 見た目のために `Math.random()` を呼ばないこと**
+		//     （★この作品の決まり「★★★見た目は遊びに 1 ドットも触らない」は、ここまで含みます）。
+		st.popFlip = (st.popFlip || 0) + 1;
+		st.pops.push({ text: text, kind: kind, x: x, y: y, ms: 0,
+			small: (F === global.DotFont.NUM) ? 1 : 0,
+			dir: (st.popFlip % 2) ? 1 : -1 });
 	}
 
 	// ★i 番目の節目は何メートルか（★表を使い切ったら、あとは一定間隔で広がる）
@@ -4257,7 +4707,11 @@
 		if (v <= RAIN_THRESH) return 0;                  // ★晴れ
 		var u = (v - RAIN_THRESH) / (1 - RAIN_THRESH);   // ★0〜1 へ伸ばす
 		if (u > 1) u = 1;
-		return u * u * (3 - 2 * u);                      // ★★降りはじめ・止みぎわをなめらかに
+		var s = u * u * (3 - 2 * u);                     // ★★降りはじめ・止みぎわをなめらかに
+		// ★★★★★「降り出したら、もう少ししっかり」（2026-09-09 島さんの指定）。
+		//   ★かけるのは**ここ1か所だけ**（★降水量を数える場所は増やさない）。
+		//   ★★0 は 0 のまま・1 は 1 のままなので、★★★**両端のなめらかさは崩れません**
+		return (RAIN_FULL === 1) ? s : Math.pow(s, RAIN_FULL);
 	}
 
 	// ★いまの降水量（★呼ぶのはここから。★世界の場所は `worldX()` の1か所）
@@ -4267,28 +4721,55 @@
 	function addRain() {
 		if (!RAIN_ON || !DUST_ON) return;
 		var x = Math.random() * (W + RAIN_SPAWN_X);      // ★画面の右外からも降らせる
-		var vy = RAIN_VY * (1 + (Math.random() * 2 - 1) * RAIN_VJIT);
-		var vx = RAIN_VX * (1 + (Math.random() * 2 - 1) * RAIN_VJIT);
-		// ★★★寿命は「**その列の地面に届くまで**」（★着地のけむりと同じ作り方）。
-		//   ★★これで**地面に張り付きません**（★下に溜まらない）
-		var g = groundRowAt(Math.min(W - 1, Math.max(0, Math.round(x)))) - 1;
+		// ★★★★★この1本は「遠くを降っているすじ」か（2026-09-09 島さんの「少し混ぜて」）。
+		//   ★★決めるのは**1本につき1回**（★下の `for` の外）。
+		//   ★★★すじの中の粒は**必ず同じ速さ**でないと、落ちながら形がほどけます
+		var far = (Math.random() < RAIN_SLOW_RATE) ? RAIN_SLOW_SCALE : 1;
+		// ★★★★★遠いものは、**落ちるのも・横に流れるのも、同じだけ遅い**。
+		//   ★★だから `vx` も `vy` も `par` も、**同じ `far` で遅く**します。
+		//   ★★★こうすると傾き（`slope`）から `far` が**丁度消えます** ＝
+		//     ★**近くの雨とまったく同じ角度**で、★★速さだけが遅い。
+		//   ★（★★前は `vy` だけ遅くしていたので、★★★遅い粒だけが 40 度近く寝ていました）
+		var vy = RAIN_VY * far * (1 + (Math.random() * 2 - 1) * RAIN_VJIT);
+		var vx = RAIN_VX * far * (1 + (Math.random() * 2 - 1) * RAIN_VJIT);
+		var par = far;                 // ★★流れる速さも同じだけ遅い（★★★ここが軌道をそろえる要）
+		// ★★★★画面の上で、横へ流れる速さ（★走るほど寝て見える）
+		//   ★粒は `wx - ox * par` の場所に出るので、★★引くのも `curSpeed() * par`
+		var vdx = vx - curSpeed() * par;
+		var slope = vdx / vy;          // ★これに沿って粒を並べる ＝ ★★すじが進む向きとそろう
+		// ============================================================
+		// ★★★★★どこで消えるか（2026-09-12 島さんの指定でこう決めた）
+		// ============================================================
+		//
+		//   > **島さん「宙で消える粒があってもよい。」**
+		//
+		//   ★だから**地面まで無理に降ろしません**。★★寿命はこれまでどおり、
+		//     **降り出した列の地面**までの時間で決めます。
+		//     ★★★粒は落ちながら横へ流れるので、★**丘が上がっていく先**では
+		//     地面の手前で消えます（★★島さんの「あってもよい」はこれ）。
+		//
+		//   ★★★★逆に、**地面より下へ行ってしまう**のは別です。
+		//     ★前はそういう粒を**地面の線に押し付けて**描いていたので、
+		//     ★★**雨粒が地面を滑って**見えていました（★実測 6.7%、1〜2コマ）。
+		//     ★★★そちらは `updateDusts()` で**触れたところで消します**。
+		var g = groundRowAt(Math.round(x)) - 1;
 		var flight = (g - RAIN_SPAWN_Y) / vy * 1000;
-		// ★★★★画面で見える傾きは「**横のぶれ − 走る速さ**」（★走るほど寝て見える）
-		//   ★これに沿って粒を並べるので、★★**すじが進む向きとそろいます**
-		var slope = (vx - curSpeed()) / vy;
 		// ★★同じ色・同じ濃さで1本にする（★1本の中でチラチラしない）
 		var col = RAIN_COLS[Math.floor(Math.random() * RAIN_COLS.length)];
 		var dim = (Math.random() < RAIN_DIM_RATE) ? 1 : 0;
-		// ★★★★★この1本は、地面で跳ねるか（2026-09-06 島さんの指定「も混ぜて」）
-		//   ★★印をつけるのは**先頭のつぶだけ**（★4つぶ全部だと、1本で4回跳ねます）。
-		//   ★★★先頭はいちばん下なので、**いちばん先に地面へ届きます**
+		// ★★★★★すじの長さも、同じだけ短くする（2026-09-12）
+		//   ★すじは「★★**速さのぶんだけ伸びた残像**」です。
+		//   ★★★遅く見える粒が同じ長さのすじを引くと、★**棒が飛んでいる**ように見えます
+		var nLen = Math.max(2, Math.round(RAIN_LEN * far));
 		var wet = RAIN_SPLASH_ON && (Math.random() < RAIN_SPLASH_RATE);
-		for (var k = 0; k < RAIN_LEN; k++) {
+		for (var k = 0; k < nLen; k++) {
 			var dy = k * RAIN_GAP;                       // ★後ろのつぶほど、上に・進む逆側に
 			pushDust({
-				wx: worldX() + x - slope * dy,
+				// ★★★★★粒は `wx - ox * par` の場所に出るので、
+				//   ★★置きたい画面上の場所から逆算しておく（★`par` = 1 なら昔どおり）
+				wx: worldX() * par + x - slope * dy,
 				y: RAIN_SPAWN_Y - dy,
-				vx: vx, vy: vy,
+				vx: vx, vy: vy, par: par,
 				grav: 0,                   // ★★重力なし ＝ 一定の速さで落ちる（★終端速度）
 				life: Math.max(60, flight + dy / vy * 1000),
 				cols: [col],
@@ -4326,7 +4807,9 @@
 	//     ＝ ★★★**地面に張り付きません**。
 	function addSplash(d) {
 		if (!RAIN_SPLASH_ON || !RAIN_ON || !DUST_ON) return;
-		var x = Math.round(d.wx - worldX());
+		// ★★★★★粒の画面上の場所は `wx - ox * par`（★遠い雨は `par` が 1 でない）。
+		//   ★★ここを `par` なしで計算すると、★★★**遠い雨のしぶきだけがとんでもない場所**に出ます
+		var x = Math.round(d.wx - worldX() * ((d.par === undefined) ? 1 : d.par));
 		if (x < 0 || x >= W) return;              // ★画面の外では撒かない（★見えないので無駄）
 		var g = groundRowAt(x) - 1;               // ★その列の地面のすぐ上
 		var n = RAIN_SPLASH_MIN +
@@ -4337,7 +4820,8 @@
 			var v0 = RAIN_SPLASH_RISE * (0.6 + Math.random() * 0.4);
 			var flight = 2 * v0 / RAIN_SPLASH_GRAV * 1000;   // ★上がって戻るまで（ミリ秒）
 			pushDust({
-				wx: d.wx,
+				// ★しぶきは**見えている地面の上**のものなので、★★地面と同じ速さで流す（`par` = 1）
+				wx: worldX() + x,
 				y: g,
 				vx: dir * RAIN_SPLASH_SIDE * (0.4 + Math.random() * 0.6),
 				vy: -v0,                          // ★マイナスが上
@@ -4350,6 +4834,19 @@
 			});
 		}
 	}
+	// 二段目を受け付けた空間に、2ドットだけ残す。既存のつぶまきで80ms後に消す。
+	function addAirKick(lift) {
+		if (!DUST_ON) return;
+		var x = worldX() + RIDER_X + RIDER_FOOT;
+		var y = riderGroundRow() - lift;
+		for (var side = -1; side <= 1; side += 2) {
+			pushDust({
+				wx: x + side, y: y, vx: side * 12.5, vy: 25,
+				grav: 0, life: 80, cols: [16], lcol: 16, dimRate: 0, kind: 6
+			});
+		}
+	}
+
 	function addDust() {
 		if (!DUST_ON) return;
 		// ★★出る数は毎回ちがう（★０のときもある ＝ 毎回は出ない）
@@ -4431,6 +4928,28 @@
 			d.vy += d.grav * dt;      // ★だんだん落ちてくる（★粒ごとの落ち方）
 			d.wx += d.vx * dt;
 			d.y += d.vy * dt;
+			// ============================================================
+			// ★★★★★雨は「**地面に着いたら**」消える（2026-09-12 に直した）
+			// ============================================================
+			//
+			//   ★前は**時計だけ**（`life`）で消していました。
+			//   ★★ところが粒は 1 コマで 4.3 ドットも進むので、
+			//     ★★★**地面の手前でパッと消える**ことがありました
+			//     （★実測: **26% が 3 ドット以上宙で消えて**いた。★★最大 7.3 ドット）。
+			//
+			//   ★★★いまは**地面に触れたところ**で消します。
+			//     ★しぶきも**ちゃんと地面の上**から上がります。
+			//   ★★`life` は**保険として残してあります**（★上で見ている）。
+			//   ★★★消す処理を増やしていません（★つぶまきの決まり：この 1 か所だけ）
+			if (d.kind === 4) {
+				var rgc = Math.round(d.wx - worldX() * ((d.par === undefined) ? 1 : d.par));
+				var rg = groundRowAt(rgc) - 1;
+				if (d.y >= rg) {
+					d.y = rg;                                  // ★めり込ませない
+					if (d.splash) (wet || (wet = [])).push(d);
+					st.dusts.splice(i, 1);
+				}
+			}
 		}
 		// ★★★★★地面に届いた雨粒の数だけ、しぶきを上げる（★撒くのはここ1か所）
 		if (wet) for (var q = 0; q < wet.length; q++) addSplash(wet[q]);
@@ -4450,10 +4969,12 @@
 	//       ★「越えたら即コイン」という島さんの指定に、貯金の動きも合わせた形
 	// ★★★`kind` に "pick" を渡すと、**拾ったときの音**（チャリーン）になる（2026-08-23）。
 	//   ★何も渡さなければ、いままでどおり「越えたときの軽いチャリン」
-	function gainCoin(n, kind) {
+	function gainCoin(n, kind, count) {
 		// ★★★★BET（2026-08-23）。★賭けたぶんだけ増える（★賭けていなければ ×1）
 		//   ★★ここ1か所に掛ける ＝ **越えたコインも拾ったコインも、両方に効く**
 		n = Math.floor(n * ((st && st.betMul) || 1));
+		// Round each coin before batching, preserving fractional BET's original payout.
+		n *= count || 1;
 		if (n <= 0) return;
 		st.coin += n;
 		addCoins(n);                          // ★★★その場で貯金に入る（＝すぐ買える）
@@ -4461,6 +4982,22 @@
 		//   ★毎コマ「+1」が飛ぶとうるさいので、★★**ポップは降りたときに1回**だけ出す
 		//   ★左上のコインは増え続けるので、「増えている」ことは見えます
 		if (kind === "grind") { st.gainFlashMs = GAIN_FLASH_MS; return; }
+		if (kind === "pick") {
+			st.gainFlashMs = GAIN_FLASH_MS;
+			if (st.pickPop && st.pickPop.ms < 450 && st.pops.indexOf(st.pickPop) >= 0) {
+				st.pickPop.amount += n;
+				st.pickPop.text = "+" + shortNum(st.pickPop.amount);
+				st.pickPop.x = Math.max(0, RIDER_X + RIDER_FOOT - Math.round(popFace(st.pickPop.text).textWidth(st.pickPop.text.length) / 2));
+			} else {
+				addPop("+" + shortNum(n), "gain");
+				st.pickPop = POP_ON ? st.pops[st.pops.length - 1] : null;
+				if (st.pickPop) st.pickPop.amount = n;
+			}
+			if (!st.pickSoundUntil || st.animMs >= st.pickSoundUntil) {
+				coinSound(); st.pickSoundUntil = st.animMs + 120;
+			}
+			return;
+		}
 		addPop("+" + shortNum(n), "gain");
 		st.gainFlashMs = GAIN_FLASH_MS;
 		// ★★★2026-08-16、島さんの一言で足した:
@@ -4477,7 +5014,6 @@
 		//
 		//   ★★★2026-08-23、**拾ったコインだけ別の音**にした（島さんの指定）:
 		//     > 島さん「コインに触れたときの効果音をチャリーンに変えたいです。」
-		if (kind === "pick") { coinSound(); return; }
 		sound(1320, 0.04);
 	}
 
@@ -4610,6 +5146,8 @@
 	function onHit(i) {
 		st.cones.splice(i, 1);          // ★当たったコーンは消す（毎コマ当たり続けないように）
 		st.hits++;
+		st.recoverProgress = 0;
+		st.recoverFlash = 0;
 		// ★★★2026-08-16、島さんの指定で**ぶつかるとスタミナが減る**ようになった。
 		//   ★スタミナ ＝ 「**あと何回ミスできるか**」（★時間では減らない）
 		//   ★CAMP_ON のときだけ HP がその役目を持つ（★いまは保留中）
@@ -4802,8 +5340,9 @@
 		// ★★★「×2」が出た瞬間に、**喜びの音を1回だけ**鳴らす（★島さんの指定）
 		//   ★あわせて、ここで**二段ジャンプが手に入る**（★見えた瞬間＝使える瞬間）
 		if (!st.giftRang && giftX2()) {
-			st.giftRang = true;
+			st.giftRang = true; st.moment = "DOUBLE JUMP LEARNED";
 			st.dj = true;
+			if (!testMode && PR) PR.learn("doubleJump");
 			giftSound();
 		}
 	}
@@ -4817,6 +5356,7 @@
 
 	// ★★★授かる場面を終えて、走り出す（★ここから二段ジャンプ）
 	function giftDone() {
+		if (!testMode && PR) PR.learn("doubleJump");
 		st.dj = true;              // ★★念のため（★音より先に押されても必ず渡す）
 		st.giftMs = 0;
 		// ★★★もう一度 READY / GO を出してから走り出す（2026-08-23 島さんの指定）
@@ -4863,6 +5403,46 @@
 			[294, 0.07,  80],   // レ
 			[587, 0.09, 190],   // レ（上）★得る（上がる）
 			[880, 0.20, 300]    // ラ（上）
+		]);
+	}
+
+	// ============================================================
+	// ★★★★★転生の音（2026-09-12。★★**仮です**）
+	// ============================================================
+	//   ★形は「★★**一度深く沈んで、そこから高く登り直す**」。
+	//     ★★★差し出して、その先を受け取る ―― その順番を音でなぞっています。
+	//   ★★★★**AI へ: 勝手に差し替えないこと**。
+	//     ★まず `tools/preview-sound.html` で鳴らして選んでもらう
+	//     （★★AI は過去に 2 度、理屈で音を「良く」して外しています）。
+	//   ★★**並べるのは `melody()` の 1 か所だけ**（★`setTimeout` を散らさない）。
+	function prestigeSound() {
+		melody([
+			[523, 0.10,   0],   // ド    ★差し出す（沈んでいく）
+			[392, 0.10, 110],   // ソ
+			[262, 0.16, 220],   // ド（下）★★いちばん深いところ
+			[392, 0.08, 420],   // ソ    ★★★ここから登り直す
+			[523, 0.08, 500],   // ド
+			[659, 0.08, 580],   // ミ
+			[784, 0.10, 660],   // ソ（上）
+			[1047, 0.26, 760]   // ド（上）★前より高いところへ
+		]);
+	}
+
+	// ★★★問いかけの音（★「REBORN?」を出した瞬間。★★まだ何も起きていない）
+	//   ★形は「**問いかけ**」―― ★★最後が上がる（★★★決まっていないことを音でも伝える）
+	function prestigeAskSound() {
+		melody([
+			[523, 0.06,   0],
+			[698, 0.12,  80]
+		]);
+	}
+
+	// ★★知らせの音（★お店に行が**はじめて出た**とき。★★転生そのものとは別）
+	function prestigeReadySound() {
+		melody([
+			[784,  0.06,   0],
+			[1047, 0.06,  90],
+			[1319, 0.14, 180]
 		]);
 	}
 
@@ -4943,6 +5523,7 @@
 		st.phaseMs = 0;
 		st.reached = meters();
 		st.newBest = updateBest(st.reached);
+		if (!testMode && PR) PR.finish(st.reached);
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
 		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
 		//     （★「死亡＝未確定分を失う」を、ここに if を足さずに表す）
@@ -5025,7 +5606,7 @@
 		//   ★★`st.dj` ＝ 二段ジャンプを授かったか ＝ **このランでゴールを見たか**。
 		//     ★二段ジャンプと**まったく同じ扱い**にしてある
 		//     （★そのランのあいだだけ・死ねば消える）
-		if (!st.dj) return false;
+		if (!st.goalDone) return false;
 		return st.stamina - b.pay >= b.minLeft;
 	}
 	// ★★「次に押したらこうなる」倍率（★他の行が「次の値段」を出すのと同じ形）
@@ -5044,23 +5625,24 @@
 		if (!UP) return rows;
 		UP.UPGRADES.forEach(function (u) {
 			var lv = upgLevel(u.id);
+			var max = capOf(u);        // ★★転生で伸びた天井を含む（2026-09-12）
 			rows.push({
-				kind: "upg", id: u.id, name: u.name, lv: lv, max: u.maxLevel,
+				kind: "upg", id: u.id, name: u.name, lv: lv, max: max,
 				// ★★`maxLevel: null` = 上限なし。★そのときは必ず次の値段が出る
-				cost: (u.maxLevel !== null && lv >= u.maxLevel) ? 0 : UP.costOf(u, lv)
+				cost: (max !== null && lv >= max) ? 0 : UP.costOf(u, lv)
 			});
 		});
 		UP.UNLOCKS.forEach(function (u) {
 			rows.push({
 				kind: "unlock", id: u.id, name: u.name,
-				got: !!unlocked[u.id], cost: u.cost
+				got: !!unlocked[u.id], cost: u.cost, hint: u.hint
 			});
 		});
 		// ★★★使うと無くなるもの（2026-08-22）。★何本でも買える ＝ `got` を持たない
 		(UP.ITEMS || []).forEach(function (u) {
 			rows.push({
 				kind: "item", id: u.id, name: u.name,
-				have: bagCount(u.id), maxHave: (u.maxHave || 1),
+				have: bagCount(u.id), maxHave: (u.maxHave || 1), usedUp: buyCount(u.id) >= (u.maxBuys || Infinity),
 				// ★★★値段は「**次に買う値段**」（★買うたびに10倍）
 				cost: itemCost(u)
 			});
@@ -5070,8 +5652,30 @@
 		//   ★★★**エンディングを見るまでは、行そのものが出ません**
 		//     （★島さんの指定「BETはエンディング後の遊びにしたいです。」）。
 		//   ★★★★だから**はじめて遊ぶ人の一覧は1行も増えない**
-		if (BET_ON && betCfg() && st && st.dj) {
+		if (BET_ON && betCfg() && st && st.goalDone) {
 			rows.push({ kind: "bet", name: betCfg().name, mul: nextBetMul(), pay: betCfg().pay });
+		}
+		// ============================================================
+		// ★★★★★転生は**行の並びではいちばん下**、
+		//   ★でも**見せるのは 1 ページ目**（2026-09-12 島さんの指定）
+		// ============================================================
+		//
+		//   > **島さん「プレステージ項目はお店の1ページ目に出現。」**
+		//
+		//   ★★★★**行の番号は動かしません**（★いちばん下に足す）。
+		//     ★途中に割り込むと、★★**その先の行の番号が全部 1 つずれます**
+		//     （★★★選んでいる行 `st.shopSel` も、見張りの列番号もずれる。
+		//     ★ 2026-09-12 に実際にテストが捕まえました）。
+		//   ★★★**どこに見せるかは `shopOrder()` が決めます**（→ 下）。
+		//   ★★**1 項目も MAX でなければ、行そのものが出ません**
+		//     （★はじめて遊ぶ人の一覧は 1 行も増えない）。
+		if (canPrestige()) {
+			var mx = maxedIds();
+			// ★★`state` … 実機のお店（`js/shop.js`）がそのまま出す文字。
+			//   ★★★**言葉を決めるのはここ 1 か所**（★お店の画面は 2 つあるので、
+			//   ★別々に書くと必ず片方だけ古くなります）。
+			rows.push({ kind: "prestige", name: PRESTIGE_WORD, ids: mx, step: PRESTIGE_STEP,
+				cost: 0, state: "+" + PRESTIGE_STEP + " x" + mx.length });
 		}
 		return rows;
 	}
@@ -5082,11 +5686,53 @@
 		// ★★★使うと無くなるもの（2026-08-22 島さんの指定）:
 		//   ・★**持てるのは 1 本まで**（★持っているあいだは買えない）
 		//   ・★★値段は買うたびに10倍（★`cost` にはもう次の値段が入っている）
-		if (r.kind === "item") return r.have < r.maxHave && coins >= r.cost;
+		if (r.kind === "unlock") return false;
+		if (r.kind === "item") return !r.usedUp && r.have < r.maxHave && coins >= r.cost;
 		// ★★★★BET はコインでは買わない（★払うのは体力）
 		if (r.kind === "bet") return canBet();
+		// ★★★★★転生はコインでは買いません（★差し出すのは育てたものそのもの）
+		if (r.kind === "prestige") return canPrestige();
 		// ★★上限なし（`max === null`）なら、レベルでは止めない
+		if (r.kind === "upg" && r.max !== null && r.lv >= r.max) return false;
 		return !r.got && coins >= r.cost;
+	}
+
+	// ============================================================
+	// ★★★★★転生する（★YES を押されてから、ここへ来ます）
+	// ============================================================
+	//   ★★**伸びるのは、この瞬間 MAX だった項目だけ**（★島さんの指定）。
+	//   ★★★差し出すのは **コイン・レベル・道具 ＋ いま走った距離**。
+	//     ★**BEST は残します**（★★`updateBest()` を呼ばない）。
+	//     ★★技と二段ジャンプも残ります（★`PR` が覚えている）。
+	//   ★★★★**世界（種）はそのまま**です（★`reset()` を呼ばない
+	//     ＝ ★★同じ景色を、強くなってもう一度旅する）。
+	function prestigeDo() {
+		var ids = maxedIds();
+		if (!ids.length) return false;
+		PR.prestige(ids, PRESTIGE_STEP);
+		reloadCaps();                      // ★★天井が伸びたので、控えを取り直す
+		resetStatus();                     // ★コイン・レベル・道具が消える（★既存）
+		if (global.DotShop) global.DotShop.close();
+		st.shopOpen = false;
+		st.dist = 0; st.scroll = 0;        // ★★いま走った距離を差し出す
+		st.cones = []; st.picks = [];      // ★★★周りを空ける（★走り出しに障害物を置かない）
+		st.stamina = curStaminaMax();
+		st.staminaMax = st.stamina;
+		st.prestigeMs = 0;                 // ★パネルは消えるので、グリッチも止める
+		st.prestigeSeen = false;           // ★★次に MAX へ届いたとき、また知らせる
+		prestigeSound();
+		readyAgain();                      // ★★既存の道具。0m から READY / GO
+		return true;
+	}
+
+	// ★★★問いかけの答え（★`which` … 0 = YES / 1 = NO）。
+	//   ★★キャンプの `campAnswer()` と**まったく同じ形**にしてあります
+	function prestigeAnswer(which) {
+		if (!st || !st.prestigeAsk) return false;
+		st.prestigeAsk = false;
+		st.prestigeBtn = "";
+		if (which !== 0) { sound(494, 0.06); return false; }   // ★NO … 何も起きない
+		return prestigeDo();
 	}
 
 	// ★★決定を押したとき。★買えたら true
@@ -5109,9 +5755,37 @@
 			betSound();
 			return true;
 		}
+		// ============================================================
+		// ★★★★★転生―― 育てたものを差し出して、天井を上げる（2026-09-12）
+		// ============================================================
+		//
+		//   ★★**伸びるのは、この瞬間 MAX だった項目だけ**（★島さんの指定）。
+		//   ★★★差し出すのは **コイン・レベル・道具 ＋ いま走った距離**。
+		//     ★**BEST は残します**（★★`updateBest()` を呼ばない）。
+		//     ★★技と二段ジャンプも残ります（★`PR` が覚えている）。
+		//   ★★★★**世界（種）はそのまま**です（★`reset()` を呼ばない
+		//     ＝ ★★同じ景色を、強くなってもう一度旅する）。
+		if (r.kind === "prestige") {
+			if (!maxedIds().length) { sound(180, 0.06); return false; }
+			// ★★★★★**ここではまだ転生しません**（2026-09-12 島さんの指定）。
+			//   ★問いかけを出して、YES を押されてはじめて進みます
+			//     （★★実際に進むのは `prestigeAnswer()` → `prestigeDo()`）。
+			st.prestigeAsk = true;
+			st.prestigeBtn = "";
+			prestigeAskSound();
+			return true;
+		}
 		if (r.kind === "upg") {
 			coins -= r.cost;
 			upgLv[r.id] = (upgLv[r.id] || 0) + 1;
+			// ★★★★★この買い物で**はじめて MAX に届いた**なら、その場で知らせる
+			//   （2026-09-12 島さんの指定「特殊フェードインと音演出により知らせる」）
+			//   ★★**払う処理と同じ 1 か所**でやります（★離すと片方だけ直す事故が起きる）
+			if (PRESTIGE_ON && st && !st.prestigeSeen && canPrestige()) {
+				st.prestigeSeen = true;
+				st.prestigeMs = PRESTIGE_GLITCH_MS;   // ★★パネルがグリッチしながら現れる
+				prestigeReadySound();
+			}
 			// ============================================================
 			// ★★★★STAMINA は「買った瞬間に」増える（2026-08-23 に直した）
 			//
@@ -5135,6 +5809,7 @@
 				var nowMax = curStaminaMax();
 				var add = nowMax - (st.staminaMax || 0);
 				if (add > 0) st.stamina += add;   // ★増えたぶんだけ、その場で耐えられる
+				st.hpGrowMs = 650;
 				st.staminaMax = nowMax;           // ★★バーの満タンもそろえる
 			}
 		} else if (r.kind === "item") {
@@ -5145,6 +5820,7 @@
 		} else {
 			coins -= r.cost;
 			unlocked[r.id] = true;
+			if (!testMode && PR) PR.learn(r.id);
 		}
 		saveCoins();
 		saveUpg();
@@ -5155,6 +5831,8 @@
 	function shopMove(d) {
 		var n = shopRows().length;
 		st.shopSel = (st.shopSel + d + n) % n;
+		st.shopPage = Math.floor(Math.max(0, st.shopSel - 1) / 4);
+		st.shopKeyboard = true;
 		sound(880, 0.03);
 	}
 
@@ -5252,6 +5930,7 @@
 	}
 
 	function toggleCamp() {
+		if (st && st.campPhase === "fish" && !st.shopOpen) { leaveFishing(); return; }
 		if (!CAMPMODE_ON || !st) return;
 		// ============================================================
 		// ★★★★★眠りにつく演出の最中は、閉じられない（2026-09-04(9)）
@@ -5305,6 +5984,30 @@
 	}
 
 	// ★キャンプをやめる（★入る前にやめた／中断した）
+	function fishAct() {
+		var before = st.fishing.count;
+		global.DotFishing.tap(st.fishing);
+		if (st.fishing.count > before && !testMode && PR) {
+			if (!PR.snapshot().fish[st.fishing.fish.type]) st.moment = "NEW FISH FOUND";
+			PR.recordFish(st.fishing.fish); st.fishing.records = PR.snapshot().fish;
+		}
+	}
+	function enterFishing() {
+		if (!global.DotFishing || !st || st.campPhase !== "in" || st.shopOpen) return;
+		if (!st.fishing) st.fishing = global.DotFishing.create(WD.getSeed() ^ Date.now());
+		st.campVX = 0; st.campVY = 0;
+		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = "";
+		st.fishing.records = !testMode && PR ? PR.snapshot().fish : {};
+		st.campPhase = "fish";
+	}
+	function leaveFishing() {
+		if (!st || st.campPhase !== "fish") return false;
+		global.DotFishing.leave(st.fishing);
+		st.campPhase = "in"; st.paused = false; st.fishBtn = "";
+		st.campVX = 0; st.campVY = 0;
+		return true;
+	}
+
 	function campClose() {
 		if (!st) return;
 		st.campPhase = "";
@@ -5519,6 +6222,10 @@
 	//     ★ここで進むのは「中を歩いている」ことだけ。
 	//   ★★★問いかけ（CAMP? / WANT TO GO TO SLEEP?）のあいだは、**中も止まります**
 	function updateCamp(dt) {
+		if (st.campPhase === "fish") {
+			if (typeof document === "undefined" || !document.hidden) global.DotFishing.update(st.fishing, dt);
+			return;
+		}
 		// ★★★★★眠りにつく途中（★ゆっくり暗転）。2026-09-04(4) 島さんの指定
 		if (st.campPhase === "fade") {
 			st.campFadeMs += dt * 1000;
@@ -5600,6 +6307,15 @@
 		//   ★★**いちばん先に呼ぶ**（★GAMEOVER でも一時停止でも、必ず通る場所）。
 		//   ★変わったときだけシェルに頼むので、毎コマ呼んでも重くありません
 		syncCampPad();
+		// ============================================================
+		// ★★★★★パネルのグリッチフェードイン（2026-09-12 島さんの指定）
+		// ============================================================
+		//   ★★★★**下の「お店のあいだは止まる」より前に置くこと。**
+		//     ★知らせるのは**お店の中のパネル**なので、
+		//     ★★後ろに置くと**お店を閉じるまで 1 コマも進みません**
+		//     （★★★ 2026-09-12 に実際にそうなっていました）。
+		//   ★★★**減らすのはここ 1 か所だけ**（★つぶまきの決まりと同じ）
+		if (st.prestigeMs > 0) st.prestigeMs = Math.max(0, st.prestigeMs - dt * 1000);
 		// ★★ショップ・一時停止のあいだは、何も進まない
 		if (st.paused || st.shopOpen) return;
 		// ============================================================
@@ -5691,7 +6407,9 @@
 		st.speedMs += dt * 1000;
 		// ★★SPEED のアップグレードはここで効く（→ `curSpeed()`）
 		var moved = curSpeed() * accelFactor() * slowFactor * dt;
+		var hitsBeforeMove = st.hits;
 		st.dist += moved;
+		st.hpGrowMs = Math.max(0, st.hpGrowMs - dt * 1000);
 
 		// ★★見た目だけのもの（★遊びには触らない）を進める
 		updatePops(dt);
@@ -5763,7 +6481,7 @@
 					//   ★★ここは「重ねない」の**例外**です（→ ふつうの列は重ねません）。
 					//     ★理由がはっきり違う: ★あちらは「別の動きを同時に要求しない」ため
 					// ============================================================
-					if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M &&
+					if (PICK_ON && COIN_ICON && !st.pickQuiet && st.picks.length <= PICK_MAX - PICK_N && meters() >= PICK_FROM_M &&
 						!inNoSpawn(bornAt) && Math.random() < PICK_OVER_CONE) {
 						// ★塊の広さに合わせて枚数を決める（★はみ出させない）
 						var overN = Math.max(3,
@@ -5777,6 +6495,7 @@
 						var ox0 = W + 4 + Math.round((gMin + gMax - overW) / 2);
 						var overMade = makeRow(ox0,
 							{ rows: [{ n: overN, step: PICK_STEP, lift: 1.00 }] });
+						if (!pickRowAllowed(overMade)) overMade = [];
 						// ★★印を付けておく（★テストが「コーンの真上か」を測るため）
 						for (var vi = 0; vi < overMade.length; vi++) {
 							overMade[vi].over = 1;
@@ -5952,19 +6671,26 @@
 			if (PICK_ON && COIN_ICON && meters() >= PICK_FROM_M) {
 				st.nextPick -= moved;
 				if (st.nextPick <= 0) {
-					var pat = pickPattern();
-					var row = pickRow(pat), rowW = pickRowW(row);
+					var pat = pickPattern(st.pickBeat);
+					var row = pickRow(pat), rowW = Math.max(PICK_FOOTPRINT, pickRowW(row));
 					// ★★次の障害物まで、列がまるごと入る余裕があるときだけ置く
 					var room = Math.min(st.nextCone, st.nextEnemy);
 					// ★★★扉の前後は何も置かない（2026-08-23 島さんの指定。★「など」に含む）
 					var pickWx = worldX() + W + 4;
 					var pickClear = !inNoSpawn(pickWx) && !inNoSpawn(pickWx + rowW);
-					if (row.length && pickClear && room > rowW + CONE_W * 2) {
+					if (pat.rest) {
+						st.pickBeat++; st.pickQuiet = true; st.nextPick = nextPickGap() + PICK_REST_EXTRA;
+					} else if (row.length && pickClear && room > rowW + CONE_W * 2 && st.picks.length + row.length <= PICK_MAX) {
 						// ★★★水平に並べる（→ `makeRow()`）
 						var made = makeRow(W + 4, pat);
+						if (!pickRowAllowed(made)) made = [];
+						if (!made.length) { st.nextPick = CONE_W * 4; }
+						else {
 						for (var pi = 0; pi < made.length; pi++) st.picks.push(made[pi]);
 						st.picksBorn++;
+						st.pickBeat++; st.pickQuiet = false;
 						st.nextPick = nextPickGap();
+						}
 					} else {
 						// ★★置けなかったら、少し待ってもう一度ためす（★間隔は崩さない）
 						st.nextPick = CONE_W * 4;
@@ -6156,6 +6882,7 @@
 				// ★★★コインは**画面の行**で持っているので、主役の足も行で見る（2026-08-23）
 				var myRow = riderGroundRow() - 1 - currentLift();
 				var boxL = RIDER_X, boxR = RIDER_X + RIDER_FOOT * 2;
+				var magnet = magnetRadius(), magnetX = (boxL + boxR) / 2;
 				// ============================================================
 				// ★★★★★グラインド中は「**体に触れたら取れる**」（2026-09-02 島さんの指摘）
 				//
@@ -6178,35 +6905,79 @@
 				//   → ★★乗っているあいだだけ、**絵に重なったら取る**（★見たとおりになる）。
 				//     ★★★地上の決まりは1ドットも変えていません
 				var grindTop = 0;
-				if (st.grind) {
-					var GP = currentPose(), GF = GP.art.FRAMES[currentFrame()];
-					grindTop = myRow - (GF.rows.length - 1);   // ★★主役の絵の上端（頭）
-				}
-				for (var qi = st.picks.length - 1; qi >= 0; qi--) {
+				// ★★★★★主役の絵の上端（頭）。★いつでも出しておく
+				//   ★★前はグライン中だけ出していましたが、
+				//   ★★★2026-09-12 から**いつでも体で拾う**ので、ここで決めます
+				var HPose = currentPose();
+				var HFrm = (HPose && HPose.art && HPose.art.FRAMES)
+					? HPose.art.FRAMES[currentFrame()] : null;
+				var bodyTop = HFrm ? (myRow - (HFrm.rows.length - 1)) : myRow;
+				if (st.grind) grindTop = bodyTop;
+				var kept = 0, collected = 0;
+				for (var qi = 0; qi < st.picks.length; qi++) {
 					var pk = st.picks[qi];
-					pk.x -= moved;
-					if (pk.x + PICK_W < 0) { st.picks.splice(qi, 1); continue; }
 					if (pk.taken) continue;
+					pk.x -= moved;
+					if (magnet > 0 && pk.x < W) {
+						var mx = magnetX - pk.x, my = myRow - pk.y;
+						var distance2 = mx * mx + my * my;
+						if (pk.attracted || distance2 <= magnet * magnet) {
+							pk.attracted = true;
+							pk.pullAge = (pk.pullAge || 0) + dt;
+							pk.trailX = pk.x; pk.trailY = pk.y;
+							var distance = Math.sqrt(distance2);
+							// A gentle start, then a clear accelerating convergence. No orbit / random jitter.
+							var ramp = 0.45 + 1.55 * Math.min(1, pk.pullAge / 0.24);
+							var amount = pk.pullAge > 0.8 ? 1 : Math.min(1, (100 * dt + moved * 2) * ramp / Math.max(1, distance));
+							pk.x += mx * amount; pk.y += my * amount;
+						}
+					}
+					// Latched coins remain alive behind the rider / screen until they arrive.
+					if (pk.x + PICK_W < 0 && !pk.attracted) continue;
 					var px = Math.round(pk.x);
 					// ★★★★縦の判定。★グラインド中だけ「絵に重なったか」で見る
 					//   ★コインは `pk.y` が**下端**なので、上端は `pk.y - (PICK_H - 1)`
-					var vHit = st.grind
-						? (pk.y >= grindTop && pk.y - (PICK_H - 1) <= myRow)
-						: (Math.abs(pk.y - myRow) <= PICK_TAKE_Y);
+					// ============================================================
+					// ★★★★★縦の判定 ―― **絵が重なったら取れる**（2026-09-12 島さんの指定）
+					// ============================================================
+					//
+					//   > **島さん「接触しているが取得できんコインがある。
+					//   >   ジャンプせずに届くパターンのコインです。」**
+					//
+					//   ★実測（直す前）: ★★足で拾えるのは地面から **0〜8ドット**、
+					//     ★主役の背は **25ドット**。
+					//     → ★★★**9〜25 ドットは「体は当たるのに拾えない」帯**でした。
+					//     ★並びのいちばん下の段は 13・17・19 ドット ＝ **全部この帯の中**。
+					//
+					//   ★★★島さんの決定（2026-09-12）: **触れたら取れる**。
+					//     ★いちばん下の段 … 走るだけで取れる
+					//     ★★２段目以降 … **跳んだ高さだけ**取れる（★跳ぶ理由はこちらへ移った）
+					//
+					//   ★★★★グライン中は 2026-09-02 からすでにこの形でした。
+					//     → ★**判定を 1 本にまとめました**（★★同じことを 2 か所に書かない）。
+					//
+					//   ★`PICK_TAKE_Y` は、★★**足より少し下**にあるコインを拾うために残してあります
+					//     （★列は水平なので、★★坂では足がコインより上に来ることがある）。
+					var vHit = (pk.y >= bodyTop) &&
+						(pk.y - (PICK_H - 1) <= myRow + PICK_TAKE_Y);
 					if (px + PICK_W > boxL && px < boxR && vHit) {
 						pk.taken = 1;
 						st.picksGot++;
 						// ★★その場で財布に入る（★越えたときと同じ道）。
 						//   ★★★音だけは「チャリーン」に分けてある（2026-08-23 島さんの指定）
-						gainCoin(pickValue(), "pick");
+						collected++;
 					}
+					if (!pk.taken) st.picks[kept++] = pk;
 				}
+				st.picks.length = kept;
+				if (collected) gainCoin(pickValue(), "pick", collected);
 			}
 
 			// ★★当たり判定。★★**転ばない。** 減速＋倍率リセット＋スタミナ減だけ
 			var hi = hitConeIndex();
 			if (hi >= 0) onHit(hi);
 		}
+		updateRecover(st.hits === hitsBeforeMove ? moved / SCORE_DOTS : 0, dt);
 		// ★技: 島さんの絵を js/frames.js の時間どおりに送る。物理の計算は無い
 		//   ★★JUMP のアップグレードはここで効く ＝ **コマの進みが遅くなる**
 		//     → 同じ絵をゆっくり再生 → 滞空が伸びる → 越えられる幅が広がる
@@ -6214,7 +6985,7 @@
 		if (st.air >= 0) {
 			st.air += dt * 1000 / jumpDurationMul();
 			if (FR.frameAt(POSES[st.trick].ms, st.air) < 0) {
-				st.air = -1;                     // 最後まで行った
+				st.air = -1;
 				st.djBase = 0;                   // ★★下駄をはずす（2026-08-22）
 				// ★★★★着地のけむり（2026-08-31）。★**跳ぶときと対になる反応**
 				//   ★桜井資料「操作したのに無反応の状態を作らない」
@@ -6270,6 +7041,16 @@
 		var E = global.DotEdgeArt;
 		if (!E) return;
 		var PALX = global.DotPalette;
+		// ★★★★★草も「段ごとに1枚の絵」にして貼る（2026-09-12）
+		//   ★実測（★直す前）: **1,542回 塗って 1,800ドット** ＝ 1回あたり **1.2ドット**。
+		//   ★★草は1ドットずつ生えているので、縦にまとめてもほとんど続きません。
+		//   ★★★土とまったく同じ直し方です（→ `sheetTile`）。
+		var eRun = null;
+		function flushEdge() {
+			if (!eRun) return;
+			ctx.drawImage(eRun.tile.cv, eRun.col, 0, eRun.n, E.H, eRun.c, eRun.top, eRun.n, E.H);
+			eRun = null;
+		}
 		for (var c = 0; c < W; c++) {
 			var wx = gx + c;
 			var seg = Math.floor(wx / E.W);                  // ★区画の番号
@@ -6285,7 +7066,21 @@
 			var rows = E.SHEETS[idx];
 			var top = groundRowAt(c);
 			var gm = gmapAt(c);                              // ★★地域ごとの色の置き換え
-			// ★縦に続く同じ色はまとめて塗る（1ドットずつ塗ると重くなる）
+			var tile = sheetTile(edgeTiles, E, idx, gm, gmapKey(gm));
+			if (tile) {
+				// ★となりの列と「同じ段・同じ色・同じ高さ・絵の続き」なら、まとめて1回
+				if (eRun && eRun.tile === tile && eRun.top === top &&
+					eRun.col + eRun.n === col && eRun.c + eRun.n === c) {
+					eRun.n++;
+				} else {
+					flushEdge();
+					eRun = { tile: tile, col: col, c: c, top: top, n: 1 };
+				}
+				continue;
+			}
+			flushEdge();
+			// ★絵が作れない場所（★古いブラウザ）は、いままでどおり1ドットずつ
+			//   ★縦に続く同じ色はまとめて塗る
 			var y = 0;
 			while (y < E.H) {
 				var ch = rows[y].charAt(col);
@@ -6297,6 +7092,7 @@
 				y += run;
 			}
 		}
+		flushEdge();
 	}
 
 	// ★★★★土（地面の本体）の模様を置く（2026-08-25）
@@ -6304,6 +7100,81 @@
 	//   ★★**草の下端から**始めます（★列ごとに、草の絵がどこまで届いているかを見る）。
 	//   ★下は体力バーの上まで。★足りないところで切られますが、
 	//     ★★★絵の下端が土の基本の色なので、**その先の無地とつながります**。
+	// ============================================================
+	// ★★★★★土の模様は「段ごとに1枚の絵」にして、貼る（2026-09-12）
+	// ============================================================
+	//
+	//   > **島さん「遅延がある。直ちに原因と対策を」**
+	//
+	//   ★実測（★本物のブラウザで、1コマを 400 回まわして測った）:
+	//
+	//   ```
+	//   1コマ 4.61ms のうち、★★**塗りそのもの（fillRect）が 3.11ms ＝ 67%**
+	//   1コマの fillRect  9,979 回 … ★★★そのうち **土が 5,556 回（56%）**
+	//   ```
+	//
+	//   ★土は**粒**なので、縦にまとめても1〜2ドットずつしか続きません。
+	//   ★★だから列ごとに 23 回ほど塗っていて、★★★**240 列 × 23 ＝ 5,556 回**でした。
+	//
+	//   ★★★★**直し方: 段（シート）を1枚の絵にして持っておき、そこから貼る。**
+	//     ★1列につき **1回**（`drawImage`）。★★となりの列と条件が同じなら**まとめて1回**。
+	//     ★★★**出るドットは1つも変わりません**（★お手本＝golden が見張っています）。
+	//
+	//   ★絵は「段 × 地域の色」ごとに1枚だけ作って、あとは使い回します
+	//     （★地域の色は移り変わりの途中でも数種類しかありません）。
+	//   ★★裏の板が作れない場所（★古いブラウザなど）では、
+	//     ★★★**今までどおり1ドットずつ塗ります**（`SOIL_TILE_ON = 0` でも同じ）。
+	var SOIL_TILE_ON = 1;          // ★0 にすると、2026-09-11 までの塗り方に戻る
+	var soilTiles = {};            // ★段 x 地域の色 -> 裏の板（土）
+	var edgeTiles = {};            // ★★同じもの（草）
+	var soilTileKeys = null;
+
+	function makeOffscreen(w, h) {
+		var doc = global.document;
+		if (!doc || !doc.createElement) return null;
+		var cv = doc.createElement("canvas");
+		if (!cv || !cv.getContext) return null;
+		cv.width = w; cv.height = h;
+		var c2 = cv.getContext("2d");
+		return c2 ? { cv: cv, ctx: c2 } : null;
+	}
+
+	// ★★地域の色の入れ替え表に、短い名前をつける（★同じ表なら同じ絵を使い回すため）
+	function gmapKey(gm) {
+		if (!gm) return "-";
+		if (!soilTileKeys) soilTileKeys = [];
+		for (var i = 0; i < soilTileKeys.length; i++) if (soilTileKeys[i] === gm) return "g" + i;
+		soilTileKeys.push(gm);
+		return "g" + (soilTileKeys.length - 1);
+	}
+
+	// ★★★段 `idx` を、地域の色 `gm` で塗った1枚の絵（★なければ作る）
+	//   ★★★★**土も草も、これ1つを通します**（★同じ処理を2か所に書かない ＝ この作品の決まり）。
+	//   ★`.`（透明）は塗らないので、★★草の下から土がそのまま見えます。
+	function sheetTile(store, A, idx, gm, key) {
+		if (!SOIL_TILE_ON) return null;
+		var id = idx + "|" + key;
+		var hit = store[id];
+		if (hit !== undefined) return hit;
+		var off = makeOffscreen(A.W, A.H);
+		if (!off) { store[id] = null; return null; }
+		var PALX = global.DotPalette, rows = A.SHEETS[idx];
+		for (var x = 0; x < A.W; x++) {
+			var y = 0;
+			while (y < A.H) {
+				var ch = rows[y].charAt(x);
+				if (ch === ".") { y++; continue; }        // ★透明はそのまま
+				var run = 1;
+				while (y + run < A.H && rows[y + run].charAt(x) === ch) run++;
+				off.ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
+				off.ctx.fillRect(x, y, 1, run);
+				y += run;
+			}
+		}
+		store[id] = off;
+		return off;
+	}
+
 	function drawSoilArt(gx) {
 		var S = global.DotSoilArt, E = global.DotEdgeArt;
 		if (!S) return;
@@ -6315,6 +7186,13 @@
 		//     （★前は barTop() までで止めていたので、★そこだけ一色に見えていた）
 		var bottom = H;
 		var eb = edgeBottoms();                // ★草の下端（段ごと・列ごと）
+		// ★★★★★となり合う列を**まとめて 1 回で貼る**ための覚え書き（2026-09-12）
+		var run = null;
+		function flushSoil() {
+			if (!run) return;
+			ctx.drawImage(run.tile.cv, run.col, 0, run.n, run.lim, run.c, run.top, run.n, run.lim);
+			run = null;
+		}
 		for (var c = 0; c < W; c++) {
 			var wx = gx + c;
 			// ★草がどこまで届いているか（★草の絵を使っていなければ、種の太さで測る）
@@ -6344,22 +7222,33 @@
 			var sft = Math.floor(WD.rand(seg, SOIL_SALT + 7) * S.W);
 			var col = ((wx - seg * S.W) + sft) % S.W;
 			var rows = S.SHEETS[idx];
-			// ★縦に続く同じ色はまとめて塗る
-			var y = 0, lim = Math.min(S.H, bottom - top);
-			while (y < lim) {
-				var ch = rows[y].charAt(col);
-				var run = 1;
-				while (y + run < lim && rows[y + run].charAt(col) === ch) run++;
-				ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
-				ctx.fillRect(c, top + y, 1, run);
-				y += run;
+			var lim = Math.min(S.H, bottom - top);
+			// ★★★★★段の絵があれば、そこから**まとめて貼る**（2026-09-12）
+			//   ★となりの列と「同じ段・同じ地域の色・同じ高さ・絵の続き」なら、
+			//   ★★**1回の `drawImage` にまとめます**（★呼び出しをさらに減らす）
+			var key = gmapKey(gm);
+			var tile = sheetTile(soilTiles, S, idx, gm, key);
+			if (tile) {
+				if (run && run.tile === tile && run.top === top && run.lim === lim &&
+					run.col + run.n === col && run.c + run.n === c) {
+					run.n++;
+				} else {
+					flushSoil();
+					run = { tile: tile, col: col, c: c, top: top, lim: lim, n: 1 };
+				}
+			} else {
+				flushSoil();
+				// ★絵が作れない場所（★古いブラウザ）は、いままでどおり1ドットずつ
+				var y = 0;
+				while (y < lim) {
+					var ch = rows[y].charAt(col);
+					var r1 = 1;
+					while (y + r1 < lim && rows[y + r1].charAt(col) === ch) r1++;
+					ctx.fillStyle = GB[gidx(gm, PALX.indexOfChar(ch))];
+					ctx.fillRect(c, top + y, 1, r1);
+					y += r1;
+				}
 			}
-			// ★★★★絵より下は、**その列の下端の色**でそのまま伸ばす（2026-08-25）
-			//   ★★土が見える高さは 3〜28ドットと場所で変わるので、絵は途中で切られます。
-			//   ★★★下端の色を続けるので、**どこで切れても切れ目が見えません**。
-			//     ★はじめは「絵の下端は土の基本の色にすること」という決まりにしていたが、
-			//     ★★島さんが土を茶色に描き直したので、★**仕組みのほうで解いた**
-			//       ＝ ★★★島さんは下端の色を気にせず描ける
 			// ★★★★絵より下は、**絵の「下のほう」を縦に繰り返す**（2026-08-25）
 			//   > 島さん「下端が一色なの気になります」→ ★1色をやめて繰り返しにした
 			//   > 島さん「繰り返しているのがわかりすぎて違和感」
@@ -6372,12 +7261,20 @@
 			var yy = S.H;
 			while (yy < depth) {
 				var repI = Math.floor((yy - S.H) / rep);       // ★何回目の繰り返しか
-				var sh2 = S.SHEETS[(idx + repI + 1) % S.SHEETS.length];   // ★段を変える
+				var i2 = (idx + repI + 1) % S.SHEETS.length;   // ★段を変える
+				var sh2 = S.SHEETS[i2];
 				var col2 = ((col + repI * SOIL_SHIFT) % S.W + S.W) % S.W; // ★横にずらす
-				var src = S.H - rep + ((yy - S.H) % rep);
-				var ch2 = sh2[src].charAt(col2);
-				// ★まとめるのは「同じ繰り返しの中」だけ（★またぐと段も横位置も変わる）
 				var repEnd = Math.min(depth, S.H + (repI + 1) * rep);
+				var srcTop = S.H - rep + ((yy - S.H) % rep);
+				var t2 = sheetTile(soilTiles, S, i2, gm, key);
+				if (t2) {
+					// ★★ひと繰り返しぶんは、絵の**縦に続いた一切れ**なので1回で貼れる
+					ctx.drawImage(t2.cv, col2, srcTop, 1, repEnd - yy, c, top + yy, 1, repEnd - yy);
+					yy = repEnd;
+					continue;
+				}
+				var ch2 = sh2[srcTop].charAt(col2);
+				// ★まとめるのは「同じ繰り返しの中」だけ（★またぐと段も横位置も変わる）
 				var run2 = 1;
 				while (yy + run2 < repEnd) {
 					var s2 = S.H - rep + ((yy + run2 - S.H) % rep);
@@ -6389,6 +7286,7 @@
 				yy += run2;
 			}
 		}
+		flushSoil();
 	}
 
 	// ★★★★めずらしい草（根が垂れている絵）を置く（2026-08-25 島さんの指定）
@@ -6470,6 +7368,14 @@
 		var A = barArt();
 		if (!A) return;
 		var by = barTop();
+		if (upgLevel("recover")) {
+			var progress = (st.recoverProgress || 0) / recoverDistance();
+			var rx = 8, ry = by - 4;
+			ctx.fillStyle = GB[5]; ctx.fillRect(rx, ry, 48, 2);
+			ctx.fillStyle = GB[st.recoverFlash > 0 ? 16 : 4];
+			ctx.fillRect(rx, ry, st.recoverFlash > 0 ? 48 : Math.floor(48 * progress), 2);
+			ctx.fillRect(2, ry, 5, 1); ctx.fillRect(4, ry - 2, 1, 5);
+		}
 		// ★★このランの満タンで割る（★STAMINA を上げるとバーの目盛りも伸びる）
 		var r = Math.max(0, Math.min(1, st.stamina / (st.staminaMax || STAMINA_MAX)));
 
@@ -6492,26 +7398,29 @@
 			live = back = GB[C_BET];
 		}
 
-		// ★★★残量の境目（★**絵の中の緑がどこからどこまでか**で決まる）
-		//   ★★コードに幅の数字を1つも書いていないので、
-		//     ★島さんが緑の形を変えれば、伸び縮みする形もそのまま変わります
-		var edge = A.FILL_X0 + Math.round((A.FILL_X1 - A.FILL_X0 + 1) * r);
+		// ★★★★★中身は「四角」で数える（2026-09-11 島さんの指定・合格済み）
+		//   ★★**四角1個 ＝ スタミナ1つ**。★絵は島さんが描いた bar-now-export.png。
+		//   ★★★Astra が入れた「買った段が白く光る」（hpGrowMs）は、
+		//     ★**いちばん右の四角**へ移してあります（→ 下の bi === nBlock - 1）
+		var maxN = st.staminaMax || STAMINA_MAX;
+		var fitN = Math.floor((W - A.FILL_X0 - A.BLOCK_W) / A.BLOCK_PITCH) + 1;
+		var nBlock = Math.max(0, Math.min(maxN, fitN));
+		var growLit = (st.hpGrowMs > 0 && !st.reviveMs && !st.betFlashMs);
 
 		// ★絵を1行ずつ置く。★横に続く同じ色はまとめて塗る（1ドットずつだと重い）
+		//   ★★★ここでは**緑（中身）を飛ばします** ＝ 出るのは「HP」の字と枠だけ。
+		//     ★中身は、このあと四角を1個ずつ置いて作ります
 		for (var y = 0; y < A.H; y++) {
 			var line = A.rows[y], x = 0;
 			while (x < line.length) {
 				var ch = line.charAt(x);
-				if (ch === ".") { x++; continue; }        // ★透明（背景がそのまま見える）
-				var col = (ch === A.FILL_CHAR) ? (x < edge ? live : back)
-					: GB[global.DotPalette.indexOfChar(ch)];
-				var run = 1;
-				while (x + run < line.length) {
-					var c2 = line.charAt(x + run);
-					if (c2 === ".") break;
-					var col2 = (c2 === A.FILL_CHAR) ? (x + run < edge ? live : back)
-						: GB[global.DotPalette.indexOfChar(c2)];
-					if (col2 !== col) break;
+					if (ch === "." || ch === A.FILL_CHAR) { x++; continue; }  // ★透明と中身は飛ばす
+					var col = GB[global.DotPalette.indexOfChar(ch)];
+					var run = 1;
+					while (x + run < line.length) {
+						var c2 = line.charAt(x + run);
+						if (c2 === "." || c2 === A.FILL_CHAR) break;
+						if (GB[global.DotPalette.indexOfChar(c2)] !== col) break;
 					run++;
 				}
 				ctx.fillStyle = col;
@@ -6519,21 +7428,154 @@
 				x += run;
 			}
 		}
+
+		// ★★★★★中身の四角を、1個ずつ置く（★形は「絵の1個目」をそのまま写す）
+		//   ★「HP」の字は**島さんの新しい絵に入っている**ので、ここでは描きません
+		//     （★Astra の版は、古い絵に合わせて自分で描いていました）
+		for (var bi = 0; bi < nBlock; bi++) {
+			var bx = A.FILL_X0 + A.BLOCK_PITCH * bi;
+			var lit = (bi < st.stamina);
+			// ★★買った瞬間は、いちばん右（＝増えたぶん）だけ白く光る
+			ctx.fillStyle = (lit && growLit && bi === nBlock - 1) ? GB[16]
+				: (lit ? live : back);
+			for (var byi = 0; byi < A.H; byi++) {
+				var src = A.rows[byi], sx = 0;
+				while (sx < A.BLOCK_W) {
+					if (src.charAt(A.FILL_X0 + sx) !== A.FILL_CHAR) { sx++; continue; }
+					var len = 1;
+					while (sx + len < A.BLOCK_W &&
+						src.charAt(A.FILL_X0 + sx + len) === A.FILL_CHAR) len++;
+					ctx.fillRect(bx + sx, by + byi, len, 1);
+					sx += len;
+				}
+			}
+		}
 	}
 
 	// ★★頭上のポップアップを描く（★出すのは `addPop()` 1か所だけ）
 	//   ★消え方: パレットに透明度が無いので、**最後に暗い色へ落として**消す
+	// ★★ドットごとの「ちらばり」を、**場所から作る**
+	//   ★★★★**サイコロを使わないこと**（★見た目が1つ振るだけで世界がずれます。
+	//     ★★パラボラを入れたときに `test/magnet.test.js` が捕まえた罠）
+	function popNoise(a, b) {
+		var h = (a * 73856093) ^ (b * 19349663);
+		h = (h ^ (h >>> 13)) * 1274126177;
+		return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+	}
+
+	// ★★★文字を**裏の板に1枚描いておく**（★ぼかしと拡大はこれを使う）
+	var popTiles = {};
+	function popTile(F2, text, colHex) {
+		var key = F2.GLYPH_W + "|" + text + "|" + colHex;
+		var hit = popTiles[key];
+		if (hit !== undefined) return hit;
+		var off = makeOffscreen(F2.textWidth(text.length), F2.GLYPH_H);
+		if (!off) { popTiles[key] = null; return null; }
+		F2.drawText(off.ctx, text, 0, 0, colHex);
+		popTiles[key] = off;
+		return off;
+	}
+
+	// ★★★★★消えぎわを描く（★t = 0（消えはじめ）→ 1（消えきる））
+	function drawPopFade(F2, text, x, y, colHex, t) {
+		// ★②⑤ は**1枚の絵をぼかす**（★ドットごとではぼかせない）
+		if (POP_FADE === 2 || POP_FADE === 5) {
+			var tile = popTile(F2, text, colHex);
+			if (tile) {
+				var up = (POP_FADE === 2) ? POP_FADE_RISE * t : 0;
+				var grow = (POP_FADE === 2) ? (1 + t * 0.6) : 1;
+				var w2 = Math.max(1, Math.round(tile.cv.width * grow));
+				var h2 = Math.max(1, Math.round(tile.cv.height * grow));
+				ctx.filter = "blur(" + (t * POP_FADE_BLUR).toFixed(2) + "px)";
+				ctx.globalAlpha = Math.max(0, 1 - t);
+				ctx.drawImage(tile.cv, 0, 0, tile.cv.width, tile.cv.height,
+					Math.round(x - (w2 - tile.cv.width) / 2), Math.round(y - up), w2, h2);
+				// ★★★★必ず戻す（★戻し忘れると画面ぜんぶがぼけます）
+				ctx.filter = "none";
+				ctx.globalAlpha = 1;
+				return;
+			}
+		}
+		// ★①③④ は**ドットを1つずつ動かす・間引く**
+		for (var i = 0; i < text.length; i++) {
+			var g = F2.GLYPHS[text.charAt(i)];
+			if (!g) continue;
+			var bx = x + i * (F2.GLYPH_W + F2.SPACING);
+			for (var gy = 0; gy < g.length; gy++) {
+				var rowS = g[gy];
+				for (var gx2 = 0; gx2 < rowS.length; gx2++) {
+					if (rowS.charAt(gx2) !== "#") continue;
+					var px = bx + gx2, py = y + gy;
+					var n1 = popNoise(px, py), n2 = popNoise(py * 7 + 1, px * 3 + 2);
+					var dx = 0, dy = 0, show = 1;
+					if (POP_FADE === 1) {                 // ★粒に散る
+						var ang = n1 * Math.PI * 2;
+						var sp = (0.4 + n2) * POP_FADE_SPREAD;
+						dx = Math.cos(ang) * sp * t;
+						dy = Math.sin(ang) * sp * t - POP_FADE_RISE * 0.25 * t;
+						show = (n2 > t * 0.85) ? 1 : 0;
+					} else if (POP_FADE === 3) {          // ★グリッチ
+						var step = Math.floor(t * POP_FADE_STEPS);
+						dx = Math.round((popNoise(gy + 5, step * 977) - 0.5) * 2 *
+							POP_FADE_GLITCH * (0.35 + t));
+						show = (popNoise(gy + 31, step * 131 + 7) > t * 0.9) ? 1 : 0;
+					} else if (POP_FADE === 4) {          // ★ドットずらし
+						dx = (n1 - 0.5) * 2 * POP_FADE_SPREAD * t;
+						dy = (n2 - 0.5) * 2 * POP_FADE_SPREAD * t;
+						show = (n1 > t * 0.75) ? 1 : 0;
+					} else {                              // ★そのほか（裏の板が作れないとき）
+						show = (n1 > t) ? 1 : 0;
+					}
+					if (!show) continue;
+					ctx.fillStyle = colHex;
+					ctx.fillRect(Math.round(px + dx), Math.round(py + dy), 1, 1);
+				}
+			}
+		}
+	}
 	function drawPops() {
-		var F = global.DotFont;
+		var BIG = global.DotFont, SMALL = BIG.NUM || BIG;
 		for (var i = 0; i < st.pops.length; i++) {
 			var p = st.pops[i];
 			var t = p.ms / POP_MS;
-			var y = Math.max(0, Math.round(p.y - POP_RISE * t));   // ★上端で止まる
+			var F = p.small ? SMALL : BIG;
+			var x = p.x;
+			var y;
+			// ============================================================
+			// ★★★★★出方は 3 つ（2026-09-12。★飛ぶのは**数字のポップだけ**）
+			// ============================================================
+			if (POP_STYLE === 2 && p.small) {
+				// ★**パラボラ** … 斜め上へ飛び出して、重力で落ちて消える
+				//   ★★新しい時計は 1 つも足していません（★`p.ms` だけで出しています）
+				var ts = p.ms / 1000;
+				x = Math.round(p.x + p.dir * POP_PARA_VX * ts);
+				y = Math.round(p.y - POP_PARA_VY * ts + 0.5 * POP_PARA_G * ts * ts);
+			} else {
+				y = Math.max(0, Math.round(p.y - POP_RISE * t));   // ★上端で止まる
+			}
+			if (POP_STYLE === 1 && p.small &&
+				p.ms >= POP_BOUNCE_IN_MS && p.ms < POP_BOUNCE_IN_MS + POP_BOUNCE_BIG_MS) {
+				// ★**バウンス** … 一瞬だけ**ひとまわり大きい面**で出す
+				//   ★★ここは**別に起こした 2 つの面を切り替えるだけ**（★拡大していません）
+				//   ★大きい面は幅が広いので、★★**まん中をそろえ直します**（★左に寄らない）
+				x -= Math.round((BIG.textWidth(p.text.length) - SMALL.textWidth(p.text.length)) / 2);
+				y -= POP_BOUNCE_LIFT;
+				F = BIG;
+			}
 			var late = (p.ms > POP_MS - POP_FADE_MS);
 			var col = (p.kind === "loss")
 				? (late ? C_POP_LOSS_D : C_POP_LOSS)
 				: (late ? C_POP_GAIN_D : C_POP_GAIN);
-			F.drawText(ctx, p.text, p.x, y, GB[col]);
+			// ★★★★★消えぎわ（2026-09-12 島さんの指定）
+			//   ★数字のポップだけ。★★色は**明るいまま**（★消え方そのものがフェード）
+			if (POP_FADE && p.small && late) {
+				var tf = (p.ms - (POP_MS - POP_FADE_MS)) / POP_FADE_MS;
+				drawPopFade(F, p.text, x, y,
+					GB[p.kind === "loss" ? C_POP_LOSS : C_POP_GAIN],
+					Math.max(0, Math.min(1, tf)));
+			} else {
+				F.drawTextShadow(ctx, p.text, x, y, GB[col], GB[10]);
+			}
 		}
 	}
 
@@ -6671,7 +7713,7 @@
 				//   ★★★置き場所の計算は `js/parts-draw.js` の中にしかないので、
 				//     ★**判定もあちらに聞きます**（★書き写すと、描くところとずれる）
 				if (PD.coversSky && PD.coversSky(worldX(), x, y)) continue;
-			} else if (d.kind === 4 || d.kind === 5) {
+			} else if (d.kind === 4 || d.kind === 5 || d.kind === 6) {
 				// ★★★★★雨は**地面に張り付かせない**（2026-09-06）。
 				//   ★けむりは地面に押し戻しますが、★★雨は**地面に着いたら消える**もの。
 				//   ★★★押し戻すと、いちばん下の行に**雨粒が並んで溜まって**見えます。
@@ -6682,7 +7724,7 @@
 				if (y > g) y = g;                       // ★★地面にめり込ませない
 			}
 			if (y < 0 || y >= H) continue;
-			var late = (d.ms > d.life - DUST_FADE);
+			var late = d.kind !== 6 && (d.ms > d.life - DUST_FADE);
 			// ============================================================
 			// ★★★★★星の細かい点滅（2026-09-05 島さんの指定）
 			// ============================================================
@@ -6709,7 +7751,7 @@
 				: (d.kind === 4 || d.kind === 5) ? RAIN_DIM_ALPHA : DUST_DIM_ALPHA;
 			ctx.globalAlpha = (faint || wink) ? dimA : 1;
 			// ★★★下に黒を添える（★島さんが「はっきり見せたい」と言ったときだけ）
-			if (DUST_EDGE && y + 1 < H) {
+			if (DUST_EDGE && d.kind !== 6 && y + 1 < H) {
 				ctx.fillStyle = GB[9];
 				ctx.fillRect(x, y + 1, 1, 1);
 			}
@@ -6915,7 +7957,10 @@
 		for (var i = 0; i < st.picks.length; i++) {
 			var pk = st.picks[i];
 			if (pk.taken) continue;                     // ★拾ったものは、もう描かない
-			drawArt(COIN_ICON, Math.round(pk.x), pk.y - (PICK_H - 1));
+			if (pk.attracted && pk.pullAge > 0.06 && Math.abs(pk.x - pk.trailX) + Math.abs(pk.y - pk.trailY) > 3) {
+				ctx.fillStyle = GB[18]; ctx.fillRect(Math.round(pk.trailX) + 2, Math.round(pk.trailY) - 3, 1, 1);
+			}
+			drawArt(COIN_ICON, Math.round(pk.x), Math.round(pk.y) - (PICK_H - 1));
 		}
 	}
 
@@ -7237,6 +8282,67 @@
 	//   ★★`save()` / `restore()` は使わず、**明示的に戻します**
 	//     （★この作品の作法。★きらめき・けむりの `globalAlpha` と同じ）。
 	//   ★★★戻し忘れると、**次のコマから画面ぜんぶが乗算**になります
+	// ★★★★★かすみ（空気遠近法）を1枚かぶせる（2026-09-11。★`HAZE_ON = 0` で止まる）
+	//   ★★かぶせるのは **screen**（★星と同じ性質: 暗いところで効き、白いところでは効かない）。
+	//   ★★★`globalAlpha` と `globalCompositeOperation` は**必ず戻す**
+	//     （★戻し忘れると、次のコマから画面ぜんぶが screen になります）
+	function hazeScale() {
+		if (!HAZE_ON || !st) return 0;
+		var k = 1;
+		// ★★夜が濃くなるほど消す。★★★`nightAlpha()` は**読むだけ**（足さない）
+		if (HAZE_NIGHT_OFF && NIGHT_ON && NIGHT_A1 > 0) {
+			k *= Math.max(0, 1 - nightAlpha() / NIGHT_A1);
+		}
+		if (HAZE_RAIN_OFF && RAIN_ON) k *= Math.max(0, 1 - rainAmount());
+		return k;
+	}
+	// ★★★★★「その層が見えているところだけ」に塗る（2026-09-11 島さんの指摘で直した）
+	//
+	//   ★はじめ、画面いっぱいに4回重ねる作りにしていました。
+	//     ★★すると **空は①だけでなく②③④も全部かぶる**ので、
+	//     ★★★**①を 0 にしても空が霞んだまま**でした（★島さんが見つけた）。
+	//
+	//   → ★**層を描いた直後に、その層の稜線から下だけを塗る**。
+	//     ★★そこはいま**その層しか描かれていない**ので、手前の層には届きません。
+	//     ★★★あとで手前の層が上から描くので、二重にもなりません。
+	//   ＝ ★**4つのつまみが、それぞれ独立します**（★空を 0 にすれば空は素のまま）。
+	//
+	//   ★★★★★塗るのは「その層が見えている帯」だけ（2026-09-11。★重さの手当て）
+	//
+	//     ★はじめ、稜線から**画面の下端まで**塗っていました。
+	//       ★★下のほうは**あとで手前の層が上から描く**ので、★★★**塗り損**です。
+	//       ★実測: 1コマ **61.7ms**（★60fps の1コマは 16.7ms ＝ まるで足りない）。
+	//     → ★**上の稜線から、1つ手前の層の稜線まで**に区切る（`fillBetween`）。
+	//       ★★見た目はまったく同じで、塗る面積だけが減ります。
+	//
+	//   ★`topOf` / `botOf` は「その列の上端・下端」を返す関数
+	function paintHaze(a, topOf, botOf) {
+		if (!HAZE_ON || !(a > 0)) return;
+		var k = a * hazeScale();
+		if (k <= 0) return;
+		ctx.globalCompositeOperation = "screen";
+		ctx.globalAlpha = k;
+		ctx.fillStyle = HAZE_COLOR;
+		// ★★★★同じ形の列は、まとめて1回で塗る（★`fillBetween` は1列ずつ塗るので重い）。
+		//   ★奥の帯ほど稜線が平らなので、★★まとめると塗る回数がぐっと減ります。
+		//   ★★★見た目はまったく同じ（★塗る場所は1ドットも変わらない）
+		var c = 0;
+		while (c < W) {
+			var top = topOf ? topOf(c) : 0;
+			var bot = botOf ? botOf(c) : H;
+			var run = 1;
+			while (c + run < W &&
+				(topOf ? topOf(c + run) : 0) === top &&
+				(botOf ? botOf(c + run) : H) === bot) run++;
+			if (top < 0) top = 0;
+			if (bot > H) bot = H;
+			if (top < bot) ctx.fillRect(c, top, run, bot - top);
+			c += run;
+		}
+		ctx.globalAlpha = 1;                        // ★★必ず戻す
+		ctx.globalCompositeOperation = "source-over";
+	}
+
 	function paintNight() {
 		// ★★★★★濃さは「夜 ＋ 雨」（2026-09-06）。★数えるのは `skyDarkAlpha()` の1か所
 		var a = skyDarkAlpha();
@@ -7339,6 +8445,28 @@
 		//   ★★`behindBand` を書いた層（遠景・光もの）は**ここには来ません**（上で描き済み）
 		PD.draw(ctx, worldX(), 0);
 
+		// ============================================================
+		// ★★★★★かすみ（空気遠近法）—— ★ここ1か所でまとめてかける
+		// ============================================================
+		//   ★★**地面より奥が、ぜんぶ描き終わったところ**でかけます。
+		//     ★はじめ「層を描くたびに」かけていましたが、★★**あとの層が
+		//       塗り終わった帯へ割り込んで描く**ので、★★★**そこだけ霞まない隙間**が出ました
+		//       （★実測: 手前の帯の海が霞まなかった）。
+		//   ★★★4つの帯は**重ならないように区切って**あるので、二重にはなりません。
+		//   ★地面から手前（地面・コーン・主役）には、いっさいかかりません。
+		if (HAZE_ON) {
+			var hzx = worldX(), hzN = SK.BANDS.length;
+			paintHaze(HAZE_SKY, null, skyBandRow(0, hzx));                 // ①空
+			paintHaze(HAZE_FAR, skyBandRow(0, hzx),                        // ②遠山
+				(hzN > 1) ? skyBandRow(1, hzx) : groundRowAt);
+			for (var hb = 1; hb < hzN - 1; hb++) {                         // ③中ほどの帯
+				paintHaze(HAZE_MID, skyBandRow(hb, hzx), skyBandRow(hb + 1, hzx));
+			}
+			if (hzN > 1) {                                                 // ④手前の帯＋部品
+				paintHaze(HAZE_NEAR, skyBandRow(hzN - 1, hzx), groundRowAt);
+			}
+		}
+
 		// ④ ★★地面。**種から作られる起伏**（→ js/world.js）
 		//
 		//   ★★2026-08-13（N3）、**2段に塗る**ようにしました:
@@ -7371,6 +8499,7 @@
 
 		// ⑥ 三角コーン（★スケーターより先に描く = 人が手前に見える）
 		if (CONE_ON) drawCones();
+		drawJourneyMarks();
 
 		// ⑥' ★★★★拾えるコイン（★スケーターより先に描く = 人が手前）
 		if (PICK_ON) drawPicks();
@@ -7482,8 +8611,25 @@
 		//   ★★★2026-08-23、バーが**いちばん下**へ移ったので、
 		//     ★左上の文字は**押し下げなくてよくなった**（★上に詰められる）
 		var F = global.DotFont;
+		// ============================================================
+		// ★★★★★左上の数字は、ひとまわり小さい極太の字（2026-09-12 島さんの指定）
+		// ============================================================
+		//
+		//   > **島さん「プレイ画面の距離とコインの数字表示を縦7×楝５割合で
+		//   >   もうひとまわり小さくしてください。
+		//   >   ただし線の太さは極太の文字にしてください。」**
+		//
+		//   ★本文は **6×8**、★★ここだけ **5×7**（★`js/font.js` の `DotFont.NUM`）。
+		//   ★★★縮めたのではなく、★**別に起こした字**です
+		//     （★★★★★2026-09-12、島さんが「ぼかし・拡大を使わない」制限を外しました。
+		//       ★それでも字は**別に起こします**。★★縮めると、この大きさでは形が壊れます）。
+		//
+		//   ★左上に縦に並ぶもの（★距離・コイン・×倍率・×道具）は**ひとつのかたまり**なので、
+		//   ★★**そろってこの字にしてあります**（★数字だけ小さいと、下の行だけ浮いて見える）。
+		//   ★★★真ん中の文字・お店・タイトルは、いままでどおり**本文の面**です。
+		var FN = F.NUM || F;
 		var hudY = 2 + (CAMP_ON ? HP_BLOCK_H + 2 : 0);
-		F.drawText(ctx, meters() + "m", 2, hudY, GB[C_TEXT]);
+		FN.drawTextShadow(ctx, meters() + "m", 2, hudY, GB[C_TEXT], GB[10]);
 		// ============================================================
 		// ★★★左上のコイン ＝ **財布（いま持っている額）**（2026-08-16）
 		// ============================================================
@@ -7498,7 +8644,7 @@
 		//       ★買えば減る ＝ **使ったことも目に見える**（★前は減らなかった）
 		//   ★「このランでいくら稼いだか」は、★**ラン終了の画面の `+820`** が受け持つ
 		//   ★増えた瞬間だけ **1ドット跳ねて色が変わる**（★2倍で描く仕組みは作らない）
-		var coinY = hudY + F.GLYPH_H + 2;
+		var coinY = hudY + FN.GLYPH_H + 2;
 		var coinCol = C_COIN;
 		if (st.gainFlashMs > 0) {
 			coinY -= 1;                                  // ★ぴょこっと跳ねる
@@ -7513,7 +8659,7 @@
 			drawArt(COIN_ICON, 2, coinY);
 			coinX = 2 + COIN_ICON.rows[0].length + 2;
 		}
-		F.drawText(ctx, shortNum(coins), coinX, coinY, GB[coinCol]);
+		FN.drawTextShadow(ctx, shortNum(coins), coinX, coinY, GB[coinCol], GB[10]);
 		// ============================================================
 		// ★★★★いま何倍で走っているか（2026-08-23 島さんの指定 ＝ BET）
 		// ============================================================
@@ -7523,8 +8669,8 @@
 		//   ★★★これは廃止した `×1.0`（勝手に増える倍率）とは**別物**。
 		//     ★自分で体力を払って買ったものなので、★★**出ているだけで意味がある**
 		if (BET_ON && st.betMul > 1) {
-			var mulX = coinX + F.textWidth(String(shortNum(coins)).length) + 4;
-			F.drawText(ctx, "×" + betText(st.betMul), mulX, coinY, GB[C_BET]);
+			var mulX = coinX + FN.textWidth(String(shortNum(coins)).length) + 4;
+			FN.drawText(ctx, "×" + betText(st.betMul), mulX, coinY, GB[C_BET]);
 		}
 
 		// ============================================================
@@ -7537,14 +8683,14 @@
 		//   ★★★使った瞬間だけ**1ドット跳ねて色が変わる**（★コインが増えたときと同じ動き）
 		var nDrink = bagCount("maxdrink");
 		if (DRINK_ICON && nDrink > 0) {
-			var dRow = Math.max(DRINK_ICON.rows.length, F.GLYPH_H);
+			var dRow = Math.max(DRINK_ICON.rows.length, FN.GLYPH_H);
 			var drinkY = coinY + dRow + 2;
 			var drinkCol = C_COIN;
 			if (st.reviveMs > 0) { drinkY -= 1; drinkCol = C_COIN_UP; }
 			drawArt(DRINK_ICON, 2, drinkY);
 			// ★★★「×1」で出す（2026-08-22 島さんの指定）。
 			//   ★コインは数字だけですが、道具は**個数**なので「×」を付けます
-			F.drawText(ctx, "×" + nDrink,
+			FN.drawText(ctx, "×" + nDrink,
 				2 + DRINK_ICON.rows[0].length + 2, drinkY, GB[drinkCol]);
 		}
 
@@ -7560,6 +8706,7 @@
 		// ★★頭上のポップアップ（+0.5 / -1.5 / +100m）。★1か所に集約してある
 		drawPops();
 
+
 		// ============================================================
 		// ★★★★★お店は、キャンプの「上に」重ねる（2026-09-05(4) 島さんの指定）
 		// ============================================================
@@ -7571,7 +8718,7 @@
 		if (st.shopOpen && st.campPhase && st.campPhase !== "wake") drawCampInside(1);
 
 		// ⑩ ★まん中に出す文字（READY / GO / PAUSE / ★転んだときの記録）
-		if (st.paused) drawPauseScreen();
+		if (st.paused && st.campPhase !== "fish") drawPauseScreen();
 		// ★★★ショップ（液晶の外のボタンで開く）。★ラン終了の画面と**同じ一覧**を使う
 		else if (st.shopOpen) drawShopScreen();
 		// ★★★★★キャンプの中（2026-09-04 島さんの指定）。
@@ -7721,29 +8868,16 @@
 		// ★★暗転しきるまでは、文字を出さない（★暗くなる様子だけを見せる）
 		if (!fadeDone()) return;
 
-		// ============================================================
-		// ★★★② まっ暗な画面のまん中に、2行だけ（2026-08-16 島さんの指定）
-		// ============================================================
-		//
-		//   > 島さん「GAMEOVERの文字と達成した距離のみの表示かつ中央」
-		//
-		//        GAMEOVER
-		//          358m
-		//
-		//   ★★★**これ以外は何も出さない。**
-		//     ・清算（コインの数え上げ）… ★出さない（島さん「清算なし」）
-		//     ・★★お店の一覧 … ★**出さない**。★買うのは**ショップボタン**（走っている途中）
-		//     ・BEST … 出さない（★記録そのものは覚えている）
-		//   ★タップ1回で、そのまま**もう一回**（★カーソルも選ぶものも無い）
-		//
-		//   ★★**2行のかたまりを、液晶の上下のまん中に置く**（★行の高さから計算する。
-		//     ★直書きすると、文字の大きさを変えたときに黙ってずれる）
-		var gap = 4;
-		var blockH = F.GLYPH_H * 2 + gap;
+		// そのランの距離と自己ベスト。更新時は距離を重複させずNEW BESTと知らせる。
+		// 暗転や入力待ちの時間は増やさず、3行のまとまりを中央に置く。
+		var gap = 6;
+		var blockH = F.GLYPH_H * 3 + gap * 2;
 		var top = Math.floor((H - blockH) / 2);
-		F.drawText(ctx, "GAMEOVER",
-			Math.floor((W - F.textWidth(8)) / 2), top, GB[C_GAMEOVER]);
+		drawCenterAt("GAMEOVER", top, C_GAMEOVER);
 		drawCenterAt(st.reached + "m", top + F.GLYPH_H + gap);
+		drawCenterAt(st.newBest ? "NEW BEST" : "BEST " + best + "m",
+			top + (F.GLYPH_H + gap) * 2, st.newBest ? C_NEW_BEST : C_BEST);
+		if (st.moment) drawCenterAt(st.moment, top + (F.GLYPH_H + gap) * 3 + 4, C_BEST);
 	}
 
 	// ============================================================
@@ -7883,37 +9017,144 @@
 		}
 	}
 
-	// ============================================================
-	// ★★★お店の一覧そのもの（2026-08-16）
-	// ============================================================
-	//   ★★**ラン終了の画面と、ショップボタンの両方がここを通る。**
-	//     ★別々に描くと「片方だけ列がずれる」が必ず起きる（READY/GO/PAUSE と同じ理由）
-	function drawShopList() {
-		var F = global.DotFont;
-		var rowH = F.GLYPH_H + 3;
-		var rows = shopRows();
-		// ★★一覧の後ろに暗い帯を敷く（★景色の上だと読めないため）
-		//   ★★帯は**いちばん下の「COIN いくつ」の行まで**覆うこと。
-		//     覆い忘れると持ち金の字だけ地面の上に乗って読めなくなる（2026-08-15 に一度そうなった）
-		var moneyY = SHOP_TOP + rows.length * rowH + 1;
-		ctx.fillStyle = GB[C_SHOP_BACK];
-		ctx.fillRect(0, SHOP_TOP - 3, W, (moneyY + F.GLYPH_H + 3) - (SHOP_TOP - 3));
-
-		var money = "COIN " + shortNum(coins);
-		for (var i = 0; i < rows.length; i++) {
-			var r = rows[i], y = SHOP_TOP + i * rowH;
-			var sel = (i === st.shopSel);
-			var col = canBuy(r) ? (sel ? C_SHOP_SEL : C_SHOP_ROW) : C_SHOP_OFF;
-			if (sel) F.drawText(ctx, "→", SHOP_X - 7, y, GB[C_SHOP_SEL]);
-			F.drawText(ctx, shopRowText(r), SHOP_X, y, GB[col]);
-		}
-		// ★いくら持っているか（★一覧のいちばん下）
-		F.drawText(ctx, money, SHOP_X, moneyY, GB[C_SHOP_ROW]);
-	}
 
 	// ★★★ショップボタンで開いたときの画面（2026-08-16 島さんの指定）
 	//   ★上の「稼ぎの数え上げ」は出さない（★ランの結果ではないので）。★一覧だけ
-	function drawShopScreen() { drawShopList(); }
+	// One geometry for painting and hit testing, in LCD pixels.
+	// ============================================================
+	// ★★★★★どの行を、何枚目のパネルに見せるか（2026-09-12）
+	// ============================================================
+	//   ★普段は「並んでいる順」そのままです。
+	//   ★★転生だけを、★★★**1 ページ目のいちばん後ろ**へ引っ越します。
+	//
+	//   ★なぜ「1 ページ目の先頭」ではなく「いちばん後ろ」か:
+	//     ★★先頭は**いつも SPEED を押す場所**だからです。
+	//     ★★★島さんが気にされた「押し間違い」は、まずそこで起きます。
+	//   ★★★★**行そのものの番号は 1 つも動かしません**（★見せる順だけを変える）
+	function shopOrder() {
+		var rows = shopRows(), order = [], hoist = -1;
+		for (var i = 1; i < rows.length; i++) {
+			if (rows[i].kind === "prestige") hoist = i;
+			else order.push(i);
+		}
+		if (hoist >= 0) order.splice(Math.min(3, order.length), 0, hoist);
+		return order;
+	}
+
+	function shopButtons() {
+		var order = shopOrder(), pages = Math.ceil(order.length / 4);
+		var page = Math.max(0, Math.min(pages - 1, st.shopPage || 0));
+		var buttons = [{ key: "close", x: 166, y: 0, w: 66, h: 34 }];
+		for (var i = 0; i < 4; i++) {
+			var index = order[page * 4 + i];
+			if (index === undefined) break;
+			buttons.push({ key: "row" + index, index: index,
+				x: 8 + (i % 2) * 116, y: 38 + Math.floor(i / 2) * 44, w: 108, h: 40 });
+		}
+		if (page > 0) buttons.push({ key: "prev", x: 8, y: 126, w: 78, h: 34 });
+		if (page < pages - 1) buttons.push({ key: "next", x: 154, y: 126, w: 78, h: 34 });
+		return buttons;
+	}
+	function shopHit(x, y) {
+		var buttons = shopButtons();
+		for (var i = 0; i < buttons.length; i++) {
+			var b = buttons[i];
+			if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return b;
+		}
+		return null;
+	}
+	// ★★★パネルを 1 枚描く（★`g` … 描く先。★★**裏の板にも同じ絵を描ける**）
+	//   ★`ox` / `oy` … 裏の板へ描くときのずらし（★裏の板では左上が 0,0 になる）。
+	//   ★★★★**描き方を 2 か所に書かない**ために分けてあります
+	//     （★グリッチするときも、しないときも、★★**この 1 か所**を通ります）
+	function drawShopCard(g, b, r) {
+		var F = global.DotFont;
+		var enabled = !r || canBuy(r);
+		var pressed = st.shopPressed === b.key;
+		var flash = st.shopFlash === b.key && Date.now() < st.shopFlashUntil;
+		var focused = st.shopKeyboard && (r ? st.shopSel === b.index : b.key === "close" && st.shopSel === 0);
+		var accent = flash ? 20 : (pressed || focused ? 19 : (r ? 7 : 14));
+		var x = b.x + (b.ox || 0), y = b.y + (b.oy || 0) + (pressed ? 2 : 0), h = b.h - 3;
+		// Clipped corners and a two-pixel lower edge, like a cartridge label.
+		g.fillStyle = GB[accent]; g.fillRect(x + 2, y, b.w - 4, h);
+		g.fillRect(x, y + 2, b.w, h - 4);
+		g.fillStyle = GB[5]; g.fillRect(x + 2, y + 2, b.w - 4, h - 4);
+		var col = enabled ? 16 : 7;
+		if (r) {
+			F.drawText(g, r.name, x + 7, y + 7, GB[col]);
+			var detail = shopRowText(r).slice(9).trim();
+			if (r.kind === "unlock" && !r.got) detail = r.hint;
+			if (r.kind === "item" && r.usedUp && !r.have) detail = "USED";
+			F.drawText(g, detail, x + 7, y + 23, GB[enabled ? 19 : 7]);
+		} else {
+			var label = b.key === "close" ? "CLOSE" : (b.key === "prev" ? "PREV" : "NEXT");
+			F.drawText(g, label, x + Math.floor((b.w - F.textWidth(label.length)) / 2), y + 12, GB[15]);
+		}
+	}
+
+	// ============================================================
+	// ★★★★★パネルのグリッチフェードイン（2026-09-12 島さんの指定）
+	// ============================================================
+	//
+	//   ★やることは 3 つだけ：
+	//     ① ★パネルを**裏の板**に 1 枚描く
+	//     ② ★★横の帯に切って、**帯ごとに横へずらして**液晶へ写す
+	//     ③ ★★★**いくつかの帯は写さない**（★抜ける ＝ 向こうの黒が見える）
+	//
+	//   ★★★★**段数が有限**（`PRESTIGE_GLITCH_STEPS`）なので、
+	//     ★なめらかに現れるのではなく、★★**カタカタと揃います**。
+	//   ★★★★★使うのは **`popNoise()`**。
+	//     ★**`Math.random()` を呼ばないこと**（★★呼ぶと世界のサイコロがずれます）
+	function prestigeGlitchT() {
+		if (!PRESTIGE_ON || !st || !(st.prestigeMs > 0) || !PRESTIGE_GLITCH_MS) return 0;
+		return Math.max(0, Math.min(1, st.prestigeMs / PRESTIGE_GLITCH_MS));   // ★１ = 出はじめ
+	}
+
+	function drawShopCardGlitch(b, r, t) {
+		var off = makeOffscreen(b.w, b.h);
+		// ★裏の板が作れない環境では、★★**ふつうに描く**（★消えては困る）
+		if (!off) { drawShopCard(ctx, b, r); return; }
+		off.ctx.fillStyle = GB[9]; off.ctx.fillRect(0, 0, b.w, b.h);
+		b.ox = -b.x; b.oy = -b.y;
+		drawShopCard(off.ctx, b, r);
+		b.ox = 0; b.oy = 0;
+		var bands = Math.max(1, PRESTIGE_GLITCH_BANDS);
+		// ★★段（★これが変わる瞬間だけ、もよもよと型が入れ替わります）
+		var step = Math.min(PRESTIGE_GLITCH_STEPS,
+			Math.floor((1 - t) * (PRESTIGE_GLITCH_STEPS + 1)));
+		for (var i = 0; i < bands; i++) {
+			var y0 = Math.floor(b.h * i / bands), y1 = Math.floor(b.h * (i + 1) / bands);
+			if (y1 <= y0) continue;
+			// ★抜ける帯（★★出はじめほど多く抜け、★★★最後は 1 本も抜けない）
+			if (popNoise(step * 977 + 7, i) < t * PRESTIGE_GLITCH_DROP) continue;
+			var sh = Math.round((popNoise(step * 131 + 3, i) * 2 - 1) * PRESTIGE_GLITCH_SHIFT * t);
+			var w2 = b.w - Math.abs(sh);
+			if (w2 <= 0) continue;
+			// ★★ずらしても**パネルの外へははみ出さない**（★となりの板を汚さない）
+			ctx.drawImage(off.cv, (sh < 0) ? -sh : 0, y0, w2, y1 - y0,
+				b.x + ((sh > 0) ? sh : 0), b.y + y0, w2, y1 - y0);
+		}
+	}
+
+	function drawShopScreen() {
+		var F = global.DotFont;
+		var rows = shopRows();
+		ctx.fillStyle = GB[9]; ctx.fillRect(0, 0, W, H);
+		F.drawText(ctx, "SHOP", 8, 4, GB[16]);
+		F.drawText(ctx, "COIN " + shortNum(coins), 8, 20, GB[19]);
+		shopButtons().forEach(function (b) {
+			var r = b.index ? rows[b.index] : null;
+			// ★★★★★新しく出てきた転生のパネルだけ、グリッチしながら現れる
+			var t = (r && r.kind === "prestige") ? prestigeGlitchT() : 0;
+			if (t > 0) drawShopCardGlitch(b, r, t);
+			else drawShopCard(ctx, b, r);
+		});
+		var counter = ((st.shopPage || 0) + 1) + " OF " + Math.ceil((rows.length - 1) / 4);
+		F.drawText(ctx, counter, Math.floor((W - F.textWidth(counter.length)) / 2), 139, GB[7]);
+		// ★★★★★押しまちがいを防ぐ問いかけ（2026-09-12 島さんの指定）。
+		//   ★キャンプの「CAMP?」と**同じ道具**（★★島さんが描いた YES / NO）
+		if (st.prestigeAsk) drawCampAsk(PRESTIGE_ASK_TEXT, st.prestigeBtn);
+	}
 
 	// ============================================================
 	// ★★★★★キャンプモードの画面（2026-09-04 島さんの指定）
@@ -7952,6 +9193,8 @@
 		// ★★★島さんの絵を、液晶ぜんぶに1枚（★240×160 ＝ 液晶とまったく同じ大きさ）
 		if (CSCENE) drawEndingArt(CSCENE);
 		drawCampHero();
+		if (st.campPhase === "fish") { global.DotFishing.draw(ctx, st.fishing, st.fishBtn, st.paused); return; }
+		if (st.campPhase === "in" && global.DotFishing) global.DotFishing.button(ctx, global.DotFishing.ENTRY, "FISH", st.fishBtn === "open");
 		// ★★お店の下に敷くときは、ここまで（★問いかけも一覧も暗転も出さない）
 		if (sceneOnly) return;
 		if (st.campPhase === "sleep") drawCampAsk(CAMP_SLEEP_TEXT);
@@ -8021,8 +9264,19 @@
 	//   ★★文字はぜんぶ**まん中**に出す（★READY / GO と同じ決まり）
 	//   ★★★★2026-09-04、島さんの指定で**島さんが描いたボタン**を2つ置きます
 	//     （★カーソルは出しません。★さわったボタンで決まります）
-	function drawCampAsk(text) {
+	// Keep the original button silhouette; replace only its baked lettering.
+	function drawCampChoice(label, art, r, pressed) {
+		drawArt(art, r.x, r.y);
+		ctx.fillStyle = GB[pressed ? 9 : 29];
+		ctx.fillRect(r.x + 5, r.y + 3, 28, 9);
+		global.DotFont.drawText(ctx, label, r.x + Math.floor((r.w - global.DotFont.textWidth(label.length)) / 2), r.y + 3, GB[pressed ? 26 : 9]);
+	}
+	//   ★★★★★`btn` … いま押しているボタン（★書かなければキャンプのもの）。
+	//     ★転生の「REBORN?」もここを通ります
+	//     ＝ ★★**描くところと当たり判定が 1 か所のまま**（★★★この作品の決まり）
+	function drawCampAsk(text, btn) {
 		var F = global.DotFont;
+		var down = (btn === undefined) ? st.campBtn : btn;
 		var top = campAskTop(), r = campBtnRects();
 		var bottom = r ? (r.yes.y + r.yes.h) : (top + F.GLYPH_H + 12);
 		// ★後ろに暗い帯（★絵の上でも景色の上でも読めるように）
@@ -8033,8 +9287,8 @@
 		F.drawText(ctx, text, Math.round((W - tw) / 2), top, GB[C_CAMP_ASK_TEXT]);
 		if (!r) return;
 		// ★★島さんのボタン（★押しているあいだだけ「押した絵」に変わる）
-		drawArt(st.campBtn === "yes" ? CBTN.YES_DOWN : CBTN.YES, r.yes.x, r.yes.y);
-		drawArt(st.campBtn === "no" ? CBTN.NO_DOWN : CBTN.NO, r.no.x, r.no.y);
+		drawCampChoice("YES", down === "yes" ? CBTN.YES_DOWN : CBTN.YES, r.yes, down === "yes");
+		drawCampChoice("NO", down === "no" ? CBTN.NO_DOWN : CBTN.NO, r.no, down === "no");
 	}
 
 	function drawCampList() {
@@ -8134,6 +9388,10 @@
 			return name + (canBet() ? "×" + betText(r.mul) + " -" + r.pay : "LOW");
 		}
 		// ★★上限なし（`maxLevel: null`）のときは MAX にならない
+		// ★★★★★転生（2026-09-12）。★出すのは「**何項目分伸びるか**」だけ。
+		//   ★★説明の文は 1 文字も出しません
+		//     （★扉の鍵穴・二段ジャンプ・BET とまったく同じ作法）。
+		if (r.kind === "prestige") return name + r.state;
 		if (r.max !== null && r.lv >= r.max) return name + "LV" + r.lv + " MAX";
 		return name + "LV" + r.lv + " " + shortNum(r.cost);
 	}
@@ -8192,6 +9450,8 @@
 		var dt = Math.min(0.05, (now - last) / 1000);
 		last = now;
 		lastTickAt = now;
+		// The expanded shop owns a small, throttled animation loop. No world redraw behind it.
+		if (st.shopOpen && global.DotShop && global.DotShop.isOpen()) return;
 		update(dt);
 		draw();
 	}
@@ -8235,6 +9495,7 @@
 		//   > 「ショップボタン作って。そこで各能力を買えるようにします。」
 		//   ★ラン終了の画面の一覧は**そのまま残す**（島さんの指定）。
 		//     ★★同じ一覧を、いつでも開ける場所が増えただけ
+		getJourney: function () { return PR.snapshot(); },
 		pad: ["act", "sound", "pause", "shop"],
 		padIcons: { sound: "BTN_SOUND_ON" },
 
@@ -8258,6 +9519,10 @@
 			//   ★`startM` … 何メートルから走り出すか / `testMode` … BEST を更新しない
 			startAtM = (opts && opts.startM) || 0;
 			testMode = !!(opts && opts.testMode);
+			// ★★★★★天気を見るためのテストモード（2026-09-06 島さんの指定）
+			startAtRain = (opts && opts.startRain) || 0;
+			startAtDay = (opts && typeof opts.startDayMs === "number")
+				? opts.startDayMs : -1;
 			// ============================================================
 			// ★★★★テストモードは**さらな状態から**始める（2026-08-23 島さんの指定）
 			// ============================================================
@@ -8272,8 +9537,10 @@
 			//   ★★消すのは `resetStatus()` と同じもの（★コイン・レベル・技・道具）。
 			//     ★★★**BEST は消しません**（★唯一ランをまたぐ記録。
 			//       ★そもそもテストモードは BEST を**更新もしません**）
+			if (PR) PR.load();
+			reloadCaps();               // ★★伸びた天井を控えに取る（2026-09-12）
+			resetStatus(); // A new departure always starts a new run.
 			if (testMode) {
-				resetStatus();
 				// ============================================================
 				// ★★★★★テストモードは、お金を持って始める（2026-09-03 島さんの指定）
 				// ============================================================
@@ -8299,16 +9566,16 @@
 			tick();          // 開始直後に1枚描いて、すぐ画面を切り替える
 		},
 
-		stop: function () { stopLoop(); },
+		stop: function () { stopLoop(); if (global.DotShop) global.DotShop.close(); },
 
 		// ★★★扉ボタン（もどる）を押したとき（2026-08-16。★島さんの指定）
 		//   シェルはこれを呼んでからメニューへ戻る。
 		//   ★★**テストのため、ここでぜんぶ最初に戻す**（→ `resetAll` の説明）
 		//   ★要らなくなったら `RESET_ON_EXIT = 0` に。扉はただ「もどる」だけになる
 		onExit: function () {
-			if (!RESET_ON_EXIT) return false;
-			resetAll();
-			sound(220, 0.14);          // ★消えたことが分かる低い音
+			if (st && st.phase !== "over" && !testMode && PR) PR.finish(meters());
+			if (st) st.journeyEnded = true;
+			resetStatus();
 			return true;
 		},
 
@@ -8376,6 +9643,10 @@
 			//     ★見るだけなので、選ぶものがありません
 			//   ★★★★★お店を開いているあいだは、**お店の操作が先**（2026-09-05(4)）。
 			//     ★ここで戻してしまうと、★★お店の上下キーもタップも効きません
+			if (st && st.campPhase === "fish" && !st.shopOpen) {
+				if (action === "act" && !st.paused) fishAct();
+				return;
+			}
 			if (st && st.campPhase === "box" && !st.shopOpen) { campLeaveBag(); return; }
 			if (st && st.campPhase && !st.shopOpen) return;
 			// ★ショップを開いているあいだも、上下キーでカーソルが動く
@@ -8530,6 +9801,7 @@
 				st.airJumps++;
 				this.trick("tap");
 				st.djBase = base;          // ★★`trick()` が 0 にしたあとで入れる
+				addAirKick(base);
 				return;
 			}
 			this.trick("tap");
@@ -8551,7 +9823,7 @@
 		swipe: function (how) {
 			if (st === null) return;
 			// ★★ショップを、なぞって選ぶ（★ラン終了の画面と同じ）
-			if (st.shopOpen) { st.tapArmed = false; shopMove(how === "swipeUp" ? -1 : 1); return; }
+			if (st.shopOpen) { st.tapArmed = false; st.shopPressed = ""; return; }
 			// ★★★★★キャンプの問いかけは**ボタンタップだけ**（2026-09-04 島さんの指定）。
 			//   ★なぞっても何も起きません（★スライド選択はやめました）
 			if (st.campPhase) { st.tapArmed = false; return; }
@@ -8612,12 +9884,26 @@
 			//     （★ここだけ開くと、0.5秒の穴が残ります）
 			if (st.phase === "enter" || st.phase === "ready" || st.phase === "go") return;
 			st.shopOpen = !st.shopOpen;
+			st.shopPage = 0;
+			st.shopPressed = "";
+			st.shopFlash = "";
+			st.shopKeyboard = false;
+			// ★★★★★「REBORN?」を聞いたままお店を閉じたら、問いかけも消す（2026-09-12）。
+			//   ★問いかけを拾うのは**お店を開いているあいだだけ**なので（→ `inputTapAt`）、
+			//   ★★残したままにすると**画面に出たまま押せなくなります**。
+			//   ★★★閉じる ＝ **やめる**（★NO と同じ。★★取り返しのつかないことは起きない）
+			st.prestigeAsk = false;
+			st.prestigeBtn = "";
 			if (st.shopOpen) {
 				st.paused = false;      // ★一時停止とは同時に開かない
 				st.shopSel = 0;         // ★★はじめは `CLOSE`（＝タップ1回で閉じられる）
 				st.tapArmed = false;
 			}
 			sound(st.shopOpen ? 880 : 660, 0.06);
+			if (global.DotShop) {
+				if (st.shopOpen) global.DotShop.open(this);
+				else global.DotShop.close();
+			}
 		},
 
 		togglePause: function () {
@@ -8634,6 +9920,7 @@
 			//     （★ショップボタンと同じ「外に出る」。★島さんの指定と同じ筋で塞ぎます）
 			//   ★★★眠りにつく暗転（fade / dark / wake）も同じです ＝
 			//     ★**演出を飛ばせない**（2026-09-04(4) 島さんの指定）
+			if (st.campPhase === "fish" && !st.shopOpen) { st.paused = !st.paused; return; }
 			if (st.campPhase) return;
 			st.paused = !st.paused;
 			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
@@ -8651,6 +9938,8 @@
 		// ------------------------------------------------------------
 		// テスト用の覗き窓
 		// ------------------------------------------------------------
+		inputEscape: leaveFishing,
+		getBest: function () { return st ? best : loadBest(); },
 		_state: function () { return st; },
 		// ★★★★覆う道具（2026-08-23、4か所にあった同じものをまとめた）。
 		//   ★テストが「前とぴったり同じ行を塗るか」を見張るために覗く
@@ -8690,11 +9979,31 @@
 		// ★★アップグレードの覗き窓（2026-08-15 / Phase B）
 		_toggleShop: function () { global.DotOllie.toggleShop(); },
 		_shopRows: shopRows,
+		shopView: function () {
+			return { coins: coins, rows: shopRows().slice(1).map(function (r) {
+				r.enabled = canBuy(r); return r;
+			}) };
+		},
+		buyShop: function (id) {
+			if (!st || !st.shopOpen) return false;
+			var rows = shopRows();
+			for (var i = 1; i < rows.length; i++) if ((rows[i].id || rows[i].kind) === id) {
+				st.shopSel = i; return shopPick();
+			}
+			return false;
+		},
+		_magnetRadius: magnetRadius,
+		_recoverDistance: recoverDistance,
 		_shopRowText: shopRowText,
 		_shortNum: shortNum,
 		// ★★★★単位の表（2026-08-23）。★テストが**直書きせずに**見張るため
 		_shortUnits: SHORT_UNITS,
 		_shopPick: shopPick,
+		// ★★★★★転生の問いかけ（★実機のお店 `js/shop.js` が使います）。
+		//   ★お店の画面は 2 つありますが、★★**決めるのはここ 1 か所**です
+		prestigeAsking: function () { return !!(st && st.prestigeAsk); },
+		prestigeAnswer: function (which) { return prestigeAnswer(which); },
+		prestigeGlitchMs: function () { return st ? (st.prestigeMs || 0) : 0; },
 		_upgLevel: upgLevel,
 		_knowsTrick: knowsTrick,
 		_curSpeed: curSpeed,
@@ -8763,9 +10072,61 @@
 			// ★★★★★お店を開いているあいだは、お店の操作だけ（2026-09-05(4)）。
 			//   ★お店の画面はキャンプの絵より**手前**に出るので、
 			//     ★★ここで止めないと**見えていない YES / NO が押されて**しまいます
-			if (st.shopOpen) return false;
+			if (st.shopOpen) {
+				// ★★★★★「REBORN?」を聞いているあいだは、**その問いかけだけ**。
+				//   ★問いかけはお店の板より**手前**に出るので、
+				//     ★★ここで止めないと**見えていないお店の行が押されます**
+				//     （★★★ 2026-09-05(4) にキャンプで踏んだのとまったく同じ罠）。
+				//   ★★押したボタンの上で離したときだけ決まります（★ふつうのボタンの作法）
+				if (st.prestigeAsk) {
+					var phit = campHitBtn(lx, ly);
+					if (down) { st.prestigeBtn = phit; return true; }
+					var pwas = st.prestigeBtn;
+					st.prestigeBtn = "";
+					if (pwas && pwas === phit) prestigeAnswer(pwas === "yes" ? 0 : 1);
+					return true;
+				}
+				var button = shopHit(lx, ly);
+				if (down) { st.shopKeyboard = false; st.shopPressed = button ? button.key : ""; return true; }
+				var pressed = st.shopPressed;
+				st.shopPressed = "";
+				st.tapArmed = false;
+				if (!button || button.key !== pressed) return true;
+				if (button.key === "close") this.toggleShop();
+				else if (button.key === "prev" || button.key === "next") {
+					st.shopPage = (st.shopPage || 0) + (button.key === "next" ? 1 : -1);
+					sound(660, 0.04);
+				} else {
+					st.shopSel = button.index;
+					if (shopPick()) { st.shopFlash = button.key; st.shopFlashUntil = Date.now() + 240; }
+				}
+				return true;
+			}
 			// ★★★★★問いかけは3つ（2026-09-04(5)）:
 			//   "ask"（入りますか）／"bag"（リュックを開きますか）／"sleep"（出ますか）
+			var fish = global.DotFishing;
+			if (fish && st.campPhase === "fish") {
+				var back = fish.contains(fish.BACK, lx, ly);
+				if (down) {
+					st.fishBtn = back ? "back" : "";
+					if (!back && lx >= 0 && ly >= 0 && lx < W && ly < H && !st.paused) fishAct();
+				} else {
+					var returnToCamp = back && st.fishBtn === "back";
+					st.fishBtn = "";
+					if (returnToCamp) leaveFishing();
+				}
+				return true;
+			}
+			if (fish && st.campPhase === "in") {
+				var entry = fish.contains(fish.ENTRY, lx, ly);
+				if (down) { st.fishBtn = entry ? "open" : ""; if (entry) return true; }
+				else if (st.fishBtn) {
+					var openFishing = entry && st.fishBtn === "open";
+					st.fishBtn = "";
+					if (openFishing) enterFishing();
+					return true;
+				}
+			}
 			if (st.campPhase !== "ask" && st.campPhase !== "sleep" &&
 				st.campPhase !== "bag") return false;
 			var hit = campHitBtn(lx, ly);
@@ -8776,6 +10137,18 @@
 			return true;
 		},
 
+		inputPointerMove: function (x, y) {
+			if (st && !st.shopOpen && st.fishBtn && global.DotFishing) {
+				var r = st.campPhase === "fish" ? global.DotFishing.BACK : global.DotFishing.ENTRY;
+				if (!global.DotFishing.contains(r, x, y)) st.fishBtn = "cancel";
+				return true;
+			}
+			if (!st || !st.shopOpen) return false;
+			var b = shopHit(x, y);
+			if (!b || b.key !== st.shopPressed) st.shopPressed = "";
+			return true;
+		},
+		_shopButtons: shopButtons,
 		inputDrag: function (dx, dy) {
 			if (!st || st.campPhase !== "in") return false;
 			// ★★★★★お店を開いているあいだは歩かない（2026-09-05(4)）。
@@ -8797,6 +10170,13 @@
 		_inNoSpawn: inNoSpawn,
 		_campHitBtn: campHitBtn,
 		_campEnter: campEnter,
+		_railCoinPerDot: railCoinPerDot,
+		_learnJourneyAction: learnJourneyAction,
+		// Explicit fixtures for geometry/physics tests; never saved or used by the shell.
+		_setRunFixture: function (o) {
+			upgLv = o.lv || {}; unlocked = o.un || {}; bag = o.bag || {}; buys = o.buys || {};
+			if (st) st.stamina = st.staminaMax = curStaminaMax();
+		},
 		_inCampExit: inCampExit,
 		_campScene: function () { return CSCENE; },
 		// ★★★★★キャンプの中を歩く姿（2026-09-05）
@@ -8822,6 +10202,75 @@
 		//     ★★★遊びの中からは1回も呼びません（★ゲームの動きは1ドットも変わりません）。
 		//   ★ページが**本物のゲームをそのまま動かして**決められるので、
 		//     ★★「ページで見た手ざわり」と「ゲームの手ざわり」が**必ず一致**します
+		// ★★★★★かすみ（空気遠近法）を決めるページ専用の口（2026-09-11）
+		//   ★★`tools/preview-haze.html` だけが呼びます。
+		//   ★★★**遊びの中からは1回も呼びません**（★`_setStars()` とまったく同じ扱い）
+		// ============================================================
+		// ★★★★★頭上の数字の出方を変える口（2026-09-12。★ページ専用）
+		// ============================================================
+		//   ★`_setStars` / `_setHaze` とまったく同じ作りです。
+		//   ★★★★**AI へ: 遊びの中からは 1 回も呼びません**。
+		// ============================================================
+		// ★★★★★転生の口（2026-09-12。★見張りとページ専用）
+		// ============================================================
+		//   ★`_setStars` / `_setHaze` / `_setPop` とまったく同じ作りです。
+		//   ★★★★**AI へ: 遊びの中からは 1 回も呼びません**。
+		_setPrestige: function (o) {
+			if (!o) return;
+			if (o.PRESTIGE_ON       !== undefined) PRESTIGE_ON       = o.PRESTIGE_ON;
+			if (o.PRESTIGE_STEP     !== undefined) PRESTIGE_STEP     = o.PRESTIGE_STEP;
+			if (o.PRESTIGE_GLITCH_MS    !== undefined) PRESTIGE_GLITCH_MS    = o.PRESTIGE_GLITCH_MS;
+			if (o.PRESTIGE_GLITCH_BANDS !== undefined) PRESTIGE_GLITCH_BANDS = o.PRESTIGE_GLITCH_BANDS;
+			if (o.PRESTIGE_GLITCH_SHIFT !== undefined) PRESTIGE_GLITCH_SHIFT = o.PRESTIGE_GLITCH_SHIFT;
+			if (o.PRESTIGE_GLITCH_STEPS !== undefined) PRESTIGE_GLITCH_STEPS = o.PRESTIGE_GLITCH_STEPS;
+			if (o.PRESTIGE_GLITCH_DROP  !== undefined) PRESTIGE_GLITCH_DROP  = o.PRESTIGE_GLITCH_DROP;
+		},
+
+		// ★★お店の行を**名前で押す**（★見張りが番号を数えなくて済む）
+		_shopPickId: function (id, kind) {
+			var rows = shopRows();
+			for (var i = 0; i < rows.length; i++) {
+				var r = rows[i];
+				if (kind ? (r.kind === kind) : (r.id === id)) {
+					st.shopSel = i;
+					return shopPick();
+				}
+			}
+			return false;
+		},
+
+		_setPop: function (o) {
+			if (!o) return;
+			if (o.POP_STYLE         !== undefined) POP_STYLE         = o.POP_STYLE;
+			if (o.POP_MS            !== undefined) POP_MS            = o.POP_MS;
+			if (o.POP_RISE          !== undefined) POP_RISE          = o.POP_RISE;
+			if (o.POP_BOUNCE_IN_MS  !== undefined) POP_BOUNCE_IN_MS  = o.POP_BOUNCE_IN_MS;
+			if (o.POP_BOUNCE_BIG_MS !== undefined) POP_BOUNCE_BIG_MS = o.POP_BOUNCE_BIG_MS;
+			if (o.POP_BOUNCE_LIFT   !== undefined) POP_BOUNCE_LIFT   = o.POP_BOUNCE_LIFT;
+			if (o.POP_PARA_VX       !== undefined) POP_PARA_VX       = o.POP_PARA_VX;
+			if (o.POP_PARA_VY       !== undefined) POP_PARA_VY       = o.POP_PARA_VY;
+			if (o.POP_PARA_G        !== undefined) POP_PARA_G        = o.POP_PARA_G;
+			if (o.POP_FADE          !== undefined) POP_FADE          = o.POP_FADE;
+			if (o.POP_FADE_MS       !== undefined) POP_FADE_MS       = o.POP_FADE_MS;
+			if (o.POP_FADE_SPREAD   !== undefined) POP_FADE_SPREAD   = o.POP_FADE_SPREAD;
+			if (o.POP_FADE_RISE     !== undefined) POP_FADE_RISE     = o.POP_FADE_RISE;
+			if (o.POP_FADE_GLITCH   !== undefined) POP_FADE_GLITCH   = o.POP_FADE_GLITCH;
+			if (o.POP_FADE_STEPS    !== undefined) POP_FADE_STEPS    = o.POP_FADE_STEPS;
+			if (o.POP_FADE_BLUR     !== undefined) POP_FADE_BLUR     = o.POP_FADE_BLUR;
+		},
+		_setHaze: function (o) {
+			if (!o) return;
+			if (o.HAZE_ON        !== undefined) HAZE_ON        = o.HAZE_ON;
+			if (o.HAZE_COLOR     !== undefined) HAZE_COLOR     = o.HAZE_COLOR;
+			if (o.HAZE_SKY       !== undefined) HAZE_SKY       = o.HAZE_SKY;
+			if (o.HAZE_FAR       !== undefined) HAZE_FAR       = o.HAZE_FAR;
+			if (o.HAZE_MID       !== undefined) HAZE_MID       = o.HAZE_MID;
+			if (o.HAZE_NEAR      !== undefined) HAZE_NEAR      = o.HAZE_NEAR;
+			if (o.HAZE_NIGHT_OFF !== undefined) HAZE_NIGHT_OFF = o.HAZE_NIGHT_OFF;
+			if (o.HAZE_RAIN_OFF  !== undefined) HAZE_RAIN_OFF  = o.HAZE_RAIN_OFF;
+		},
+		_hazeNow: function () { return hazeScale(); },
+
 		_setStars: function (o) {
 			if (!o) return;
 			if (o.STAR_ON        !== undefined) STAR_ON        = o.STAR_ON;
@@ -8887,6 +10336,7 @@
 				PICK_TAKE_Y: PICK_TAKE_Y, PICK_MIN_LIFT: PICK_MIN_LIFT, PICK_STEP: PICK_STEP,
 				PICK_PATTERNS: PICK_PATTERNS, PICK_OVER_CONE: PICK_OVER_CONE,
 				PICK_GAP_MIN: PICK_GAP_MIN, PICK_GAP_MAX: PICK_GAP_MAX,
+				PICK_MAX: PICK_MAX, PICK_FOOTPRINT: PICK_FOOTPRINT,
 				PICK_W: PICK_W, PICK_H: PICK_H,
 				CONE_ON: CONE_ON, CONE_GAP_MIN: CONE_GAP_MIN, CONE_GAP_MAX: CONE_GAP_MAX,
 				// ★★間隔の下限は「1回の技で進む距離」から作る（2026-08-16 / Step 0）
@@ -8914,6 +10364,11 @@
 				HIT_FLASH_ON: HIT_FLASH_ON, HIT_FLASH_FRAMES: HIT_FLASH_FRAMES,
 				C_HIT_FLASH: C_HIT_FLASH,
 				// ★★★★★昼と夜（2026-09-02 島さんの指定）
+				// ★★★★★かすみ（空気遠近法）。2026-09-11
+				HAZE_ON: HAZE_ON, HAZE_COLOR: HAZE_COLOR,
+				HAZE_SKY: HAZE_SKY, HAZE_FAR: HAZE_FAR,
+				HAZE_MID: HAZE_MID, HAZE_NEAR: HAZE_NEAR,
+				HAZE_NIGHT_OFF: HAZE_NIGHT_OFF, HAZE_RAIN_OFF: HAZE_RAIN_OFF,
 				NIGHT_ON: NIGHT_ON, NIGHT_COLOR: NIGHT_COLOR,
 				NIGHT_START_MS: NIGHT_START_MS, NIGHT_FADE_MS: NIGHT_FADE_MS,
 				NIGHT_A0: NIGHT_A0, NIGHT_A1: NIGHT_A1, NIGHT_OVER_UI: NIGHT_OVER_UI,
@@ -8971,6 +10426,25 @@
 				LAND_SPREAD: LAND_SPREAD, LAND_COLS: LAND_COLS,
 				LAND_SOUND_ON: LAND_SOUND_ON,
 				POP_ON: POP_ON, POP_MS: POP_MS, POP_MAX: POP_MAX, POP_RISE: POP_RISE,
+				// ★★★★★土の模様を「1枚の絵にして貼る」か（2026-09-12）
+				SOIL_TILE_ON: SOIL_TILE_ON,
+				// ★★★★★頭上の数字の出方（2026-09-12。★見比べるページが使います）
+				POP_STYLE: POP_STYLE,
+				POP_BOUNCE_IN_MS: POP_BOUNCE_IN_MS, POP_BOUNCE_BIG_MS: POP_BOUNCE_BIG_MS,
+				POP_BOUNCE_LIFT: POP_BOUNCE_LIFT,
+				POP_PARA_VX: POP_PARA_VX, POP_PARA_VY: POP_PARA_VY, POP_PARA_G: POP_PARA_G,
+				POP_FADE: POP_FADE, POP_FADE_MS: POP_FADE_MS,
+				POP_FADE_SPREAD: POP_FADE_SPREAD, POP_FADE_RISE: POP_FADE_RISE,
+				POP_FADE_GLITCH: POP_FADE_GLITCH, POP_FADE_STEPS: POP_FADE_STEPS,
+				POP_FADE_BLUR: POP_FADE_BLUR,
+				// ★★★★★転生（2026-09-12 島さんの指定）
+				PRESTIGE_ON: PRESTIGE_ON, PRESTIGE_STEP: PRESTIGE_STEP,
+				PRESTIGE_GLITCH_MS: PRESTIGE_GLITCH_MS,
+				PRESTIGE_GLITCH_BANDS: PRESTIGE_GLITCH_BANDS,
+				PRESTIGE_GLITCH_SHIFT: PRESTIGE_GLITCH_SHIFT,
+				PRESTIGE_GLITCH_STEPS: PRESTIGE_GLITCH_STEPS,
+				PRESTIGE_GLITCH_DROP: PRESTIGE_GLITCH_DROP,
+				PRESTIGE_WORD: PRESTIGE_WORD, PRESTIGE_ASK_TEXT: PRESTIGE_ASK_TEXT,
 				GAIN_FLASH_MS: GAIN_FLASH_MS, SHAKE_MS: SHAKE_MS, SHAKE_PX: SHAKE_PX,
 				MILESTONE_POP_ON: MILESTONE_POP_ON,
 				MILESTONES: MILESTONES, MILESTONE_STEP: MILESTONE_STEP,
@@ -8982,6 +10456,7 @@
 				BET_ON: BET_ON, BET_FLASH_MS: BET_FLASH_MS, C_BET: C_BET,
 				SHOP_X: SHOP_X,   // ★テストが「行が画面に収まるか」を測るため（2026-08-23）
 				OVER_FADE_MS: OVER_FADE_MS, C_GAMEOVER: C_GAMEOVER,
+				C_BEST: C_BEST, C_NEW_BEST: C_NEW_BEST,
 				COUNT_MS: COUNT_MS, COUNT_BEEP_MS: COUNT_BEEP_MS,
 				CONE_W: CONE.FRAMES[0].rows[0].length,
 				CONE_H: CONE.FRAMES[0].rows.length,
@@ -9011,7 +10486,8 @@
 				RAIN_COLS: RAIN_COLS, RAIN_DIM_RATE: RAIN_DIM_RATE,
 				RAIN_DIM_ALPHA: RAIN_DIM_ALPHA, RAIN_SPAWN_Y: RAIN_SPAWN_Y,
 				RAIN_DARK: RAIN_DARK, RAIN_DARK_MAX: RAIN_DARK_MAX,
-				RAIN_STAR_CUT: RAIN_STAR_CUT,
+				RAIN_STAR_CUT: RAIN_STAR_CUT, RAIN_TEST_BEFORE: RAIN_TEST_BEFORE,
+				RAIN_TEST_MARGIN_M: RAIN_TEST_MARGIN_M, RAIN_TEST_MIN: RAIN_TEST_MIN,
 				// ★★★★★小さな水しぶき（2026-09-06 島さんの指定）
 				RAIN_SPLASH_ON: RAIN_SPLASH_ON, RAIN_SPLASH_RATE: RAIN_SPLASH_RATE,
 				RAIN_SPLASH_MIN: RAIN_SPLASH_MIN, RAIN_SPLASH_NUM: RAIN_SPLASH_NUM,
