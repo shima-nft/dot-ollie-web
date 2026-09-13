@@ -184,49 +184,41 @@
 
 	function drawCenterLine(text, y) {
 		DotFont.drawText(lctx, text,
-			Math.floor((LCD_W - DotFont.textWidth(text.length)) / 2), y, GB[9]);  // 9 = まっ黒
+			Math.floor((LCD_W - DotFont.textWidth(text.length)) / 2), y, GB[16]);  // Shared light pixel lettering
 	}
 
 	// ---- ゲーム選択画面 ----
+	var menuPress = null;
+	function menuButtons() {
+		return GAMES.slice(0,3).map(function(g,i){return {id:i,text:g.label,x:24,y:44+i*36,w:192,h:33};});
+	}
+	function menuHit(p) {
+		if(!p)return null;
+		return menuButtons().find(function(b){return p.x>=b.x&&p.x<b.x+b.w&&p.y>=b.y&&p.y<b.y+b.h;})||null;
+	}
+	function menuPaper() {
+		lctx.fillStyle="#101f20";lctx.fillRect(0,0,LCD_W,LCD_H);
+		lctx.fillStyle="#5f7473";lctx.fillRect(4,4,LCD_W-8,1);lctx.fillRect(4,LCD_H-5,LCD_W-8,1);
+		lctx.fillRect(4,4,1,LCD_H-8);lctx.fillRect(LCD_W-5,4,1,LCD_H-8);
+	}
+	function pixelButton(b,on) {
+		lctx.fillStyle="#080d14";lctx.fillRect(b.x,b.y,b.w,b.h);
+		lctx.fillStyle=on?"#264039":"#1d2b53";lctx.fillRect(b.x+1,b.y+1,b.w-2,b.h-3);
+		lctx.fillStyle=b.off?GB[7]:on?GB[19]:"#b4c7cb";lctx.fillRect(b.x+1,b.y+1,b.w-2,1);
+		if(on){lctx.fillStyle=GB[19];lctx.fillRect(b.x+2,b.y+3,2,b.h-7);}
+		DotFont.drawText(lctx,b.text,b.x+Math.floor((b.w-DotFont.textWidth(b.text.length))/2),b.y+Math.floor((b.h-DotFont.GLYPH_H)/2),GB[b.off?7:16]);
+	}
 	function renderMenu() {
-		var journey = global.DotOllie.getJourney();
-		GAMES = GAMES.filter(function (g) { return !g.rank; });
-		if (cursor >= GAMES.length) cursor = 0;
-		lctx.fillStyle = GB[22];                // 選択画面の地の色(藤色)
-		lctx.fillRect(0, 0, LCD_W, LCD_H);
-
-		if (journey.rank) {
-			lctx.fillStyle = GB[19]; lctx.fillRect(7, 7, 3, 3);
-			lctx.fillStyle = GB[9]; lctx.fillRect(8, 8, 1, 1);
+		if(cursor>2)cursor=0;
+		menuPaper();
+		if(TITLE){
+			lctx.save();lctx.translate(25,18);lctx.scale(2,2);DotFont.drawText(lctx,TITLE,0,0,GB[16]);lctx.restore();
 		}
-		var top = twoLineTop();
-		if (TITLE) {
-			lctx.save();
-			lctx.translate(Math.floor((LCD_W - DotFont.textWidth(TITLE.length) * 2) / 2), top - DotFont.GLYPH_H * 2 - 5);
-			lctx.scale(2, 2); DotFont.drawText(lctx, TITLE, 0, 0, GB[9]);
-			lctx.restore();
-		}
-		if (global.DotOllie && global.DotOllie.getBest) {
-			drawCenterLine("BEST " + global.DotOllie.getBest() + "m", 16);
-		}
-
-		for (var i = 0; i < GAMES.length; i++) {
-			var y = top + ROW_H + i * ROW_H;
-			// ★文字そのものを中央に置く（カーソルのぶんずらさない）
-			drawCenterLine(GAMES[i].label, y);
-			// ★★カーソル（▶の三角）は**必ず出す**（島さんの指定 2026-08-12）。
-			//   ★中央に置いた文字の**左**に出すので、**文字は中央のまま**
-			//   （前は「カーソル＋文字」をまとめて中央に置いていたので、文字が4ドット右にずれていた）
-			if (i === cursor) {
-				var lx = Math.floor((LCD_W - DotFont.textWidth(GAMES[i].label.length)) / 2);
-				drawSprite(lctx, CURSOR, lx - CUR_W - 2, y + 1);
-			}
-		}
-		// ★★スケーターは**一覧のいちばん下**に一人だけ立たせる（2026-08-22）。
-		//   ★★項目が2つ以上になったので、行ごとに出すと**次の行と重なる**。
-		//   ★項目が1つのときの見た目は**前とまったく同じ**（★同じ行に立つ）
-		var sk = GAMES[cursor] && GAMES[cursor].skater;
-		if (sk !== undefined) drawSkaterFrame(sk, top + ROW_H + GAMES.length * ROW_H + 6);
+		var F=DotFont,best="BEST "+global.DotOllie.getBest()+"m";
+		// A small trail marker separates the lifetime record from the selected journey.
+		lctx.fillStyle=GB[19];lctx.fillRect(212,17,1,16);lctx.fillRect(213,17,8,4);
+		F.drawText(lctx,best,132,31,GB[7]);
+		menuButtons().forEach(function(b){pixelButton(b,b.id===cursor);});
 	}
 
 	// ★選択画面のスケーター —— js/ollie-art.js の絵をそのまま、まん中に置く
@@ -258,8 +250,7 @@
 	//
 	//   ★プレイ中はこの番号を出さない（遊びの邪魔をしない）。
 	function renderSeed() {
-		lctx.fillStyle = GB[22];                // 選択画面と同じ地の色(藤色)
-		lctx.fillRect(0, 0, LCD_W, LCD_H);
+		menuPaper();
 
 		// ★★選択画面とまったく同じ位置に2行を置く（1行目71 / 2行目81）。
 		//   だから **タップしても文字が飛ばない**（OLLIE→SEED ID / START→番号 と入れ替わるだけ）
@@ -285,7 +276,7 @@
 
 	function moveCursor(step) {
 		if (GAMES.length === 0) return;
-		cursor = (cursor + step + GAMES.length) % GAMES.length;
+		cursor = (cursor + step + 3) % 3;
 		beep(770, 0.04);
 		renderMenu();
 	}
@@ -300,8 +291,8 @@
 	//   ★★ボタンはタップで決める（★押したボタンの上で離したときだけ ＝ ずらせば取り消せる）。
 	//   ★★★描くところ（renderSub）と当たり判定（subHit）は `subButtons()` の1か所を共有する
 	//     （★`campBtnRects()` と同じ作法。離すと「絵と判定がずれる」事故が起きる）
-	var SUB_MODES = { newgame: 1, newask: 1, seedpad: 1, "continue": 1, del: 1, options: 1 };
-	var SUB_HEAD = { newgame: "NEW GAME", newask: "ERASE OLD DATA?", seedpad: "INPUT SEED",
+	var SUB_MODES = { tests: 1, newgame: 1, newask: 1, seedpad: 1, "continue": 1, del: 1, options: 1 };
+	var SUB_HEAD = { tests: "TEST RUNS", newgame: "NEW GAME", newask: "ERASE OLD DATA?", seedpad: "INPUT SEED",
 		"continue": "CONTINUE", del: "DELETE?", options: "OPTIONS" };
 	// ★★★★★NEW GAME から来たか（★true なら技も成長も引き継がずに始める）
 	var pendingFresh = false;
@@ -309,7 +300,7 @@
 	var subPress = null;       // 押しているボタンの id（離すまで決めない）
 	var seedDigits = "";       // 入力中のシード値
 	var SEED_DIGITS = 5;       // ★シードは 0〜99999（→ js/world.js の newSeed）
-	var BTN_H = DotFont.GLYPH_H + 6;
+	var BTN_H = 26;
 	var OPTIONS_KEY = "dotollie-options";
 
 	// ---- オプション（★音は昔からの dotollie-sound をそのまま使う）----
@@ -385,20 +376,18 @@
 				["back", "BACK"]], 70);
 		}
 		if (mode === "del") return listButtons([["yes", "YES"], ["no", "NO"]], 84);
-		if (mode === "options") {
-			var o = loadOptions();
-			return listButtons([
-				["sound", "SOUND " + (soundIsOn() ? "ON" : "OFF")],
-				["shake", "SHAKE " + (o.shake ? "ON" : "OFF")],
-				["flash", "FLASH " + (o.flash ? "ON" : "OFF")],
-				["back", "BACK"]], 44, 9);          // ★ON⇄OFF で箱の幅が変わらないように
+		if(mode==="tests")return listButtons(GAMES.slice(3).map(function(g,i){return ["test"+(i+3),g.label];}).concat([["back","BACK"]]),32);
+		if(mode==="options") {
+			var o=loadOptions(),items=[["sound","SOUND "+(soundIsOn()?"ON":"OFF")],["shake","SHAKE "+(o.shake?"ON":"OFF")],["flash","FLASH "+(o.flash?"ON":"OFF")]];
+			if(GAMES.length>3)items.push(["tests","TEST RUNS"]);
+			items.push(["back","BACK"]);
+			return items.map(function(it,i){return {id:it[0],text:it[1],x:16+(i%2)*106,y:46+Math.floor(i/2)*34,w:102,h:28};});
 		}
 		return [];
 	}
 
 	function renderSub() {
-		lctx.fillStyle = GB[22];                // 選択画面と同じ地の色(藤色)
-		lctx.fillRect(0, 0, LCD_W, LCD_H);
+		menuPaper();
 		drawCenterLine(SUB_HEAD[mode], (mode === "del" || mode === "newask") ? 64 : (mode === "seedpad" ? 10 : 24));
 		if (mode === "seedpad") {
 			var shown = seedDigits;
@@ -417,19 +406,8 @@
 				drawCenterLine(Math.floor(s.m || 0) + "m", 52);
 			}
 		}
-		var bs = subButtons();
-		if (subSel >= bs.length) subSel = 0;
-		for (var i = 0; i < bs.length; i++) {
-			var b = bs[i], on = (i === subSel) || (subPress === b.id);
-			lctx.fillStyle = GB[9];                                   // 枠（まっ黒）
-			lctx.fillRect(b.x, b.y, b.w, b.h);
-			lctx.fillStyle = on ? GB[9] : GB[29];                     // 選んでいる＝黒く塗る
-			lctx.fillRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
-			DotFont.drawText(lctx, b.text,
-				b.x + Math.floor((b.w - DotFont.textWidth(b.text.length)) / 2),
-				b.y + Math.floor((b.h - DotFont.GLYPH_H) / 2),
-				b.off ? GB[7] : (on ? GB[29] : GB[9]));            // ★押せないボタンは銀
-		}
+		var bs=subButtons();if(subSel>=bs.length)subSel=0;
+		bs.forEach(function(b,i){pixelButton(b,i===subSel||subPress===b.id);});
 	}
 
 	function subHit(p) {
@@ -507,7 +485,10 @@
 		} else if (mode === "newask") {
 			if (id === "yes") openSub("newgame");
 			else backToTitle();
+		} else if(mode === "tests") {
+			if(id==="back")openSub("options");else {cursor=Number(id.slice(4));enterSeed();}
 		} else if (mode === "options") {
+			if(id==="tests"){openSub("tests");return;}
 			if (id === "back") { backToTitle(); return; }
 			if (id === "sound") setSound(!soundIsOn());
 			else { var o = loadOptions(); o[id] = o[id] ? 0 : 1; saveOptions(o); }
@@ -619,7 +600,7 @@
 		//     ★**なぞってカーソルを動かすことが構造的に不可能**だった。
 		//   ★★これは買い物画面で 2026-08-16 に踏んだのと**まったく同じ罠**
 		//     （→ `js/ollie.js` の `inputUp` の説明）。★同じ解き方でそろえてある
-		if (mode === "menu") return;
+		if(mode==="menu"){var mh=menuHit(lcdPoint(ev));menuPress=mh?mh.id:null;if(mh)cursor=mh.id;renderMenu();return;}
 		// ★★★★★NEW GAME などの画面: 押したボタンを覚えるだけ（★決めるのは離したとき）
 		if (SUB_MODES[mode]) {
 			var hit = subHit(lcdPoint(ev));
@@ -635,6 +616,12 @@
 		if (ev.isPrimary === false) return;
 		if (swipeFromY === null) return;
 		if (mode !== swipeFromMode) return;
+		if(mode==="menu"){
+			var mh=menuHit(lcdPoint(ev));if(!mh||mh.id!==menuPress)menuPress=null;return;
+		}
+		if(SUB_MODES[mode]){
+			var sh=subHit(lcdPoint(ev));if(!sh||sh.b.id!==subPress){subPress=null;renderSub();}return;
+		}
 		if (activeGame && activeGame.inputPointerMove) {
 			var point = lcdPoint(ev);
 			if (activeGame.inputPointerMove(point ? point.x : -1, point ? point.y : -1)) return;
@@ -648,10 +635,7 @@
 		var dy = swipeFromY - ev.clientY;          // ＋が上へ、−が下へ
 		if (Math.abs(dy) < SWIPE_PX) return;
 		swipeFired = true;
-		// ★★★タイトル画面: なぞってカーソルを動かす（2026-08-22 島さんの指定）。
-		//   ★★**上へなぞる＝1つ上 / 下へなぞる＝1つ下**（★お店の一覧と同じ操作）
-		if (mode === "menu") { moveCursor(dy > 0 ? -1 : 1); return; }
-		if (SUB_MODES[mode]) { subMove(dy > 0 ? -1 : 1); return; }   // ★なぞったら押したことは取り消す
+		// 走行中の技は従来の上下スワイプ。メニューは上でタップ判定済み。
 		if (mode !== "game" || !activeGame) return;
 		if (dy > 0) {
 			if (activeGame.inputSwipeUp) activeGame.inputSwipeUp();
@@ -689,7 +673,8 @@
 		swipeFromX = null;
 		// ★★★タイトル画面は、ここで決める（★なぞっただけのときは決めない）
 		if (mode === "menu") {
-			if (!swiped && swipeFromMode === "menu") chooseMenu();
+			var mh=menuHit(lcdPoint(ev)),pressed=menuPress;menuPress=null;
+			if(!swiped&&swipeFromMode==="menu"&&mh&&mh.id===pressed){cursor=mh.id;chooseMenu();}
 			return;
 		}
 		// ★★★★★NEW GAME などの画面: 押したボタンの上で離したときだけ決める
@@ -704,7 +689,7 @@
 	});
 	tapEl.addEventListener("pointercancel", function (ev) {
 		if (ev.isPrimary === false) return;
-		swipeFromY = null; swipeFromX = null;
+		swipeFromY = null; swipeFromX = null;menuPress=null;
 		if (SUB_MODES[mode] && subPress) { subPress = null; renderSub(); }
 		// ★★キャンプの中: 指が外れたら歩くのをやめる
 		if (activeGame && activeGame.inputDrag) activeGame.inputDrag(0, 0);
@@ -759,12 +744,7 @@
 	}
 
 	function showMenuPad() {
-		// ★★★2026-08-22、島さんの指定で**なぞって選ぶ**ようにした:
-		//   > 「テストモードへいけないので(現在は左右ボタンがない)
-		//   >   なぞるで操作できるようにしてください。」
-		//   ★★液晶の外に ◀▶ のボタンは**無い**（`index.html` にも置いていない）。
-		//     ★上下になぞればカーソルが動く（→ `pointermove`）。
-		//   ★「もどる」先は無いので出さない
+		// 液晶内の各ボタンを直接タップする。外側の戻るボタンは不要。
 		showPad(["act"], false);
 	}
 
@@ -912,6 +892,7 @@
 		}
 		if (ev.key === "Escape") {
 			if (activeGame && activeGame.inputEscape && activeGame.inputEscape()) { ev.preventDefault(); return; }
+			if(mode==="game" && activeGame && activeGame.togglePause){activeGame.togglePause();ev.preventDefault();return;}
 			backToMenu(); ev.preventDefault(); return;
 		}
 		if (!ev.repeat) padDown(keyToAction(ev.key));
@@ -945,6 +926,7 @@
 		// ★★★★★NEW GAME などの画面（2026-09-13。テスト・確認用）
 		choose: function (i) { if (typeof i === "number") cursor = i; chooseMenu(); },
 		pick: function (id) { subAct(id); },
+		getMenuButtons: menuButtons,
 		getSubButtons: function () { return SUB_MODES[mode] ? subButtons() : []; },
 		getSeedDigits: function () { return seedDigits; },
 		padDown: padDown,

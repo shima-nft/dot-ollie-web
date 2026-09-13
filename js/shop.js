@@ -8,7 +8,7 @@
   var help = {
     speed: "ベアリング：最高速が上がる", stamina: "最大HPが増える", coin: "障害物・拾うコイン・レールの報酬が大きくなる", rail: "トラック：手すりの報酬倍率が1Lvごとに+20%。出現頻度とジャンプの高さは変わらない",
     railpass: "このランに手すりが出現し始める。購入するとTRUCKも開放。転生・死亡後は買い直し", drink: "MAXDRINKの回復量を1Lvごとに+1。基本5回復、最大HPまで",
-    wheels: "ウィール：加速が速くなり、ダメージ後の減速が軽くなる", shoes: "シューズ：二段ジャンプを使える。転生では引継ぎ、死亡後の新しいランでは未所持", light: "ドローンが夜の足元を照らす。Lv1は40×40px、1Lvごとに一辺+4px", live: "SNS配信：成功・速さ・技の変化で視聴者が増え、投げ銭を獲得。転倒と同じ技の連打で減少",
+    wheels: "ウィール：加速が速くなり、ダメージ後の減速が軽くなる", shoes: "シューズ：二段ジャンプを使える。転生では引継ぎ、死亡後の新しいランでは未所持", light: "夜の路面をドローンが照らす。基本の照射幅40px、1Lvごとに+4px。速く走るほど先まで照らす", live: "SNS配信：成功・速さ・技の変化で視聴者が増え、投げ銭を獲得。転倒と同じ技の連打で減少",
     magnet: "近くのコインを引き寄せる範囲が広がる", recover: "無傷で走るとHPが回復。強化で必要な距離が短くなる",
     kickflip: "レールを滑って習得。コインの小さな吸着補助も得る", pop: "手すりを半分ほど滑り、タップで跳び降りると習得", maxdrink: "HPが尽きたとき自動で5回復。DRINK強化で回復量+1/Lv。最大HPまで。購入は1ランに1回"
   };
@@ -121,9 +121,12 @@
       F.drawText(c, "100→1K", 72, 24, P[19]);
       c.fillStyle=P[25];c.fillRect(65,11,2,2);
     } else if (id === "light") {
-      c.globalCompositeOperation="lighter"; c.globalAlpha=.4;c.fillStyle="#b3c9b4";c.fillRect(23,4,40,40);c.globalAlpha=1;c.globalCompositeOperation="source-over";
-      c.fillStyle=P[15];c.fillRect(21,8,7,3);c.fillRect(18,6,5,1);c.fillRect(27,6,5,1);
-      F.drawText(c, String(40+4*Math.max(0,lv-1))+"px", 74, 20, P[19]);
+      var dy=6+Math.round(Math.sin(seconds*1.6)*1.5), aim=46+Math.sin(seconds*.8)*5;
+      c.globalCompositeOperation="lighter";c.globalAlpha=.28;c.fillStyle="#b3c9b4";
+      for(var band=0;band<32;band+=2){var t=band/32,wide=2+t*40;c.fillRect(Math.round(25+(aim-25)*t-wide/2),dy+5+band,Math.round(wide),2);}
+      c.globalAlpha=1;c.globalCompositeOperation="source-over";
+      c.fillStyle=P[15];c.fillRect(21,dy+2,7,3);c.fillRect(18,dy,5,1);c.fillRect(27,dy,5,1);
+      F.drawText(c, String(40+4*Math.max(0,lv-1))+"px", 78, 20, P[19]);
     } else if (id === "rail" || id === "railpass") {
       c.fillStyle = P[15]; c.fillRect(15,30,100,2); c.fillRect(20,32,2,10); c.fillRect(110,32,2,10);
       drawCoin(86,20);

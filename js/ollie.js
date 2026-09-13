@@ -3311,7 +3311,7 @@
 	//     ・**音の入り切り** … 設定
 	// Hybrid rule: clear the run only; learned actions and journey records live in PR.
 	function resetStatus() {
-		if (st) { st.fishing = null; st.fishBtn = ""; st.live = null; st.dj = false; }
+		if (st) { st.fishing = null; st.fishBtn = ""; st.live = null; st.drone = null; st.dj = false; }
 		coins = 0;
 		upgLv = {};
 		unlocked = !testMode && PR ? PR.snapshot().tricks : {};
@@ -3433,18 +3433,23 @@
 	var SAVE_KEY = "dotollie-save-v1";
 	var SAVE_ST = ["dist", "stamina", "staminaMax", "hp", "hpMax", "dayMs", "dj", "met", "coin",
 		"betMul", "betCount", "goalBorn", "goalDone", "gateBorn", "gatePassed", "mileIndex",
-		"hits", "picksGot", "campSeen", "lastMark"];
+		"hits", "picksGot", "campSeen", "lastMark", "phase", "phaseMs", "speedMs", "air", "airJumps", "djBase", "trick",
+		"idle", "idleMs", "nextPush", "cones", "picks", "nextCone", "nextEnemy", "nextBird", "nextRail", "nextPick", "nextAosura",
+		"grind", "grindEndWx", "grindCoin", "grindPaid", "grindDots", "slowMs", "live", "recoverProgress"];
 	function saveRun() {
-		if (!st || testMode) return false;
+		if (!st || testMode || st.phase === "over" || st.stamina <= 0) return false;
 		var data = { v: 1, seed: WD.getSeed(), m: meters(), coins: coins, upgLv: upgLv,
 			unlocked: unlocked, bag: bag, buys: buys, items: items, st: {} };
 		SAVE_ST.forEach(function (k) { data.st[k] = st[k]; });
+		data.grindIndex = st.cones.indexOf(st.grindRail);
 		try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
 	}
 	function peekSave() {
 		try {
 			var o = JSON.parse(localStorage.getItem(SAVE_KEY));
-			return (o && o.v === 1 && typeof o.seed === "number") ? o : null;
+			return (o && o.v === 1 && Number.isFinite(o.seed) && o.st && Number.isFinite(o.st.dist) && o.st.dist>=0 &&
+				Number.isFinite(o.st.stamina) && o.st.stamina>0 && Number.isFinite(o.coins) && o.coins>=0 &&
+				o.upgLv && typeof o.upgLv === "object") ? o : null;
 		} catch (e) { return null; }
 	}
 	function deleteSave() {
@@ -3458,6 +3463,11 @@
 		upgLv = o.upgLv || {}; bag = o.bag || {}; buys = o.buys || {}; items = o.items || {};
 		for (var id in (o.unlocked || {})) if (o.unlocked[id]) unlocked[id] = true;
 		SAVE_ST.forEach(function (k) { if (o.st && o.st[k] !== undefined) st[k] = o.st[k]; });
+		st.grindRail = st.grind ? st.cones[o.grindIndex] || null : null;
+		if(st.grind && !st.grindRail) st.grind=0;
+		if(!o.st.cones && !st.goalDone) st.goalBorn=false; // Older saves did not include the visible goal.
+		st.paused=true; st.pauseBtn=""; st.tapArmed=false; clearActionAssist();
+		if(st.live && st.live.sinceClear===null) st.live.sinceClear=Infinity;
 		saveCoins(); saveUpg(); saveItems();
 	}
 	// ★NEW GAME で「置き換える旅」があるか（★セーブか、覚えた技・転生・釣果・走った記録）
@@ -4402,8 +4412,7 @@
 	function endGrind(jump) {
 		var total = st.grindPaid;
 		if (total > 0 && upgLevel("live")) {
-			var tip = liveClear(total); total += tip;
-			if (tip > 0) { st.coin += tip; addCoins(tip); }
+			queueLiveTip(liveClear(total));
 		}
 		// ★★★★このレールには、もう乗りません（2026-08-31）
 		//
@@ -5086,7 +5095,7 @@
 		// Round each coin before batching, preserving fractional BET's original payout.
 		n *= count || 1;
 		if (n <= 0) return;
-		if (!kind) n += liveClear(n);
+		if (!kind) queueLiveTip(liveClear(n));
 		st.coin += n;
 		addCoins(n);                          // ★★★その場で貯金に入る（＝すぐ買える）
 		// ★★★★レールに乗っているあいだは**静かに入る**（2026-08-31）。
@@ -6612,6 +6621,7 @@
 		updatePops(dt);
 		updateSparks(dt);   // ★★★★跳んだ軌跡のきらめき（★ここは一時停止・ショップ・
 		                    //   GAMEOVER・エンディング・READY を全部くぐった先＝止まると進まない）
+		updateDrone(dt);
 		updateDusts(dt);    // ★★★★跳んだときの土けむり（2026-08-31）
 		if (st.gainFlashMs > 0) st.gainFlashMs = Math.max(0, st.gainFlashMs - dt * 1000);
 		// ★揺れと扉の光りは、**スタミナの判定より前**で進めてある（上を見ること）
@@ -7758,7 +7768,7 @@
 		if (!upgLevel("live")) return;
 		var l = liveState(), trick = POSES[st.trick].name;
 		l.repeat = l.lastTrick === trick ? l.repeat + 1 : 1; l.lastTrick = trick;
-		if (l.repeat > 2) { l.viewers = Math.floor(l.viewers * 0.82); if (l.noticeMs <= 1000) { l.notice = "TRY A NEW TRICK"; l.noticeMs = 900; } }
+		if (l.repeat > 2) l.viewers = Math.floor(l.viewers * 0.82);
 		else if (l.sinceClear <= 12 && st.slowMs <= 0) {
 			l.viewers = Math.round(Math.min(1e9, l.viewers * (trick === "OLLIE" ? 1.25 : 1.6)));
 			if (l.noticeMs <= 1000) { l.notice = "PERFECT"; l.noticeMs = 900; } liveMilestones(l);
@@ -7771,6 +7781,57 @@
 		if (l.idle > 3) l.viewers *= Math.exp(-dt * 0.08);
 		if (l.idle > 8) l.combo = 0;
 		updateLiveCounter(l, dt);
+		updateLiveTips(dt);
+	}
+	// Pending transfers live inside the saved LIVE state. No timers can pay a later run.
+	function queueLiveTip(amount) {
+		if (!(amount > 0)) return;
+		var l=liveState(),q=l.transfers||(l.transfers=[]),last=q[q.length-1];
+		if(last && (last.age<.10 || q.length>=3)) { last.amount+=amount;last.tier=last.amount>=1000?2:last.amount>=100?1:0;return; }
+		var tier=amount>=1000?2:amount>=100?1:0;
+		q.push({amount:amount,tier:tier,age:0,duration:(liveReducedMotion && liveReducedMotion.matches) ? .12 : .56+tier*.08});
+	}
+	function updateLiveTips(dt) {
+		var l=st.live;if(!l)return;
+		l.tipArrival=Math.max(0,(l.tipArrival||0)-dt);
+		var q=l.transfers||[],arrived=0,tier=0;
+		for(var i=q.length-1;i>=0;i--) {
+			q[i].age+=dt;
+			if(q[i].age+1e-9>=q[i].duration) { arrived+=q[i].amount;tier=Math.max(tier,q[i].tier);q.splice(i,1); }
+		}
+		if(!arrived)return;
+		st.coin+=arrived;addCoins(arrived);st.gainFlashMs=GAIN_FLASH_MS;l.tipArrival=.13;l.tipArrivalTier=tier;
+		if(tier===2)coinSound();
+		else if(tier===1)melody([[1760,.035,0],[2637,.08,45]]);
+		else sound(1760,.035);
+	}
+	function liveTipPoint(tip) {
+		var F=global.DotFont,FN=F.NUM||F,endY=2+(CAMP_ON?HP_BLOCK_H+2:0)+FN.GLYPH_H+2;
+		var p=Math.min(1,tip.age/tip.duration),u=Math.max(0,(p-.16)/.84),e=u*u*(3-2*u);
+		if(liveReducedMotion&&liveReducedMotion.matches)return {x:2,y:endY,p:p};
+		return {x:Math.round((W-54)*(1-e)+2*e),y:Math.round(18*(1-e)+endY*e+12*Math.sin(Math.PI*e)),p:p};
+	}
+	function drawLiveTips() {
+		var l=st.live;if(!l)return;
+		var F=global.DotFont,FN=F.NUM||F,q=l.transfers||[],quiet=liveReducedMotion&&liveReducedMotion.matches;
+		for(var i=0;i<q.length;i++) {
+			var t=q[i],p=liveTipPoint(t);
+			// Reuse the game's pixel coin; no emoji font, zoom, glow or screen shake.
+			if(COIN_ICON)drawArt(COIN_ICON,p.x,p.y);
+			if(p.p<.76) {
+				var text="+"+shortNum(t.amount),x=Math.max(2,Math.min(W-35-FN.textWidth(text.length),p.x+7));
+				FN.drawTextShadow(ctx,text,x,p.y+7,GB[19],GB[10]);
+			}
+			if(t.tier>0&&!quiet&&p.p<.85) {
+				ctx.fillStyle=GB[19];ctx.fillRect(p.x+8,p.y+2,1,1);ctx.fillRect(p.x-3,p.y+5,1,1);
+				if(t.tier===2) { ctx.fillRect(p.x+12,p.y+4,2,1);ctx.fillRect(p.x-5,p.y-2,1,2); }
+			}
+		}
+		if(l.tipArrival>0&&!quiet) {
+			var y=2+(CAMP_ON?HP_BLOCK_H+2:0)+FN.GLYPH_H+2;
+			ctx.fillStyle=GB[19];ctx.fillRect(1,y-2,1,1);ctx.fillRect(8,y+5,1,1);
+			if(l.tipArrivalTier>0)ctx.fillRect(10,y-1,2,1);
+		}
 	}
 	function drawLiveHud() {
 		if (!upgLevel("live")) return;
@@ -7784,24 +7845,48 @@
 		else if (l.festival > 0) { var fes="FES " + Math.ceil(l.festival) + "s"; F.drawTextShadow(ctx, fes, right-F.textWidth(fes.length), 13, GB[19], GB[10]); }
 	}
 	function lightSize() { return upgLevel("light") ? 40 + 4 * (upgLevel("light") - 1) : 0; }
+	function droneRig() {
+		if (!st.drone) st.drone = { x:riderFootX()-17, y:riderGroundRow()-42-currentLift()*.55, vx:0, vy:0,
+			beam:riderFootX()+4, vb:0, width:lightSize(), vw:0, targetY:riderGroundRow()-42-currentLift()*.55 };
+		return st.drone;
+	}
+	function springAxis(d,key,velocity,target,omega,dt) {
+		// Exact critically damped spring: stable across frame rates, with no bouncing lamp.
+		var displacement=d[key]-target,j=d[velocity]+omega*displacement,e=Math.exp(-omega*dt);
+		d[key]=target+(displacement+j*dt)*e;d[velocity]=(d[velocity]-omega*j*dt)*e;
+	}
+	function updateDrone(dt) {
+		if (!upgLevel("light")) { st.drone=null;return; }
+		var d=droneRig(),targetY=riderGroundRow()-42-currentLift()*.55;
+		if(Math.abs(targetY-d.targetY)>1.25)d.targetY=targetY;
+		var slow=st.slowMs>0 ? 1-(1-HIT_SLOW)/(1+upgLevel("wheels")*.2) : 1;
+		var speed=curSpeed()*accelFactor()*slow,p=Math.max(0,Math.min(1,(speed-80)/40)),lead=28*p*p*(3-2*p);
+		springAxis(d,"x","vx",riderFootX()-17,6.5,dt);
+		springAxis(d,"y","vy",d.targetY,6.5,dt);
+		springAxis(d,"beam","vb",riderFootX()+4+lead,4.8,dt);
+		springAxis(d,"width","vw",lightSize()+lead*.25,4.5,dt);
+	}
 	function drawDroneLight() {
-		var size = lightSize(); if (!size || st.campPhase) return;
-		var cx = Math.round(riderFootX()), foot = riderGroundRow() - currentLift(), cy = Math.round(foot - 12);
-		var alpha = ctx.globalAlpha, op = ctx.globalCompositeOperation;
-		if (nightAlpha() > 0) {
-			ctx.globalCompositeOperation = "lighter"; ctx.fillStyle = "#b3c9b4";
-			// Three stepped pixel bands add up to 40% in the center. No blur or full-screen wash.
-			for (var i=0; i<3; i++) {
-				var inset=i*3, side=size-inset*2, cut=Math.round(side/5), x=Math.round(cx-size/2)+inset, y=Math.round(cy-size/2)+inset;
-				ctx.globalAlpha=[0.08,0.12,0.20][i] * Math.min(1, nightAlpha()/NIGHT_A1);
-				ctx.fillRect(x+cut,y,side-2*cut,cut); ctx.fillRect(x,y+cut,side,side-2*cut); ctx.fillRect(x+cut,y+side-cut,side-2*cut,cut);
+		if(!lightSize()||st.campPhase)return;
+		var d=droneRig(),dx=Math.round(d.x),dy=Math.round(d.y),alpha=ctx.globalAlpha,op=ctx.globalCompositeOperation;
+		var top=dy+5,bottom=Math.round(groundRowAt(Math.round(d.beam))+3),height=Math.max(8,bottom-top);
+		if(nightAlpha()>0) {
+			ctx.globalCompositeOperation="lighter";ctx.fillStyle="#b3c9b4";
+			// Two-pixel scanlines keep the cone crisp; only the core adds up to 40%.
+			for(var row=0;row<height;row+=2) {
+				var t=row/height,center=dx+4+(d.beam-dx-4)*t,span=2+(d.width-2)*t;
+				for(var layer=0;layer<3;layer++) {
+					var w=Math.max(1,Math.round(span*[1,.66,.34][layer]));
+					ctx.globalAlpha=[.10,.14,.16][layer]*Math.min(1,nightAlpha()/NIGHT_A1);
+					ctx.fillRect(Math.round(center-w/2),top+row,w,Math.min(2,height-row));
+				}
 			}
 		}
-		ctx.globalCompositeOperation = op; ctx.globalAlpha = alpha;
-		var dx = cx-17, dy = cy-15 + (Math.floor(st.animMs/240)%2), spin=Math.floor(st.animMs/80)%2;
-		ctx.fillStyle=GB[10]; ctx.fillRect(dx+2,dy+1,5,4); ctx.fillRect(dx,dy+2,9,1);
-		ctx.fillStyle=GB[15]; ctx.fillRect(dx+3,dy+1,3,2); ctx.fillRect(dx-spin,dy,3,1); ctx.fillRect(dx+6+spin,dy,3,1);
-		ctx.fillStyle=GB[19]; ctx.fillRect(dx+4,dy+4,1,1);
+		ctx.globalCompositeOperation=op;ctx.globalAlpha=alpha;
+		var spin=Math.floor(st.animMs/80)%2;
+		ctx.fillStyle=GB[10];ctx.fillRect(dx+2,dy+1,5,4);ctx.fillRect(dx,dy+2,9,1);
+		ctx.fillStyle=GB[15];ctx.fillRect(dx+3,dy+1,3,2);ctx.fillRect(dx-spin,dy,3,1);ctx.fillRect(dx+6+spin,dy,3,1);
+		ctx.fillStyle=GB[19];ctx.fillRect(dx+4,dy+4,1,1);
 	}
 	function drawPinchWarning() {
 		if (!assistsActive() || st.stamina / st.staminaMax > PLAY_ASSIST.pinchRatio) return;
@@ -9032,6 +9117,7 @@
 			coinX = 2 + COIN_ICON.rows[0].length + 2;
 		}
 		FN.drawTextShadow(ctx, shortNum(coins), coinX, coinY, GB[coinCol], GB[10]);
+		drawLiveTips();
 		// ============================================================
 		// ★★★★いま何倍で走っているか（2026-08-23 島さんの指定 ＝ BET）
 		// ============================================================
@@ -9184,7 +9270,7 @@
 	//   ★描くところと当たり判定は `pauseBtnRects()` の1か所を共有（★campBtnRects と同じ作法）。
 	//   ★★テストモードでは SAVE+QUIT を押せない（★記録を汚さない）
 	function pauseBtnRects() {
-		var F = global.DotFont, h = F.GLYPH_H + 6, w = F.textWidth(9) + 16;
+		var F = global.DotFont, h = 28, w = 152;
 		// ★PAUSE の文字とボタン2つを、ひとかたまりで上下のまん中に置く（→ pauseTop）
 		var x = Math.floor((W - w) / 2), top = pauseTop() + F.GLYPH_H + 12;
 		return [{ id: "resume", text: "RESUME", x: x, y: top, w: w, h: h, off: false },
@@ -9199,19 +9285,23 @@
 		return "";
 	}
 	function pauseTop() {
-		var F = global.DotFont, h = F.GLYPH_H + 6;
+		var F = global.DotFont, h = 28;
 		return Math.floor((H - (F.GLYPH_H + 12 + h * 2 + 4)) / 2);
 	}
 	function drawPauseScreen() {
 		var F = global.DotFont;
-		drawCenterAt("PAUSE", pauseTop());
+		var box=pauseBtnRects()[0],total=F.GLYPH_H+12+28*2+4;
+		ctx.fillStyle="#101f20";ctx.fillRect(box.x-10,pauseTop()-10,box.w+20,total+20);
+		drawCenterAt("PAUSE", pauseTop(),16);
 		pauseBtnRects().forEach(function (b) {
 			var on = st.pauseBtn === b.id;
-			ctx.fillStyle = GB[9]; ctx.fillRect(b.x, b.y, b.w, b.h);
-			ctx.fillStyle = GB[on ? 9 : 29]; ctx.fillRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+			ctx.fillStyle = "#080d14"; ctx.fillRect(b.x, b.y, b.w, b.h);
+			ctx.fillStyle = on?"#264039":"#1d2b53"; ctx.fillRect(b.x + 1, b.y + 1, b.w - 2, b.h - 3);
+			ctx.fillStyle=on?GB[19]:"#b4c7cb";ctx.fillRect(b.x+1,b.y+1,b.w-2,1);
 			F.drawText(ctx, b.text, b.x + Math.floor((b.w - F.textWidth(b.text.length)) / 2),
-				b.y + Math.floor((b.h - F.GLYPH_H) / 2), GB[b.off ? 7 : (on ? 29 : 9)]);
+				b.y + Math.floor((b.h - F.GLYPH_H) / 2), GB[b.off ? 7 : 16]);
 		});
+		if(st.saveFailed)drawCenterAt("SAVE FAILED - TRY AGAIN",H-18,18);
 	}
 
 
@@ -10377,6 +10467,7 @@
 			if (st.campPhase) return;
 			st.paused = !st.paused;
 			st.pauseBtn = "";
+			st.saveFailed = false;
 			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
 			sound(st.paused ? 440 : 660, 0.06);
 		},
@@ -10396,8 +10487,10 @@
 		getBest: function () { return st ? best : loadBest(); },
 		_state: function () { return st; },
 		_assistConfig: function () { return Object.assign({}, PLAY_ASSIST); },
+		_droneRig: droneRig, _updateDrone: updateDrone, _springAxis: springAxis,
 		_liveClear: liveClear, _liveLanding: liveLanding, _lightSize: lightSize,
 		_updateLiveCounter: updateLiveCounter, _drawLiveCounter: drawLiveCounter,
+		_queueLiveTip: queueLiveTip, _updateLiveTips: updateLiveTips, _liveTipPoint: liveTipPoint,
 		_accelSpan: accelSpan,
 		_tryGrind: tryGrind,
 		_riderFootX: riderFootX,
@@ -10550,6 +10643,7 @@
 				if (pzWas && pzWas === pz) {
 					if (pz === "resume") this.togglePause();
 					else if (saveRun()) { sound(990, 0.06); st.paused = false; if (exitToMenu) exitToMenu(); }
+					else st.saveFailed=true;
 				}
 				return true;
 			}
@@ -10622,6 +10716,7 @@
 		},
 
 		inputPointerMove: function (x, y) {
+			if(st && st.paused && !st.campPhase && !st.shopOpen){if(pauseHit(x,y)!==st.pauseBtn)st.pauseBtn="";return true;}
 			if (st && !st.shopOpen && st.fishBtn && global.DotFishing) {
 				var r = st.campPhase === "fish" ? global.DotFishing.BACK : global.DotFishing.ENTRY;
 				if (!global.DotFishing.contains(r, x, y)) st.fishBtn = "cancel";
