@@ -8,9 +8,10 @@
   //   ★★★これまでこの保存には「足跡」しか入れていませんでしたが、
   //     ★**島さんが「残るのは記録だけにこだわらない」と決めた**ので、
   //     ★★**初めて「力になるもの」が永久に残ります**。
-  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, routes: {}, lastDistance: 0, caps: {} }; }
+  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true} }; }
   // ★上限が伸びる項目（★`js/upgrades.js` の id とそろえること）
-  var CAP_IDS = ['speed', 'stamina', 'coin', 'rail'];
+  var CAP_IDS = ['speed', 'stamina', 'coin', 'rail', 'wheels', 'magnet', 'light', 'recover', 'live', 'drink'];
+  var PANEL_IDS = CAP_IDS.concat(['shoes','railpass','maxdrink','kickflip','pop','prestige']);
   function read(key) { try { return JSON.parse(global.localStorage.getItem(key)); } catch (e) { return null; } }
   function save() { try { global.localStorage.setItem(KEY, JSON.stringify(profile)); } catch (e) { /* Play remains available. */ } }
   function load() {
@@ -30,6 +31,12 @@
       profile.lastDistance = Number.isFinite(raw.lastDistance) ? Math.max(0, Math.floor(raw.lastDistance)) : 0;
       if (raw.routes && raw.routes.ridge === true) profile.routes.ridge = true;
       profile.doubleJump = raw.doubleJump === true;
+      PANEL_IDS.forEach(function(id){ if(raw.panels && raw.panels[id] === true) profile.panels[id]=true; });
+      if (!raw.panels) {
+        var oldGear=read('dotollie-upg');
+        PANEL_IDS.forEach(function(id){ if(profile.caps[id] || (oldGear && oldGear.lv && oldGear.lv[id]>0)) profile.panels[id]=true; });
+        if(profile.doubleJump) profile.panels.shoes=true;
+      }
       ['kickflip', 'pop'].forEach(function (id) { if (raw.tricks && raw.tricks[id] === true) profile.tricks[id] = true; });
       ['0', '1', '2'].forEach(function (id) {
         var cm = raw.fish && raw.fish[id];
@@ -41,11 +48,16 @@
       ['kickflip', 'pop'].forEach(function (id) { if (old && old.un && old.un[id] === true) profile.tricks[id] = true; });
       profile.doubleJump = Number.isFinite(best) && best >= 5000;
     }
-    if (profile.rank === 1) profile.tricks.kickflip = true;
+    if (profile.rank > 0) { profile.panels.prestige = true; profile.panels.railpass = true; }
     save(); return snapshot();
   }
   function get() { if (!profile) load(); return profile; }
   function snapshot() { return JSON.parse(JSON.stringify(get())); }
+  function unlockPanels(ids) {
+    var p=get(),added=[];
+    (ids||[]).forEach(function(id){if(PANEL_IDS.indexOf(id)>=0 && !p.panels[id]){p.panels[id]=true;added.push(id);}});
+    if(added.length) save(); return added;
+  }
   function learn(id) {
     var p = get();
     if (id === 'doubleJump') p.doubleJump = true;
@@ -83,6 +95,6 @@
     if (fish.cm > (p.fish[id] || 0)) { p.fish[id] = fish.cm; save(); }
   }
   global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish,
-    prestige: prestige, CAP_IDS: CAP_IDS,
+    prestige: prestige, CAP_IDS: CAP_IDS, unlockPanels: unlockPanels,
     clear: function () { profile = fresh(); save(); } };
 })(typeof window !== 'undefined' ? window : globalThis);

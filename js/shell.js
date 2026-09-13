@@ -34,7 +34,12 @@
 	var TEST_MENU_ON = 0;
 
 	var GAMES = [
-		{ label: "START", skater: 0, game: function () { return DotOllie; } },
+		// ★★★★★2026-09-13、島さんの指定で3つに分けた:
+		//   > 島さん「タイトル画面で「はじめから」と「つづきから」と「オプション」を選べるように」
+		//   ★フォントにひらがなが無いので英語で出す。★`sub` = 選んだら開く画面（→ `openSub()`）
+		{ label: "NEW GAME", skater: 0, sub: "newgame", game: function () { return DotOllie; } },
+		{ label: "CONTINUE", skater: 0, sub: "continue", game: function () { return DotOllie; } },
+		{ label: "OPTIONS", skater: 0, sub: "options" },
 		// ============================================================
 		// ★★★テストモード（2026-08-22 島さんの指定）
 		// ============================================================
@@ -265,8 +270,12 @@
 		// ★スケーターは出さない（島さんの指定 2026-08-12）。番号だけを見せる画面にする
 	}
 
-	function enterSeed() {
-		pendingSeed = global.DotWorld.newSeed();   // ★ここで世界が決まる
+	// ★★★★★2026-09-13: `seed` を渡したら、その番号の世界へ（★島さん「同じシード値で同じ世界へ」）
+	function enterSeed(seed, fresh) {
+		pendingFresh = !!fresh;
+		pendingSeed = (typeof seed === "number")
+			? global.DotWorld.setSeed(seed)          // ★入力した番号
+			: global.DotWorld.newSeed();             // ★ここで世界が決まる
 		mode = "seed";
 		beep(770, 0.05);
 		// ★[もどる]は出さない（島さんの指定）。タップすればプレイ画面へ進むので行き止まりにならない
@@ -279,6 +288,231 @@
 		cursor = (cursor + step + GAMES.length) % GAMES.length;
 		beep(770, 0.04);
 		renderMenu();
+	}
+
+	// ============================================================
+	// ■ ★★★★★NEW GAME / CONTINUE / OPTIONS の画面（2026-09-13 島さんの指定）
+	// ============================================================
+	//
+	//   > 島さん「はじめからを選択でスタートかシード値入力を選べる。(同じシード値で同じ世界へ)
+	//   >   つづきからは一つのセーブスロットを表示し選べる。セーブ削除も選べる。」
+	//
+	//   ★★ボタンはタップで決める（★押したボタンの上で離したときだけ ＝ ずらせば取り消せる）。
+	//   ★★★描くところ（renderSub）と当たり判定（subHit）は `subButtons()` の1か所を共有する
+	//     （★`campBtnRects()` と同じ作法。離すと「絵と判定がずれる」事故が起きる）
+	var SUB_MODES = { newgame: 1, newask: 1, seedpad: 1, "continue": 1, del: 1, options: 1 };
+	var SUB_HEAD = { newgame: "NEW GAME", newask: "ERASE OLD DATA?", seedpad: "INPUT SEED",
+		"continue": "CONTINUE", del: "DELETE?", options: "OPTIONS" };
+	// ★★★★★NEW GAME から来たか（★true なら技も成長も引き継がずに始める）
+	var pendingFresh = false;
+	var subSel = 0;            // 選んでいるボタン（なぞる・矢印キーで動く）
+	var subPress = null;       // 押しているボタンの id（離すまで決めない）
+	var seedDigits = "";       // 入力中のシード値
+	var SEED_DIGITS = 5;       // ★シードは 0〜99999（→ js/world.js の newSeed）
+	var BTN_H = DotFont.GLYPH_H + 6;
+	var OPTIONS_KEY = "dotollie-options";
+
+	// ---- オプション（★音は昔からの dotollie-sound をそのまま使う）----
+	function loadOptions() {
+		var o = { shake: 1, flash: 1 };
+		try {
+			var raw = JSON.parse(localStorage.getItem(OPTIONS_KEY) || "{}");
+			if (raw.shake === 0) o.shake = 0;
+			if (raw.flash === 0) o.flash = 0;
+		} catch (e) { /* 読めなくても既定値で遊べる */ }
+		return o;
+	}
+	function saveOptions(o) {
+		try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(o)); } catch (e) { /* 保存できなくても遊べる */ }
+	}
+	function soundIsOn() {
+		try { return localStorage.getItem("dotollie-sound") !== "off"; } catch (e) { return true; }
+	}
+	function setSound(on) {
+		try { localStorage.setItem("dotollie-sound", on ? "on" : "off"); } catch (e) { /* 保存できなくても遊べる */ }
+	}
+	// ★★ゲーム側（js/ollie.js）が「ゆれ」「フラッシュ」を見るための窓口
+	global.DotOptions = { get: function (key) { return loadOptions()[key]; } };
+
+	// ---- セーブスロット（★中身を作るのは js/ollie.js。★まだ無ければ NO DATA）----
+	function peekSave() {
+		var G = global.DotOllie;
+		return (G && G.peekSave) ? G.peekSave() : null;
+	}
+	// ★置き換える旅があるか（★セーブ、または覚えた技・転生・走った記録）
+	function hasJourney() {
+		var G = global.DotOllie;
+		return !!(G && G.hasJourney && G.hasJourney());
+	}
+
+	// 縦に並べるボタン（★いちばん長い文字にそろえて、まん中に置く）
+	function listButtons(items, top, minChars) {
+		var w = DotFont.textWidth(minChars || 0), i;
+		for (i = 0; i < items.length; i++) w = Math.max(w, DotFont.textWidth(items[i][1].length));
+		w += 16;
+		var x = Math.floor((LCD_W - w) / 2), out = [];
+		for (i = 0; i < items.length; i++) {
+			out.push({ id: items[i][0], text: items[i][1], off: !!items[i][2],
+				x: x, y: top + i * (BTN_H + 4), w: w, h: BTN_H });
+		}
+		return out;
+	}
+
+	function subButtons() {
+		if (mode === "newgame") {
+			return listButtons([["random", "RANDOM SEED"], ["input", "INPUT SEED"], ["back", "BACK"]], 54);
+		}
+		if (mode === "seedpad") {
+			// ★液晶に数字パッド（島さんの指定）。1 2 3 4 5 / 6 7 8 9 0 / DEL BACK OK
+			var out = [], keys = "1234567890", cw = 28, ch = 18, gap = 4;
+			var x0 = Math.floor((LCD_W - (cw * 5 + gap * 4)) / 2);
+			for (var k = 0; k < 10; k++) {
+				out.push({ id: "d" + keys.charAt(k), text: keys.charAt(k), off: seedDigits.length >= SEED_DIGITS,
+					x: x0 + (k % 5) * (cw + gap), y: 44 + Math.floor(k / 5) * (ch + gap), w: cw, h: ch });
+			}
+			var bw = Math.floor((cw * 5 + gap * 2) / 3);
+			[["del", "DEL", !seedDigits], ["back", "BACK"], ["ok", "OK", !seedDigits]].forEach(function (it, j) {
+				out.push({ id: it[0], text: it[1], off: !!it[2],
+					x: x0 + j * (bw + gap), y: 44 + 2 * (ch + gap) + 4, w: bw, h: ch });
+			});
+			return out;
+		}
+		if (mode === "newask") return listButtons([["yes", "YES"], ["no", "NO"]], 84);
+		if (mode === "continue") {
+			// ★セーブがあれば LOAD（保存した旅の再開）／無ければ NEXT RUN（技と記録を持って次のラン）
+			var s = peekSave(), j = hasJourney();
+			return listButtons([["load", s ? "LOAD" : "NEXT RUN", !j], ["delete", "DELETE", !j],
+				["back", "BACK"]], 70);
+		}
+		if (mode === "del") return listButtons([["yes", "YES"], ["no", "NO"]], 84);
+		if (mode === "options") {
+			var o = loadOptions();
+			return listButtons([
+				["sound", "SOUND " + (soundIsOn() ? "ON" : "OFF")],
+				["shake", "SHAKE " + (o.shake ? "ON" : "OFF")],
+				["flash", "FLASH " + (o.flash ? "ON" : "OFF")],
+				["back", "BACK"]], 44, 9);          // ★ON⇄OFF で箱の幅が変わらないように
+		}
+		return [];
+	}
+
+	function renderSub() {
+		lctx.fillStyle = GB[22];                // 選択画面と同じ地の色(藤色)
+		lctx.fillRect(0, 0, LCD_W, LCD_H);
+		drawCenterLine(SUB_HEAD[mode], (mode === "del" || mode === "newask") ? 64 : (mode === "seedpad" ? 10 : 24));
+		if (mode === "seedpad") {
+			var shown = seedDigits;
+			while (shown.length < SEED_DIGITS) shown += "-";
+			drawCenterLine(shown, 26);
+		}
+		if (mode === "continue") {
+			var s = peekSave();
+			if (!s && !hasJourney()) drawCenterLine("NO DATA", 46);
+			else if (!s) {
+				var jp = global.DotOllie.getJourney();
+				drawCenterLine("LAST " + (jp.lastDistance || 0) + "m", 40);
+				drawCenterLine("RANK " + (jp.rank || 0), 52);
+			} else {
+				drawCenterLine("SEED " + s.seed, 40);
+				drawCenterLine(Math.floor(s.m || 0) + "m", 52);
+			}
+		}
+		var bs = subButtons();
+		if (subSel >= bs.length) subSel = 0;
+		for (var i = 0; i < bs.length; i++) {
+			var b = bs[i], on = (i === subSel) || (subPress === b.id);
+			lctx.fillStyle = GB[9];                                   // 枠（まっ黒）
+			lctx.fillRect(b.x, b.y, b.w, b.h);
+			lctx.fillStyle = on ? GB[9] : GB[29];                     // 選んでいる＝黒く塗る
+			lctx.fillRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+			DotFont.drawText(lctx, b.text,
+				b.x + Math.floor((b.w - DotFont.textWidth(b.text.length)) / 2),
+				b.y + Math.floor((b.h - DotFont.GLYPH_H) / 2),
+				b.off ? GB[7] : (on ? GB[29] : GB[9]));            // ★押せないボタンは銀
+		}
+	}
+
+	function subHit(p) {
+		if (!p) return null;
+		var bs = subButtons();
+		for (var i = 0; i < bs.length; i++) {
+			var b = bs[i];
+			if (p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h) return { b: b, i: i };
+		}
+		return null;
+	}
+
+	function subMove(step) {
+		var n = subButtons().length;
+		if (!n) return;
+		subSel = (subSel + step + n) % n;
+		subPress = null;
+		beep(770, 0.04);
+		renderSub();
+	}
+
+	function openSub(name, sel) {
+		mode = name;
+		subSel = sel || 0;
+		subPress = null;
+		showMenuPad();
+		renderSub();
+	}
+
+	function backToTitle() {
+		mode = "menu";
+		subPress = null;
+		showMenuPad();
+		renderMenu();
+	}
+
+	// ★タイトルで項目を決めた
+	function chooseMenu() {
+		var g = GAMES[cursor];
+		if (!g) return;
+		beep(990, 0.06);
+		if (g.sub === "newgame" && hasJourney()) openSub("newask", 1);   // ★置き換える前に一段はさむ（はじめは NO）
+		else if (g.sub) openSub(g.sub);
+		else enterSeed();                     // ★TEST の項目は、いままでどおり SEED ID 画面へ
+	}
+
+	function loadGame() {
+		var s = peekSave();
+		if (!s) return;
+		pendingSeed = global.DotWorld.setSeed(s.seed);
+		startGame(GAMES[cursor], { resume: true });
+	}
+
+	function subAct(id) {
+		var bs = subButtons(), b = null;
+		for (var i = 0; i < bs.length; i++) if (bs[i].id === id) b = bs[i];
+		if (!b || b.off) return;
+		beep(990, 0.06);
+		if (mode === "newgame") {
+			if (id === "random") enterSeed(undefined, true);
+			else if (id === "input") { seedDigits = ""; openSub("seedpad"); }
+			else backToTitle();
+		} else if (mode === "seedpad") {
+			if (id.length === 2 && id.charAt(0) === "d") { seedDigits += id.charAt(1); renderSub(); }
+			else if (id === "del") { seedDigits = seedDigits.slice(0, -1); renderSub(); }
+			else if (id === "ok") enterSeed(Number(seedDigits), true);
+			else openSub("newgame", 1);
+		} else if (mode === "continue") {
+			if (id === "load") { if (peekSave()) loadGame(); else enterSeed(); }   // ★セーブが無ければ次のラン
+			else if (id === "delete") openSub("del", 1);   // ★はじめは NO を選んでおく（押し間違いよけ）
+			else backToTitle();
+		} else if (mode === "del") {
+			if (id === "yes" && global.DotOllie && global.DotOllie.clearJourney) global.DotOllie.clearJourney();
+			openSub("continue", id === "yes" ? 2 : 1);
+		} else if (mode === "newask") {
+			if (id === "yes") openSub("newgame");
+			else backToTitle();
+		} else if (mode === "options") {
+			if (id === "back") { backToTitle(); return; }
+			if (id === "sound") setSound(!soundIsOn());
+			else { var o = loadOptions(); o[id] = o[id] ? 0 : 1; saveOptions(o); }
+			renderSub();
+		}
 	}
 
 	// ---- ゲームパッド ----
@@ -386,6 +620,14 @@
 		//   ★★これは買い物画面で 2026-08-16 に踏んだのと**まったく同じ罠**
 		//     （→ `js/ollie.js` の `inputUp` の説明）。★同じ解き方でそろえてある
 		if (mode === "menu") return;
+		// ★★★★★NEW GAME などの画面: 押したボタンを覚えるだけ（★決めるのは離したとき）
+		if (SUB_MODES[mode]) {
+			var hit = subHit(lcdPoint(ev));
+			subPress = (hit && !hit.b.off) ? hit.b.id : null;
+			if (hit) subSel = hit.i;
+			renderSub();
+			return;
+		}
 		padDown("act");                       // ★押した瞬間に出す(反応を遅らせない)
 	});
 
@@ -409,6 +651,7 @@
 		// ★★★タイトル画面: なぞってカーソルを動かす（2026-08-22 島さんの指定）。
 		//   ★★**上へなぞる＝1つ上 / 下へなぞる＝1つ下**（★お店の一覧と同じ操作）
 		if (mode === "menu") { moveCursor(dy > 0 ? -1 : 1); return; }
+		if (SUB_MODES[mode]) { subMove(dy > 0 ? -1 : 1); return; }   // ★なぞったら押したことは取り消す
 		if (mode !== "game" || !activeGame) return;
 		if (dy > 0) {
 			if (activeGame.inputSwipeUp) activeGame.inputSwipeUp();
@@ -446,7 +689,15 @@
 		swipeFromX = null;
 		// ★★★タイトル画面は、ここで決める（★なぞっただけのときは決めない）
 		if (mode === "menu") {
-			if (!swiped && swipeFromMode === "menu") { beep(990, 0.06); enterSeed(); }
+			if (!swiped && swipeFromMode === "menu") chooseMenu();
+			return;
+		}
+		// ★★★★★NEW GAME などの画面: 押したボタンの上で離したときだけ決める
+		if (SUB_MODES[mode]) {
+			var pressed = subPress, up = subHit(lcdPoint(ev));
+			subPress = null;
+			if (!swiped && swipeFromMode === mode && pressed && up && up.b.id === pressed) subAct(pressed);
+			else renderSub();
 			return;
 		}
 		padUp("act", swiped);
@@ -454,6 +705,7 @@
 	tapEl.addEventListener("pointercancel", function (ev) {
 		if (ev.isPrimary === false) return;
 		swipeFromY = null; swipeFromX = null;
+		if (SUB_MODES[mode] && subPress) { subPress = null; renderSub(); }
 		// ★★キャンプの中: 指が外れたら歩くのをやめる
 		if (activeGame && activeGame.inputDrag) activeGame.inputDrag(0, 0);
 		// ★★★ボタンを押したまま指が外れたら、押していないことにする（★決まらない）
@@ -517,7 +769,7 @@
 	}
 
 	// ---- ゲームの起動・終了 ----
-	function startGame(entry) {
+	function startGame(entry, extra) {
 		var g = entry.game();
 		mode = "game";
 		activeGame = g;
@@ -543,6 +795,10 @@
 			// ★★★★テストモードで最初から持っているお金（2026-09-03 島さんの指定）
 			//   ★ふつうの START には書いていないので **0**（＝いつもどおり空の財布）
 			startCoin: entry.startCoin || 0,
+			// ★★★★★CONTINUE（2026-09-13 島さんの指定）。★セーブの中身を戻すのは js/ollie.js
+			resume: !!(extra && extra.resume),
+			// ★★★★★NEW GAME から来たときだけ、旅の記録を消して始める（→ js/ollie.js の start）
+			fresh: !entry.test && !(extra && extra.resume) && pendingFresh,
 			// ゲーム側でボタンが増えたとき(例: 何かを習得)に呼んでもらう
 			refreshPad: function () { showPad(activeGame.pad || ["act"], false); },
 			// ★★★ゲームから「メニューへ戻して」と言うための窓口（2026-08-16 / Phase D）
@@ -575,7 +831,11 @@
 			if (action === "left") moveCursor(-1);
 			else if (action === "right") moveCursor(1);
 			// ★★決定 → いきなり遊ばず、まず SEED ID 画面へ（島さんの指定）
-			else if (action === "act" && GAMES.length > 0) { beep(990, 0.06); enterSeed(); }
+			else if (action === "act" && GAMES.length > 0) chooseMenu();
+			return;
+		}
+		if (SUB_MODES[mode]) {
+			if (action === "act") { var bs = subButtons(); if (bs[subSel]) subAct(bs[subSel].id); }
 			return;
 		}
 		if (mode === "seed") {
@@ -631,10 +891,22 @@
 	}
 
 	document.addEventListener("keydown", function (ev) {
+		// ★★★★★NEW GAME などの画面（2026-09-13）
+		if (SUB_MODES[mode]) {
+			var k = ev.key;
+			if (mode === "seedpad" && /^[0-9]$/.test(k)) subAct("d" + k);
+			else if (mode === "seedpad" && k === "Backspace") subAct("del");
+			else if (k === "ArrowUp" || k === "ArrowLeft") subMove(-1);
+			else if (k === "ArrowDown" || k === "ArrowRight") subMove(1);
+			else if (k === "Escape") subAct((mode === "del" || mode === "newask") ? "no" : "back");
+			else if (k === "Enter" || k === " ") { var kb = subButtons(); if (kb[subSel]) subAct(kb[subSel].id); }
+			ev.preventDefault();
+			return;
+		}
 		if (mode === "menu") {
 			if (ev.key === "ArrowUp" || ev.key === "ArrowLeft") moveCursor(-1);
 			else if (ev.key === "ArrowDown" || ev.key === "ArrowRight") moveCursor(1);
-			else if (GAMES.length > 0) { beep(990, 0.06); startGame(GAMES[cursor]); }
+			else if (GAMES.length > 0) chooseMenu();
 			ev.preventDefault();
 			return;
 		}
@@ -670,6 +942,11 @@
 		// ★SEED ID 画面で見せている番号（テスト・確認用）
 		getPendingSeed: function () { return pendingSeed; },
 		getGames: function () { return GAMES.map(function (g) { return g.label; }); },
+		// ★★★★★NEW GAME などの画面（2026-09-13。テスト・確認用）
+		choose: function (i) { if (typeof i === "number") cursor = i; chooseMenu(); },
+		pick: function (id) { subAct(id); },
+		getSubButtons: function () { return SUB_MODES[mode] ? subButtons() : []; },
+		getSeedDigits: function () { return seedDigits; },
 		padDown: padDown,
 		padUp: padUp,
 		backToMenu: backToMenu

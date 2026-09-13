@@ -235,7 +235,16 @@ canvas.pad-label {
 .shop-product[data-item="prestige"] { border-color: #ffec27; box-shadow: inset 0 2px #ffec27, inset 0 -3px #10141e; }
 /* ★グリッチフェードイン … ★★**steps(1)** なのでなめらかにならず、カタカタ揃います。
    ★★★長さ（--glitch-ms）は `js/ollie.js` の `PRESTIGE_GLITCH_MS` から渡ってきます */
-.shop-product.glitch-in { animation: shop-glitch var(--glitch-ms, 700ms) steps(1, end) 1; }
+.shop-product.glitch-in { animation: shop-glitch var(--glitch-ms, 900ms) steps(1, end) 1, shop-unlock-light var(--glitch-ms, 900ms) steps(1, end) 1; }
+.shop-tabs .has-new { border-color: #ffec27; }
+.shop-tabs .has-new::after { content: "NEW"; color: #ffec27; font: bold 10px monospace; margin-left: 6px; }
+.reborn-reward { color: #ffec27; padding: 8px; border-left: 3px solid #ffec27; background: #263735; }
+@keyframes shop-unlock-light {
+  0%, 32% { border-color: #29adff; box-shadow: inset 0 0 0 4px #29adff; }
+  16%, 48% { border-color: #ffec27; box-shadow: inset 0 0 0 4px #ffec27; }
+  64% { border-color: #fff1e8; box-shadow: inset 0 0 0 3px #fff1e8; }
+  80% { border-color: #ffec27; box-shadow: inset 0 0 0 2px #ffec27; }
+}
 @keyframes shop-glitch {
 	0%   { transform: translateX(-9px); clip-path: inset(0 0 62% 0); opacity: .45; }
 	16%  { transform: translateX(8px);  clip-path: inset(46% 0 0 0);  opacity: .8; }
@@ -264,6 +273,42 @@ canvas.pad-label {
 	.shop-grid { gap: 6px; }
 	.shop-product { padding: 7px; gap: 4px; }
 	.shop-title { padding-left: 4px; }
+}
+
+/* A growing shelf: only discovered products occupy space. */
+#pixel-shop[open] { display: flex; flex-direction: column; touch-action: pan-y; }
+#pixel-shop .shop-header, #pixel-shop .shop-tabs { flex: 0 0 auto; }
+#pixel-shop [hidden] { display: none; }
+#pixel-shop .shop-grid { flex: 1; overflow-y: auto; align-content: start; grid-template-rows: none; grid-auto-rows: minmax(164px, auto); touch-action: pan-y; padding: 2px; }
+.shop-next { margin: 0; border-left: 2px solid #83769c; padding: 4px 8px; font-size: 12px; line-height: 1.6; color: #afb3b5; }
+.shop-product { grid-template-rows: 14px 64px auto 14px; min-height: 190px; }
+.shop-demo { height: 64px; }
+.shop-product-help { margin: 0; font-size: 11px; line-height: 1.5; color: #b4c7cb; }
+#pixel-shop .shop-grid { grid-auto-rows: max-content; }
+.shop-grid > .shop-product:only-child { grid-column: 1 / -1; width: min(100%, 340px); justify-self: center; min-height: 208px; }
+.shop-product[data-item="prestige"] { grid-column: 1 / -1; grid-template-rows: auto auto auto; background: #182a29; border-color: #ffec27; min-height: max-content; }
+.shop-product[data-item="prestige"] .shop-product-name { gap: 12px; }
+.reborn-heading { margin: 0; font-size: 15px; font-weight: 700; color: #fff1e8; }
+.reborn-summary { display: grid; gap: 8px; width: 100%; text-align: left; font-size: 13px; line-height: 1.6; }
+.reborn-summary p { margin: 0; }
+.reborn-label { font-size: 12px; font-weight: 700; color: #fff1e8; }
+.reborn-gain { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #101f20; padding: 8px 10px; }
+.reborn-gain canvas { height: 16px; object-fit: contain; }
+.reborn-note { color: #afb3b5; font-size: 12px; }
+.reborn-reset { border-left: 2px solid #ff845e; padding: 4px 10px; color: #ffb49b; background: #292426; }
+.reborn-keeps { color: #b4d8c3; }
+.reborn-open { margin: 0; padding-top: 5px; font-size: 12px; font-weight: 700; text-align: right; color: #ffec27; }
+.shop-ask { overflow-y: auto; touch-action: pan-y; padding: 8px; }
+.shop-ask-box { width: min(100%, 480px); box-sizing: border-box; gap: 10px; padding: 16px; max-height: 100%; overflow-y: auto; touch-action: pan-y; }
+.shop-ask-btns { width: 100%; gap: 10px; position: sticky; bottom: -16px; background: #10141e; padding: 8px 0; }
+.shop-ask-btns .shop-control { flex: 1; flex-direction: column; gap: 6px; min-width: 0; color: #fff1e8; }
+.shop-ask-btns .shop-control:last-child { background: #264039; box-shadow: inset 0 2px #ffec27, inset 0 -3px #000; }
+.shop-ask-btns p { margin: 0; font-size: 12px; }
+@media (orientation: landscape) and (max-height: 440px) {
+	.shop-product { grid-template-rows: 14px 24px auto 14px; min-height: 126px; padding: 6px; gap: 3px; }
+	.shop-demo { height: 24px; }
+	.shop-grid > .shop-product:only-child { min-height: 126px; }
+	.shop-product[data-item="prestige"] { grid-template-rows: auto auto auto; }
 }
 
 /* ============================================================

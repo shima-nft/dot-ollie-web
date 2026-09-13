@@ -2,13 +2,15 @@
 // Only visible shop canvases animate, at 24fps; no timer survives closing.
 (function (global) {
   "use strict";
-  var game, dialog, grid, wallet, tabs, cards = [], group = "upg", raf = 0, last = 0, ask = null;
+  var game, dialog, grid, wallet, tabs, trailHint, cards = [], group = "upg", raf = 0, last = 0, ask = null;
   var previousFocus, cache = new Map(), reduced = matchMedia("(prefers-reduced-motion: reduce)");
   var F = global.DotFont, P = global.DotPalette.COLORS;
   var help = {
-    speed: "走る速さが上がる", stamina: "最大HPが増える", coin: "障害物・拾うコイン・レールの報酬が大きくなる", rail: "レール報酬が増え、飛び出しが少し高くなる",
+    speed: "ベアリング：最高速が上がる", stamina: "最大HPが増える", coin: "障害物・拾うコイン・レールの報酬が大きくなる", rail: "トラック：手すりの報酬倍率が1Lvごとに+20%。出現頻度とジャンプの高さは変わらない",
+    railpass: "このランに手すりが出現し始める。購入するとTRUCKも開放。転生・死亡後は買い直し", drink: "MAXDRINKの回復量を1Lvごとに+1。基本5回復、最大HPまで",
+    wheels: "ウィール：加速が速くなり、ダメージ後の減速が軽くなる", shoes: "シューズ：二段ジャンプを使える。転生では引継ぎ、死亡後の新しいランでは未所持", light: "ドローンが夜の足元を照らす。Lv1は40×40px、1Lvごとに一辺+4px", live: "SNS配信：成功・速さ・技の変化で視聴者が増え、投げ銭を獲得。転倒と同じ技の連打で減少",
     magnet: "近くのコインを引き寄せる範囲が広がる", recover: "無傷で走るとHPが回復。強化で必要な距離が短くなる",
-    kickflip: "レールを滑って習得。コインの小さな吸着補助も得る", pop: "手すりを半分ほど滑り、タップで跳び降りると習得", maxdrink: "HPが尽きたとき自動で全回復。購入は1ランに1回"
+    kickflip: "レールを滑って習得。コインの小さな吸着補助も得る", pop: "手すりを半分ほど滑り、タップで跳び降りると習得", maxdrink: "HPが尽きたとき自動で5回復。DRINK強化で回復量+1/Lv。最大HPまで。購入は1ランに1回"
   };
   function textCanvas(text, color) {
     var c = document.createElement("canvas");
@@ -57,14 +59,19 @@
       b.dataset.group = i === 0 ? "upg" : "gear"; tabs.appendChild(b);
     });
     grid = document.createElement("div"); grid.className = "shop-grid";
-    dialog.append(head, tabs, grid); document.body.appendChild(dialog);
+    grid.addEventListener("scroll", function () { if (reduced.matches) render(performance.now()); }, {passive:true});
+    trailHint = document.createElement("p"); trailHint.className = "shop-next";
+    trailHint.setAttribute("aria-live", "polite");
+    dialog.append(head, tabs, trailHint, grid); document.body.appendChild(dialog);
     dialog.addEventListener("cancel", function (e) { e.preventDefault(); game.toggleShop(); });
     // Native dialog supplies inert background and Tab focus containment.
     ["keydown", "keyup"].forEach(function (type) {
       document.addEventListener(type, function (e) {
         if (!dialog.open) return;
         e.stopImmediatePropagation();
-        if (e.key === "Escape") { e.preventDefault(); if (type === "keydown") game.toggleShop(); }
+        if (e.key === "Escape") { e.preventDefault(); if (type === "keydown") {
+          if (ask) { closeAsk(); game.prestigeAnswer(1); } else game.toggleShop();
+        } }
       }, true);
     });
     document.addEventListener("visibilitychange", schedule);
@@ -86,19 +93,21 @@
     return cache.get(frame);
   }
   function paint(card, seconds) {
+    if (card.id === "prestige") return;
     var c = card.ctx, id = card.row.id, lv = card.row.lv || 0;
     var w = 128, h = 52, p = (seconds % 3.6) / 3.6;
     c.clearRect(0, 0, w, h); c.imageSmoothingEnabled = false;
     c.fillStyle = P[10]; c.fillRect(0, 0, w, h);
     c.fillStyle = P[22]; c.fillRect(0, 42, w, 1);
-    var pace = id === "speed" ? 1.4 + Math.min(lv, 15) * 0.08 : 1;
+    var pace = id === "speed" || id === "wheels" ? 1.4 + Math.min(lv, 15) * 0.08 : 1;
     c.fillStyle = P[5];
     for (var x = 0; x < 5; x++) c.fillRect(Math.floor((x * 31 - seconds * 22 * pace % 31 + 128) % 128), 47, 9, 1);
     var art = global.DotPushArt, frame = Math.floor(seconds * 5 * pace), riderY = 42;
-    if (id === "kickflip" || id === "pop") {
-      art = id === "kickflip" ? global.DotKickflipArt : global.DotPopArt;
+    if (id === "kickflip" || id === "pop" || id === "shoes") {
+      art = id === "kickflip" ? global.DotKickflipArt : id === "shoes" ? global.DotOllieArt : global.DotPopArt;
+      if (!art) art = global.DotPopArt;
       frame = Math.floor(p * art.FRAMES.length);
-      riderY -= Math.round(Math.sin(p * Math.PI) * 10);
+      riderY -= Math.round(Math.abs(Math.sin(p * Math.PI * (id === "shoes" ? 2 : 1))) * 10);
     }
     var rider = sprite(art, frame) || sprite(global.DotStandbyArt, 0);
     if (rider) c.drawImage(rider, 32, riderY - rider.height);
@@ -107,7 +116,15 @@
       if (coin) c.drawImage(coin, Math.round(x), Math.round(y));
       else { c.fillStyle = P[19]; c.fillRect(Math.round(x), Math.round(y), 3, 5); }
     }
-    if (id === "rail") {
+    if (id === "live") {
+      F.drawText(c, "LIVE", 72, 9, P[16]);
+      F.drawText(c, "100→1K", 72, 24, P[19]);
+      c.fillStyle=P[25];c.fillRect(65,11,2,2);
+    } else if (id === "light") {
+      c.globalCompositeOperation="lighter"; c.globalAlpha=.4;c.fillStyle="#b3c9b4";c.fillRect(23,4,40,40);c.globalAlpha=1;c.globalCompositeOperation="source-over";
+      c.fillStyle=P[15];c.fillRect(21,8,7,3);c.fillRect(18,6,5,1);c.fillRect(27,6,5,1);
+      F.drawText(c, String(40+4*Math.max(0,lv-1))+"px", 74, 20, P[19]);
+    } else if (id === "rail" || id === "railpass") {
       c.fillStyle = P[15]; c.fillRect(15,30,100,2); c.fillRect(20,32,2,10); c.fillRect(110,32,2,10);
       drawCoin(86,20);
     } else if (id === "magnet") {
@@ -124,9 +141,13 @@
         drawCoin(sx + (43 - sx) * pull, sy + (34 - sy) * pull);
       }
       else { c.fillStyle = P[19]; c.fillRect(42, 19, 1, 5); c.fillRect(40, 21, 5, 1); }
+    } else if (id === "drink") {
+      var bottle = sprite(global.DotPartsArt.MAXdrink, 0);
+      if (bottle) c.drawImage(bottle, 72, 25);
+      F.drawText(c, "+" + (5+lv) + "HP", 72, 10, P[20]);
     } else if (id === "recover" || id === "stamina" || id === "maxdrink") {
       var completion = id === "recover" ? 0.3 + global.DotUpgrades.recoverDistance(Math.max(1, lv)) / 360 : 0.65;
-      var full = p > completion, amount = id === "stamina" ? Math.min(6, 4 + Math.min(2, lv)) : (full ? (id === "maxdrink" ? 6 : 3) : 2);
+      var full = p > completion, amount = id === "stamina" ? Math.min(6, 4 + Math.min(2, lv)) : (full ? (id === "maxdrink" ? 5 : 3) : 2);
       c.fillStyle = P[5]; c.fillRect(67, 13, 48, 6);
       c.fillStyle = P[full ? 20 : 18]; c.fillRect(68, 14, amount * 7, 4);
       if (id === "recover") {
@@ -145,7 +166,7 @@
       if (cone) c.drawImage(cone, 88, 42 - cone.height);
       drawCoin(83, 9);
       F.drawText(c, "+" + game._shortNum(Math.round(game._curCoinPer())), 88, 10, P[19]);
-    } else if (id === "speed") {
+    } else if (id === "speed" || id === "wheels") {
       c.fillStyle = P[8];
       for (var line = 0; line < 3; line++) c.fillRect(13 + line * 3, 20 + line * 6, 9, 1);
       F.drawText(c, "→", 87, 24, P[8]);
@@ -153,32 +174,47 @@
   }
   function updateCard(card) {
     var r = card.row;
+    if (r.kind === "prestige") {
+      card.summary.replaceChildren(prestigeSummary(false));
+      card.button.setAttribute("aria-label", "転生。MAXの上限を永久に伸ばし、コイン・強化レベル・道具を手放して0mから再出発。購入済みの二段ジャンプは引き継ぐ。内容を確認する");
+      card.button.setAttribute("aria-disabled", String(!r.enabled));
+      return;
+    }
+    if (card.help) card.help.textContent = help[r.id] || "";
     // ★★★★★行が自分で文字を持っていれば、それをそのまま出す（2026-09-12）
     //   ★転生の行がこれを使います。★★こうしておかないと、
     //   ★★★新しい種類の行を足すたびに**ここを直す**ことになります。
     var state = r.state !== undefined ? r.state : r.kind === "unlock" && !r.got ? r.hint : r.kind === "item" && r.usedUp && !r.have ? "USED" : r.kind === "upg" && r.max !== null && r.lv >= r.max ? "MAX" : r.got ? "OWNED" : (r.kind === "item" && r.have >= r.maxHave ? "FULL" : game._shortNum(r.cost));
+    if ((r.id === "shoes" || r.id === "railpass") && r.lv) state = "OWNED";
     card.price.replaceChildren(textCanvas(state, r.enabled ? P[19] : P[7]));
-    card.level.replaceChildren(textCanvas(r.kind === "upg" ? "LV" + r.lv : "", P[7]));
+    card.level.replaceChildren(textCanvas(r.id === "shoes" && r.lv ? "×2" : r.kind === "upg" ? "LV" + r.lv : "", P[7]));
     card.button.setAttribute("aria-disabled", String(!r.enabled));
     card.button.setAttribute("aria-label", r.name + "。" + (help[r.id] || "") + "。" + (r.kind === "upg" ? "レベル" + r.lv + "。" : "") + state + (r.enabled ? "コインで購入" : "。購入不可"));
   }
   function refresh() {
     var view = game.shopView();
+    tabs.hidden = !view.rows.some(isGear);
+    updateTabNotices(view.rows);
+    trailHint.textContent = view.next ? "次のアンロック · " + view.next.text : "";
+    trailHint.hidden = !view.next;
     wallet.replaceChildren(textCanvas("COIN " + game._shortNum(view.coins), P[19]));
     wallet.setAttribute("aria-label", "所持コイン " + view.coins);
     cards.forEach(function (card) {
-      card.row = view.rows.find(function (r) { return (r.id || r.kind) === card.id; }); updateCard(card);
+      card.row = view.rows.find(function (r) { return (r.id || r.kind) === card.id; }); if (card.row) updateCard(card);
     });
   }
   // ★★★★★転生（REBORN）は**1 ページ目**に出す（2026-09-12 島さんの指定）。
   //   ★前は `kind !== "upg"` だったので、★★**2 ページ目（GEAR）に落ちていました**
-  function inGroup(r) {
-    return group === "upg" ? (r.kind === "upg" || r.kind === "prestige")
-                           : (r.kind !== "upg" && r.kind !== "prestige");
+  function isGear(r) { return r.group === "gear" || (r.kind !== "upg" && r.kind !== "prestige"); }
+  function updateTabNotices(rows) {
+    Array.from(tabs.children).forEach(function(b) {
+      b.classList.toggle("has-new", rows.some(function(r) { return r.fresh && (isGear(r) ? "gear" : "upg") === b.dataset.group; }));
+    });
   }
+  function inGroup(r) { return group === "gear" ? isGear(r) : !isGear(r); }
   // ★★いま並んでいるパネルの面々（★**行そのものが増えたか**を見るため）
   function rowKeys() {
-    return game.shopView().rows.filter(inGroup).map(function (r) { return r.id || r.kind; }).join(",");
+    return game.shopView().rows.map(function (r) { return r.id || r.kind; }).join(",");
   }
   // ============================================================
   // ★★★★★一段はさむ問いかけ（2026-09-12 島さんの指定）
@@ -186,24 +222,62 @@
   //   > 島さん「重要な選択なので押し間違いを防ぐためにも一段選択肢をはさみましょう。」
   //   ★★**決めるのはゲーム本体（`prestigeAnswer`）だけ**。
   //     ★ここは**聞くだけ**なので、★★★液晶のお店と答えがずれません
-  function closeAsk() { if (ask) { ask.remove(); ask = null; } }
+  function prose(text, className) {
+    var p = document.createElement("p"); p.className = className || ""; p.textContent = text; return p;
+  }
+  function prestigeSummary(full) {
+    var section = document.createElement("div"); section.className = "reborn-summary";
+    if (game.shopView().firstPrestige) section.appendChild(prose("初転生の特典：GEARにRAIL開放。購入すると旅に手すりが現れます。", "reborn-reward"));
+    section.appendChild(prose("永久に伸びる上限", "reborn-label"));
+    if (!game.shopView().prestige.length) section.appendChild(prose("強化を1項目MAXにすると転生できます。", "reborn-note"));
+    game.shopView().prestige.forEach(function (p) {
+      var line = document.createElement("div"); line.className = "reborn-gain";
+      line.append(textCanvas(p.name, P[16]), textCanvas(p.before + " → " + p.after, P[20]));
+      line.setAttribute("aria-label", p.name + "の上限が" + p.before + "から" + p.after);
+      section.appendChild(line);
+    });
+    section.appendChild(prose("MAXになった項目の上限だけが伸びます。", "reborn-note"));
+    var reset = document.createElement("div"); reset.className = "reborn-reset";
+    reset.appendChild(prose("0mから再出発", "reborn-label"));
+    reset.appendChild(prose("所持コイン・強化Lv・道具 → 0"));
+    section.appendChild(reset);
+    if (full) {
+      section.appendChild(prose("引き継ぐもの", "reborn-label"));
+      section.appendChild(prose("開放済みの全パネル・購入済みの二段ジャンプ・BEST・覚えた技・発見と釣りの記録・伸びた上限", "reborn-keeps"));
+      section.appendChild(prose("同じ世界を、Lv0から育て直します。今の旅には戻れません。", "reborn-note"));
+    } else section.appendChild(prose("開放パネル・購入済みの二段ジャンプ・技・記録・伸びた上限は残る", "reborn-note"));
+    return section;
+  }
+  function closeAsk() {
+    if (!ask) return;
+    ask.remove(); ask = null;
+    [grid, tabs, wallet.parentNode, trailHint].forEach(function (node) { node.inert = false; });
+    var origin = grid.querySelector('[data-item="prestige"]'); if (origin) origin.focus({preventScroll:true});
+  }
   function askReborn() {
     closeAsk();
     ask = document.createElement("div"); ask.className = "shop-ask";
     ask.setAttribute("role", "alertdialog");
     var box = document.createElement("div"); box.className = "shop-ask-box";
     var word = game._consts().PRESTIGE_ASK_TEXT;
-    ask.setAttribute("aria-label", word);
+    ask.setAttribute("aria-label", "転生して、次の旅へ出発しますか？");
+    ask.setAttribute("aria-modal", "true");
     box.appendChild(textCanvas(word, P[29]));
+    box.appendChild(prose("上限を伸ばして、次の旅へ", "reborn-heading"));
+    var summary = prestigeSummary(true); summary.id = "reborn-details";
+    ask.setAttribute("aria-describedby", summary.id); box.appendChild(summary);
     var row = document.createElement("div"); row.className = "shop-ask-btns";
-    row.append(
-      button("YES", function () { closeAsk(); game.prestigeAnswer(0); }),
-      button("NO", function () { closeAsk(); game.prestigeAnswer(1); refresh(); schedule(); })
-    );
+    var yes = button("REBORN", function () { closeAsk(); game.prestigeAnswer(0); });
+    var no = button("BACK", function () { closeAsk(); game.prestigeAnswer(1); refresh(); schedule(); });
+    yes.appendChild(prose("転生して出発")); no.appendChild(prose("旅を続ける"));
+    yes.setAttribute("aria-label", "転生して出発"); no.setAttribute("aria-label", "旅を続ける");
+    row.append(no, yes);
     box.appendChild(row); ask.appendChild(box); dialog.appendChild(ask);
-    var yes = row.firstChild; if (yes && yes.focus) yes.focus({ preventScroll: true });
+    [grid, tabs, wallet.parentNode, trailHint].forEach(function (node) { node.inert = true; });
+    no.focus({ preventScroll: true });
   }
   function build() {
+    var focusId = document.activeElement && document.activeElement.dataset.item;
     closeAsk();
     cards = []; grid.replaceChildren(); grid.classList.toggle("gear", group === "gear");
     Array.from(tabs.children).forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.group === group)); });
@@ -233,8 +307,15 @@
       }
       var name = document.createElement("div"); name.className = "shop-product-name";
       name.appendChild(b.firstChild); b.appendChild(name);
+      if (r.kind === "prestige") {
+        name.appendChild(prose("転生", "reborn-heading"));
+        card.summary = document.createElement("div"); b.appendChild(card.summary);
+        b.appendChild(prose("内容を確認 →", "reborn-open"));
+        card.button = b; cards.push(card); grid.appendChild(b); return;
+      }
       var demo = document.createElement("canvas"); demo.width = 128; demo.height = 52;
       demo.className = "shop-demo"; demo.setAttribute("aria-hidden", "true"); b.appendChild(demo);
+      card.help = prose(help[r.id] || "", "shop-product-help"); b.appendChild(card.help);
       var meta = document.createElement("div"); meta.className = "shop-product-meta";
       card.level = document.createElement("span"); card.price = document.createElement("span");
       meta.append(card.level, card.price); b.appendChild(meta);
@@ -242,12 +323,26 @@
       cards.push(card); grid.appendChild(b);
     });
     refresh(); render(performance.now());
+    if (focusId) { var focused = cards.find(function (c) { return c.id === focusId; }); if (focused) focused.button.focus({preventScroll:true}); }
   }
   function render(time) {
+    var viewport = grid.getBoundingClientRect(), revealed = false;
     cards.forEach(function (card) {
+      if (!card.revealed && card.id !== "prestige" && dialog.open) {
+        var rect = card.button.getBoundingClientRect();
+        if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+          var ms = game.panelRevealMs(card.id); card.revealed = true;
+          if (ms > 0) {
+            revealed = true;
+            card.button.style.setProperty("--glitch-ms", Math.round(ms) + "ms");
+            card.button.classList.add("glitch-in");
+          }
+        }
+      }
       paint(card, reduced.matches ? 2.7 : time / 1000);
       if (card.flashUntil && time >= card.flashUntil) { card.button.classList.remove("bought"); card.flashUntil = 0; }
     });
+    if (revealed) updateTabNotices(game.shopView().rows);
   }
   function loop(time) {
     raf = 0;

@@ -2482,6 +2482,8 @@
 	                         //   ★走っている足元は 0 なので、★**跳ばないと届かない**
 	                         //     （★拾えるコインの下限 `PICK_MIN_LIFT` 12 と同じ考え方）
 	var RAIL_TAKE_Y  = 8;    // ★乗れる余裕（±このドット）。★拾えるコインと同じ 8
+	// Small, time-based assists; independent of rendering frame rate and SPEED.
+	var PLAY_ASSIST = { bufferMs: 1000 / 6, coyoteMs: 1000 / 15, cornerPx: 2, hitInset: 2, pinchRatio: 0.2 };
 	                         //   ★実測: オーリーの滞空 750ms のうち **283ms（37%）**が乗れる高さ
 	var RAIL_LEN     = 90;   // ★★★長さ（★★★2026-08-31、島さんの指定で 30 → **90**）
 	                         //   ★★**跳び越えられません**（★乗るしかない）。★上の説明を読むこと
@@ -3179,8 +3181,10 @@
 	//   ★★★お店を開いているあいだは `shopRows()` が毎コマ回るので、
 	//     ★**読むのは旅のはじめと、転生した瞬間だけ**にしてあります。
 	var prestigeCaps = {};
+	var openedPanels = {}, journeyRank = 0;
 	function reloadCaps() {
-		prestigeCaps = (PR && !testMode) ? (PR.snapshot().caps || {}) : {};
+		var profile = (PR && !testMode) ? PR.snapshot() : {};
+		prestigeCaps = profile.caps || {}; openedPanels = profile.panels || {}; journeyRank=profile.rank || 0;
 	}
 
 	function capOf(u) {
@@ -3195,7 +3199,7 @@
 		var out = [];
 		UP.UPGRADES.forEach(function (u) {
 			var cap = capOf(u);
-			if (cap !== null && upgLevel(u.id) >= cap) out.push(u.id);
+			if (u.id !== "shoes" && u.id !== "railpass" && cap !== null && upgLevel(u.id) >= cap) out.push(u.id);
 		});
 		return out;
 	}
@@ -3307,7 +3311,7 @@
 	//     ・**音の入り切り** … 設定
 	// Hybrid rule: clear the run only; learned actions and journey records live in PR.
 	function resetStatus() {
-		if (st) { st.fishing = null; st.fishBtn = ""; }
+		if (st) { st.fishing = null; st.fishBtn = ""; st.live = null; st.dj = false; }
 		coins = 0;
 		upgLv = {};
 		unlocked = !testMode && PR ? PR.snapshot().tricks : {};
@@ -3344,6 +3348,7 @@
 	//     ★★**片方だけ直す**という事故が構造的に作れなくなる）
 	function resetAll() {
 		if (PR && !testMode) PR.clear();
+		reloadCaps();
 		resetStatus();              // ★★育てたものを全部消す（★中身はあちら1か所だけ）
 		best = 0;                   // ★★★ここだけが違い ＝ **記録も消す**
 		try {
@@ -3419,6 +3424,52 @@
 		return saveCoins();
 	}
 
+	// ============================================================
+	// ■ ★★★★★旅のセーブ（2026-09-13 島さんの指定 ／ Astra の方針を引き継いだ）
+	// ============================================================
+	//   ★保存するのは一時停止の「SAVE+QUIT」を押したときだけ。
+	//   ★★CONTINUE で読んだら消す（★1つのセーブを何度もやり直しに使えない）。
+	//   ★★★GAMEOVER でも消す（★「死んだら最初から」を崩さない）。★テストでは書かない
+	var SAVE_KEY = "dotollie-save-v1";
+	var SAVE_ST = ["dist", "stamina", "staminaMax", "hp", "hpMax", "dayMs", "dj", "met", "coin",
+		"betMul", "betCount", "goalBorn", "goalDone", "gateBorn", "gatePassed", "mileIndex",
+		"hits", "picksGot", "campSeen", "lastMark"];
+	function saveRun() {
+		if (!st || testMode) return false;
+		var data = { v: 1, seed: WD.getSeed(), m: meters(), coins: coins, upgLv: upgLv,
+			unlocked: unlocked, bag: bag, buys: buys, items: items, st: {} };
+		SAVE_ST.forEach(function (k) { data.st[k] = st[k]; });
+		try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
+	}
+	function peekSave() {
+		try {
+			var o = JSON.parse(localStorage.getItem(SAVE_KEY));
+			return (o && o.v === 1 && typeof o.seed === "number") ? o : null;
+		} catch (e) { return null; }
+	}
+	function deleteSave() {
+		try {
+			if (localStorage.removeItem) localStorage.removeItem(SAVE_KEY);
+			else localStorage.setItem(SAVE_KEY, "null");
+		} catch (e) { /* 消せなくても遊べる */ }
+	}
+	function applySave(o) {
+		coins = Number(o.coins) || 0;
+		upgLv = o.upgLv || {}; bag = o.bag || {}; buys = o.buys || {}; items = o.items || {};
+		for (var id in (o.unlocked || {})) if (o.unlocked[id]) unlocked[id] = true;
+		SAVE_ST.forEach(function (k) { if (o.st && o.st[k] !== undefined) st[k] = o.st[k]; });
+		saveCoins(); saveUpg(); saveItems();
+	}
+	// ★NEW GAME で「置き換える旅」があるか（★セーブか、覚えた技・転生・釣果・走った記録）
+	function hasJourney() {
+		if (peekSave()) return true;
+		if (!PR) return false;
+		var p = PR.snapshot();
+		return p.rank > 0 || !!p.doubleJump || p.lastDistance > 0 ||
+			Object.keys(p.tricks || {}).length > 0 || Object.keys(p.caps || {}).length > 0 ||
+			Object.keys(p.fish || {}).length > 0;
+	}
+
 	// ------------------------------------------------------------
 	// ■ 状態
 	// ------------------------------------------------------------
@@ -3445,6 +3496,8 @@
 			speedMs: 0,     // ★GO からの経過（走り出しの加速に使う）
 			dist: 0,      // 進んだ距離（ドット）
 			air: -1,      // ★技の進み具合（ミリ秒）。-1 = 転がっている
+			assistClock: 0, inputBuffer: null, grindGrace: null, cornerShift: 0,
+			assistPrevLift: null,
 			trick: 0,     // ★いま出している技（POSES の何番目か）。air >= 0 のときだけ意味を持つ
 			// ★地上の姿（技を出していないとき）
 			// ★★始まりは「立ち」。**プッシュ（走り出し）は GO の瞬間から**（島さん 2026-08-12）
@@ -3485,7 +3538,7 @@
 			endPage: 0,       // ★★★いま何ページ目を見せているか（2026-08-22）
 			pageMs: 0,        // ★★そのページを見せはじめてからの時間（2026-08-23）
 			// ★★★★二段ジャンプ（2026-08-22 島さんの指定）
-			dj: !testMode && PR ? PR.snapshot().doubleJump : false, // Learned at 5000m; retained across journeys.
+			dj: false, // Every journey starts without double jump; buy SHOES during this run.
 			airJumps: 0,      // ★いまの滞空で、もう何回跳んだか
 			djBase: 0,        // ★★二段目を出したときの「足元の高さ」（★下駄）
 			giftMs: 0,        // ★授かる場面の進み具合（ミリ秒）
@@ -3675,7 +3728,8 @@
 	// スケーターの足元の行（＝いま乗っている地面）
 	// ★★主役が乗る行。★★★**描くところも拾うところも、全部ここを通る**
 	//   ★だから `RIDER_SINK` をここに入れるだけで、★★**見た目と当たり判定が必ずさわる**
-	function riderGroundRow() { return groundRowAt(RIDER_X + RIDER_FOOT) + RIDER_SINK; }
+	function riderFootX() { return RIDER_X + RIDER_FOOT + (st ? st.cornerShift || 0 : 0); }
+	function riderGroundRow() { return groundRowAt(riderFootX()) + RIDER_SINK; }
 	// ★★★主役の足が、いま画面の何行目にいるか
 	//   ★★**高さを2か所に書かないための1か所**（★きらめきもテストの覗き窓もここを通す）。
 	//     ★2026-08-22、当たり判定の数字だけ直して**絵を描くところを直し忘れた**事故があった
@@ -3959,7 +4013,7 @@
 	// ■ ★★走り出しの加速 —— いまトップスピードの何割で進んでいるか（0〜1）
 	//   ★かける時間は**プッシュの絵の長さ**そのもの（直書きしない）
 	// ------------------------------------------------------------
-	function accelSpan() { return FR.totalMs(POSES[I_PUSH].ms); }
+	function accelSpan() { return FR.totalMs(POSES[I_PUSH].ms) / Math.pow(1.18, upgLevel("wheels")); }
 
 	function accelFactor() {
 		if (!ACCEL_ON) return 1;
@@ -4176,6 +4230,49 @@
 		return P.lifts[currentFrame()] + djLift();
 	}
 
+	function assistsActive() {
+		return st && !st.paused && !st.shopOpen && !st.campPhase &&
+			(st.phase === "play" || st.phase === "go") && st.stamina > 0;
+	}
+	function clearActionAssist() {
+		if (!st) return;
+		st.inputBuffer = null; st.grindGrace = null;
+	}
+	function knownAction(how) {
+		for (var i = 0; i < POSES.length; i++)
+			if (POSES[i].how === how) return knowsTrick(POSES[i].name);
+		return false;
+	}
+	function bufferAction(how) {
+		if (!assistsActive() || !knownAction(how)) return;
+		st.inputBuffer = { how: how, until: st.assistClock + PLAY_ASSIST.bufferMs };
+	}
+	function launchRailOut(lift, dots) {
+		if (dots >= 45) learnJourneyAction("pop", "POP LEARNED");
+		clearActionAssist();
+		st.trick = poseIndex("OLLIE"); st.air = 0; st.airJumps = 1;
+		st.djBase = lift;
+		if (RAIL_SOUND_ON) sound(990, 0.06);
+	}
+	function coyoteRailOut() {
+		if (!assistsActive()) return false;
+		var grace = st.grindGrace;
+		if (!grace || st.assistClock > grace.until + 0.000001 || st.air < 0) return false;
+		// Leave from the current falling height: no teleport back up, no second rail payout.
+		launchRailOut(currentLift(), grace.dots);
+		return true;
+	}
+	function consumeBufferedAction() {
+		if (!assistsActive()) { clearActionAssist(); return; }
+		var pending = st.inputBuffer;
+		if (!pending) return;
+		if (st.assistClock > pending.until + 0.000001) { st.inputBuffer = null; return; }
+		if (st.air >= 0 && !st.grind) return;
+		st.inputBuffer = null;
+		if (st.grind) endGrind(true);
+		global.DotOllie.trick(pending.how);
+	}
+
 	// ============================================================
 	// ■■■ ★★★★レールに乗る・降りる（2026-08-31 島さんの指定）■■■
 	// ============================================================
@@ -4211,6 +4308,7 @@
 		if (unlocked[id]) return;
 		unlocked[id] = true; st.moment = label;
 		if (!testMode && PR) PR.learn(id);
+		syncShopUnlocks(true);
 		addPop(label, "gain");
 		var notice = st.pops[st.pops.length - 1];
 		if (notice && notice.text === label) notice.y = Math.max(32, notice.y - currentLift());
@@ -4244,7 +4342,7 @@
 	//   ★★★まっすぐな線なので、★**場所によって 10〜17 のあいだで変わります**
 	//     （★乗れる余裕は ±8 なので、どこでも跳べば届きます）
 	function railLiftOf(o) {
-		var foot = RIDER_X + RIDER_FOOT;
+		var foot = riderFootX();
 		return riderGroundRow() - 1 - railRowAtOff(o, foot - Math.round(o.x));
 	}
 
@@ -4280,6 +4378,7 @@
 	//   ★★★姿は**仮**です（★いまは立ち姿 STANDBY）。
 	//     ★島さんがグラインドの絵を描いたら、`js/frames.js` に1行足して差し替えます
 	function startGrind(rl) {
+		st.grindGrace = null;
 		st.grind = 1;
 		st.grindRail = rl;        // ★★どのレールに乗っているか（★降りるときに印を付ける）
 		st.grindEndWx = rl.wx + RAIL_LEN;
@@ -4301,9 +4400,11 @@
 	//   ★これは二段ジャンプが既にやっている動き ＝ **地面へ瞬間移動しません**
 	//   ★★`jump` が真なら「自分から跳び出した」（★タップ）
 	function endGrind(jump) {
-		// A deliberate ollie-out after a steady slide teaches POP; falling off does not.
-		if (jump && st.grindDots >= 45) learnJourneyAction("pop", "POP LEARNED");
 		var total = st.grindPaid;
+		if (total > 0 && upgLevel("live")) {
+			var tip = liveClear(total); total += tip;
+			if (tip > 0) { st.coin += tip; addCoins(tip); }
+		}
 		// ★★★★このレールには、もう乗りません（2026-08-31）
 		//
 		//   ★★これが無いと、★★★**跳び出した次のコマで、また同じレールに乗ります**
@@ -4340,16 +4441,15 @@
 		//   ★★★**物理は1つも足していません**。★島さんの絵の後半を切り出して流すだけ
 		// ============================================================
 		if (jump) {
-			st.air = 0;
-			st.djBase = offLift + Math.min(5, upgLevel("rail"));   // ★★レールの高さから始めて、着地までに 0 へ戻る
+			launchRailOut(offLift, st.grindDots);
 		} else {
+			st.grindGrace = { until: st.assistClock + PLAY_ASSIST.coyoteMs, dots: st.grindDots };
 			st.air = fallStartMs(POSES[st.trick], offLift);
 			st.djBase = 0;
 			var peak = Math.max.apply(null, POSES[st.trick].lifts);
 			if (offLift > peak) { st.air = poseTopMs(POSES[st.trick]); st.djBase = offLift - peak; }
 		}
 		if (total > 0) addPop("+" + shortNum(total), "gain");
-		if (RAIL_SOUND_ON && jump) sound(990, 0.06);
 	}
 
 	// ★★★★★トラックの火花を撒く（2026-08-31 島さんの指定。★つぶまきで作る）
@@ -4361,7 +4461,7 @@
 		for (var i = 0; i < TRACK_NUM; i++) {
 			var jx = Math.round((Math.random() * 2 - 1) * TRACK_SPREAD);
 			pushDust({
-				wx: worldX() + RIDER_X + RIDER_FOOT + TRACK_X + jx,
+				wx: worldX() + riderFootX() + TRACK_X + jx,
 				y: g - 1 - lift + TRACK_Y,           // ★★★レールの面（★足元と同じ行）
 				vx: -TRACK_BACK * (0.6 + Math.random() * 0.4),   // ★★後ろへ速く
 				// ★★★★**上へ強く、下へ弱く**（2026-08-31 島さんの指定「上方向にも散らせたい」）
@@ -4399,23 +4499,33 @@
 		var whole = Math.floor(st.grindCoin) - st.grindPaid;
 		if (whole > 0) { gainCoin(whole, "grind"); st.grindPaid += whole; }
 		// ★終端まで来たら降りる
-		if (worldX() + RIDER_X + RIDER_FOOT >= st.grindEndWx) endGrind(false);
+		if (worldX() + riderFootX() >= st.grindEndWx) endGrind(false);
 	}
 
 	// ★★★★レールに乗れるか見る（★拾えるコインと**まったく同じ形**の判定）
 	//   ★★足の高さが合っていなければ乗りません（★島さんの指定「高さを合わせたら乗る」）
 	function tryGrind() {
 		if (!RAIL_ON || st.grind) return;
-		if (st.phase !== "play") return;
+		if (st.phase !== "play" || st.air < 0) return;
 		var lift = currentLift();
-		var foot = RIDER_X + RIDER_FOOT;
+		var foot = riderFootX();
 		for (var i = 0; i < st.cones.length; i++) {
 			var o = st.cones[i];
 			if (o.kind !== "rail" || o.done) continue;   // ★★一度降りたレールには乗らない
 			var rx = Math.round(o.x);
-			if (foot < rx || foot >= rx + RAIL_LEN) continue;
+			var gap = rx - foot;
+			if (gap > PLAY_ASSIST.cornerPx || foot >= rx + RAIL_LEN) continue;
 			// ★★★**そのレールの絵の上面**から高さを出す（★まっすぐな線の、その場所）
-			if (Math.abs(lift - railLiftOf(o)) > RAIL_TAKE_Y) continue;
+			var target = railLiftOf(o);
+			var descending = st.assistPrevLift !== null && lift < st.assistPrevLift;
+			var crossed = descending && st.assistPrevLift >= target && lift <= target &&
+				st.assistPrevLift - target <= RAIL_TAKE_Y + 2 && target - lift <= RAIL_TAKE_Y + 2;
+			if (Math.abs(lift - target) > RAIL_TAKE_Y && !crossed) continue;
+			// Only nudge a near corner when the feet are already within 2px of its top.
+			if (gap > 0) {
+				if (Math.abs(lift - target) > PLAY_ASSIST.cornerPx) continue;
+				st.cornerShift = Math.min(PLAY_ASSIST.cornerPx, st.cornerShift + gap);
+			}
 			startGrind(o);
 			return;
 		}
@@ -4500,7 +4610,7 @@
 		var jx = Math.round((Math.random() * 2 - 1) * SPARK_JITTER_X);
 		var jy = Math.round((Math.random() * 2 - 1) * SPARK_JITTER_Y);
 		st.sparks.push({
-			wx: worldX() + RIDER_X + RIDER_FOOT + jx,
+			wx: worldX() + riderFootX() + jx,
 			y: riderFootRow() + jy,
 			ms: 0,
 			kind: Math.floor(Math.random() * SPARK_KINDS.length),
@@ -4837,7 +4947,7 @@
 	// 二段目を受け付けた空間に、2ドットだけ残す。既存のつぶまきで80ms後に消す。
 	function addAirKick(lift) {
 		if (!DUST_ON) return;
-		var x = worldX() + RIDER_X + RIDER_FOOT;
+		var x = worldX() + riderFootX();
 		var y = riderGroundRow() - lift;
 		for (var side = -1; side <= 1; side += 2) {
 			pushDust({
@@ -4855,7 +4965,7 @@
 		for (var i = 0; i < n; i++) {
 			var jx = Math.round((Math.random() * 2 - 1) * DUST_SPREAD);
 			pushDust({
-				wx: worldX() + RIDER_X + RIDER_FOOT + DUST_X + jx,
+				wx: worldX() + riderFootX() + DUST_X + jx,
 				y: g - DUST_Y,                                // ★ボードの面のあたり
 				vx: -DUST_BACK * Math.random(),               // ★★後ろへ（★弾かれた向き）
 				vy: -DUST_RISE * (0.6 + Math.random() * 0.4), // ★上向き（★マイナスが上）
@@ -4890,7 +5000,7 @@
 			var flight = 2 * v0 / LAND_GRAV * 1000;   // ★上がって戻るまで（ミリ秒）
 			pushDust({
 				// ★★★**ボードの端から、外へ**（★まん中から出すと、絵に隠れて見えない）
-				wx: worldX() + RIDER_X + RIDER_FOOT + LAND_X + dir * LAND_EDGE + jx,
+				wx: worldX() + riderFootX() + LAND_X + dir * LAND_EDGE + jx,
 				y: g - LAND_Y,
 				vx: dir * LAND_SIDE * (0.4 + Math.random() * 0.6),
 				vy: -v0,
@@ -4976,6 +5086,7 @@
 		// Round each coin before batching, preserving fractional BET's original payout.
 		n *= count || 1;
 		if (n <= 0) return;
+		if (!kind) n += liveClear(n);
 		st.coin += n;
 		addCoins(n);                          // ★★★その場で貯金に入る（＝すぐ買える）
 		// ★★★★レールに乗っているあいだは**静かに入る**（2026-08-31）。
@@ -5080,7 +5191,7 @@
 		//
 		//   ★★★**地上では鳥に絶対に当たりません** ＝ 「跳ばない」はいつでも安全。
 		var lift = currentLift();
-		var foot = RIDER_X + RIDER_FOOT;                 // ★地面を読むのと同じ列
+		var foot = riderFootX();
 		for (var i = 0; i < st.cones.length; i++) {
 			var o = st.cones[i];
 			// ★★★扉と鍵はここでは扱わない（2026-08-16 / Phase C）。
@@ -5095,7 +5206,7 @@
 			if (o.kind === "gate" || o.kind === "key" || o.kind === "camp" ||
 				o.kind === "goal") continue;
 			// ★★★★鳥だけ、当たる高さが逆（2026-08-23）
-			if (o.kind === "bird") { if (lift < BIRD_LIFT) continue; }
+			if (o.kind === "bird") { if (lift < BIRD_LIFT + PLAY_ASSIST.hitInset) continue; }
 			// ★★★★★レールは**ぶつかりません**（2026-08-31。★島さんがテストプレイして決めた）
 			//
 			//   > **島さん「乗らない選択も出来るようにしたい。つまり障害物でない。素通り可。」**
@@ -5119,11 +5230,14 @@
 				if (!AOSURA_AIR_ON) continue;            // ★昔どおり（★素通り）
 				if (aosuraFootLift(o) <= 0) continue;    // ★地面にいるコマ ＝ 跳べば素通り
 				// ★★頭を越えている ＝ 当たらない（★`AOSURA_AIR_MARGIN` のぶん見逃す）
-				if (lift + AOSURA_AIR_MARGIN > aosuraTopLift(o)) continue;
+				if (lift + AOSURA_AIR_MARGIN + PLAY_ASSIST.hitInset > aosuraTopLift(o)) continue;
 			}
 			else if (lift > 0) continue;                 // ★跳んでいる＝地上の物には当たらない
 			var cx = Math.round(o.x);                    // ★描くときと同じ丸め方
-			if (foot >= cx && foot < cx + obWidth(o)) return i;
+			// Existing collision uses a single foot column, already smaller than the sprite.
+			// Keep that generous model and reject 2px grazes at either obstacle edge.
+			var inset = Math.min(PLAY_ASSIST.hitInset, Math.floor((obWidth(o) - 1) / 2));
+			if (foot >= cx + inset && foot < cx + obWidth(o) - inset) return i;
 		}
 		return -1;
 	}
@@ -5144,6 +5258,8 @@
 	//
 	//   ★これで**技術は要らないが、ゲーム内の行動には意味が残る**
 	function onHit(i) {
+		clearActionAssist();
+		if (upgLevel("live")) { var l = liveState(); l.viewers = Math.floor(l.viewers * 0.25); l.combo = 0; l.notice = "WIPEOUT"; l.noticeMs = 1400; }
 		st.cones.splice(i, 1);          // ★当たったコーンは消す（毎コマ当たり続けないように）
 		st.hits++;
 		st.recoverProgress = 0;
@@ -5318,12 +5434,7 @@
 		// ★★★★まだ二段ジャンプを持っていなければ、**授かる場面**へ（2026-08-22 島さんの指定）
 		//   > 島さん「エンディングでコンテニュー後画面タップで暗転し…」
 		//   ★★ここで走り出さずに、暗転 → JUMP → ×2 を見せてから走り出す
-		if (DJ_ON && !st.dj) {
-			st.phase = "gift";
-			st.giftMs = 0;
-			st.giftRang = false;
-			return;
-		}
+		// SHOES teaches double jump; the ending no longer enters the JUMP x2 scene.
 		// ★★★もう一度 READY / GO を出してから走り出す（2026-08-23 島さんの指定）
 		readyAgain();
 	}
@@ -5524,6 +5635,7 @@
 		st.reached = meters();
 		st.newBest = updateBest(st.reached);
 		if (!testMode && PR) PR.finish(st.reached);
+		if (!testMode) deleteSave();          // ★★★★★死んだらセーブも消える（2026-09-13）
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
 		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
 		//     （★「死亡＝未確定分を失う」を、ここに if を足さずに表す）
@@ -5619,15 +5731,79 @@
 		return (m < 10) ? String(Math.round(m * 10) / 10) : shortNum(Math.round(m));
 	}
 
+	// Keep row identities stable; availability is shared by both shop renderers and purchases.
+	function shopConditionMet(id) {
+		if (upgLevel(id) > 0 || bagCount(id) > 0 || buyCount(id) > 0) return true;
+		if (id === "coin") return true;
+		if (id === "prestige") return canPrestige();
+		if (id === "speed") return upgLevel("coin") >= 2;
+		if (id === "stamina") return upgLevel("coin") >= 5 && upgLevel("speed") >= 3;
+		if (id === "rail") return upgLevel("railpass") >= 1;
+		if (id === "railpass") return journeyRank >= 1;
+		if (id === "drink") return buyCount("maxdrink") >= 1;
+		if (id === "wheels") return upgLevel("coin") >= 3;
+		if (id === "shoes") return !!(st && st.dj) || (upgLevel("coin") >= 4 && upgLevel("speed") >= 2);
+		if (id === "magnet") return upgLevel("coin") >= 6 && !!(st && st.dj);
+		if (id === "light") return upgLevel("stamina") >= 2;
+		if (id === "recover") return upgLevel("stamina") >= 3 && upgLevel("coin") >= 8;
+		if (id === "live") return upgLevel("coin") >= 8 && upgLevel("rail") >= 1;
+		if (id === "maxdrink") return upgLevel("stamina") >= 1;
+		return !!unlocked[id];
+	}
+	function shopUnlocked(id) { return !!openedPanels[id] || shopConditionMet(id); }
+	function syncShopUnlocks(announce) {
+		if (!UP || !st) return;
+		var added=[];
+		UP.UPGRADES.concat(UP.ITEMS || [],UP.UNLOCKS || [],[{id:"prestige"}]).forEach(function(u){
+			if (!openedPanels[u.id] && shopConditionMet(u.id)) { openedPanels[u.id]=true; added.push(u.id); }
+		});
+		if (added.length && !testMode && PR) PR.unlockPanels(added);
+		st.newPanels=st.newPanels || {}; st.panelFx=st.panelFx || {};
+		if (announce) added.forEach(function(id){if(id!=="coin" && id!=="prestige")st.newPanels[id]=true;});
+		if (announce && added.some(function(id){return id!=="coin" && id!=="prestige";})) prestigeReadySound();
+	}
+	function panelRevealMs(id) {
+		if (!st) return 0;
+		st.panelFx=st.panelFx || {}; st.newPanels=st.newPanels || {};
+		if(st.newPanels[id]) { delete st.newPanels[id]; st.panelFx[id]=900; }
+		return st.panelFx[id] || 0;
+	}
+	function railEnabled() { return !!(RAIL_ON && upgLevel("railpass") > 0); }
+	function drinkRecovery() { return 5 + upgLevel("drink"); }
+	function shopNextUnlock() {
+		var hints = [
+			["speed", "COIN Lv2で BEARING 開放", "BEARING: COIN LV2"],
+			["wheels", "COIN Lv3で WHEELS 開放", "WHEELS: COIN LV3"],
+			["shoes", "COIN Lv4 ＋ BEARING Lv2で SHOES 開放", "SHOES: COIN4 + BEARING2"],
+			["stamina", "COIN Lv5 ＋ BEARING Lv3で STAMINA 開放", "STAMINA: COIN5 + BEARING3"],
+			["maxdrink", "STAMINA Lv1で MAXDRINK 開放", "MAXDRINK: STAMINA LV1"],
+			["drink", "MAXDRINK購入で DRINK 開放", "DRINK: BUY MAXDRINK"],
+			["magnet", "COIN Lv6 ＋ SHOES習得で MAGNET 開放", "MAGNET: COIN6 + SHOES"],
+			["light", "STAMINA Lv2で LIGHT 開放", "LIGHT: STAMINA LV2"],
+			["railpass", "初めての転生で GEARのRAIL 開放", "RAIL: FIRST REBIRTH"],
+			["rail", "GEARのRAIL購入で TRUCK 開放", "TRUCK: BUY RAIL"],
+			["live", "COIN Lv8 ＋ TRUCK Lv1で LIVE 開放", "LIVE: COIN8 + TRUCK1"],
+			["recover", "COIN Lv8 ＋ STAMINA Lv3で ENERGY 開放", "ENERGY: COIN8 + STAMINA3"]
+		];
+		for (var i = 0; i < hints.length; i++) if (!shopUnlocked(hints[i][0])) return { id:hints[i][0], text:hints[i][1], pixel:hints[i][2] };
+		return null;
+	}
+	function prestigePreview() {
+		return maxedIds().map(function (id) {
+			var u = UP.UPGRADES.filter(function (u) { return u.id === id; })[0], cap = capOf(u);
+			return { id: id, name: u.name, before: cap, after: cap + PRESTIGE_STEP };
+		});
+	}
 	function shopRows() {
 		var opened = !!(st && st.shopOpen);
 		var rows = [{ kind: "start", name: opened ? "CLOSE" : "START" }];
 		if (!UP) return rows;
 		UP.UPGRADES.forEach(function (u) {
 			var lv = upgLevel(u.id);
+			if (u.id === "shoes" && st && st.dj) lv = 1;
 			var max = capOf(u);        // ★★転生で伸びた天井を含む（2026-09-12）
 			rows.push({
-				kind: "upg", id: u.id, name: u.name, lv: lv, max: max,
+				kind: "upg", id: u.id, name: u.name, group: u.group || "upg", lv: lv, max: max,
 				// ★★`maxLevel: null` = 上限なし。★そのときは必ず次の値段が出る
 				cost: (max !== null && lv >= max) ? 0 : UP.costOf(u, lv)
 			});
@@ -5669,19 +5845,21 @@
 		//   ★★★**どこに見せるかは `shopOrder()` が決めます**（→ 下）。
 		//   ★★**1 項目も MAX でなければ、行そのものが出ません**
 		//     （★はじめて遊ぶ人の一覧は 1 行も増えない）。
-		if (canPrestige()) {
+		if (PRESTIGE_ON && shopUnlocked("prestige")) {
 			var mx = maxedIds();
 			// ★★`state` … 実機のお店（`js/shop.js`）がそのまま出す文字。
 			//   ★★★**言葉を決めるのはここ 1 か所**（★お店の画面は 2 つあるので、
 			//   ★別々に書くと必ず片方だけ古くなります）。
 			rows.push({ kind: "prestige", name: PRESTIGE_WORD, ids: mx, step: PRESTIGE_STEP,
-				cost: 0, state: "+" + PRESTIGE_STEP + " x" + mx.length });
+				cost: 0, state: mx.length ? "+" + PRESTIGE_STEP + " x" + mx.length : "NEED MAX" });
 		}
+		rows.forEach(function (r) { r.hidden = !!(r.id && !shopUnlocked(r.id)); });
 		return rows;
 	}
 
 	// ★その行が買えるか（★買えないものは暗く出す）
 	function canBuy(r) {
+		if (r.hidden || (r.id && !shopUnlocked(r.id))) return false;
 		if (r.kind === "start") return true;
 		// ★★★使うと無くなるもの（2026-08-22 島さんの指定）:
 		//   ・★**持てるのは 1 本まで**（★持っているあいだは買えない）
@@ -5709,9 +5887,13 @@
 	function prestigeDo() {
 		var ids = maxedIds();
 		if (!ids.length) return false;
+		var keepDoubleJump = st.dj;
 		PR.prestige(ids, PRESTIGE_STEP);
 		reloadCaps();                      // ★★天井が伸びたので、控えを取り直す
 		resetStatus();                     // ★コイン・レベル・道具が消える（★既存）
+		st.dj = keepDoubleJump;             // SHOES stays through rebirth, but not a new run after death.
+		st.newPanels={}; st.panelFx={}; syncShopUnlocks(true);
+		st.cones = []; st.nextRail = nextRailGap();
 		if (global.DotShop) global.DotShop.close();
 		st.shopOpen = false;
 		st.dist = 0; st.scroll = 0;        // ★★いま走った距離を差し出す
@@ -5737,6 +5919,7 @@
 
 	// ★★決定を押したとき。★買えたら true
 	function shopPick() {
+		if (st.prestigeAsk) return false;
 		var rows = shopRows();
 		var r = rows[Math.max(0, Math.min(rows.length - 1, st.shopSel))];
 		if (!r || r.kind === "start") return false;
@@ -5778,6 +5961,9 @@
 		if (r.kind === "upg") {
 			coins -= r.cost;
 			upgLv[r.id] = (upgLv[r.id] || 0) + 1;
+			if (r.id === "shoes") { st.dj = true; giftSound(); }
+			if (r.id === "railpass") st.nextRail = Math.min(st.nextRail, 280);
+			if (r.id === "live") liveState();
 			// ★★★★★この買い物で**はじめて MAX に届いた**なら、その場で知らせる
 			//   （2026-09-12 島さんの指定「特殊フェードインと音演出により知らせる」）
 			//   ★★**払う処理と同じ 1 か所**でやります（★離すと片方だけ直す事故が起きる）
@@ -5824,14 +6010,18 @@
 		}
 		saveCoins();
 		saveUpg();
+		syncShopUnlocks(true);
+		// New panels may change pagination; keep the purchased card in view.
+		st.shopPage = Math.floor(Math.max(0, shopOrder().indexOf(st.shopSel)) / 4);
 		buySound();                                            // ★★★買えた音（★脳汁）
 		return true;
 	}
 
 	function shopMove(d) {
-		var n = shopRows().length;
-		st.shopSel = (st.shopSel + d + n) % n;
-		st.shopPage = Math.floor(Math.max(0, st.shopSel - 1) / 4);
+		var order = [0].concat(shopOrder()), at = Math.max(0, order.indexOf(st.shopSel));
+		at = (at + d + order.length) % order.length;
+		st.shopSel = order[at];
+		st.shopPage = Math.floor(Math.max(0, at - 1) / 4);
 		st.shopKeyboard = true;
 		sound(880, 0.03);
 	}
@@ -5930,6 +6120,7 @@
 	}
 
 	function toggleCamp() {
+		clearActionAssist();
 		if (st && st.campPhase === "fish" && !st.shopOpen) { leaveFishing(); return; }
 		if (!CAMPMODE_ON || !st) return;
 		// ============================================================
@@ -6303,6 +6494,7 @@
 	}
 
 	function update(dt) {
+		if (!assistsActive()) clearActionAssist();
 		// ★★★★★夜になったらキャンプボタンを出す／朝になったら引っこめる（2026-09-04）
 		//   ★★**いちばん先に呼ぶ**（★GAMEOVER でも一時停止でも、必ず通る場所）。
 		//   ★変わったときだけシェルに頼むので、毎コマ呼んでも重くありません
@@ -6316,6 +6508,7 @@
 		//     （★★★ 2026-09-12 に実際にそうなっていました）。
 		//   ★★★**減らすのはここ 1 か所だけ**（★つぶまきの決まりと同じ）
 		if (st.prestigeMs > 0) st.prestigeMs = Math.max(0, st.prestigeMs - dt * 1000);
+		Object.keys(st.panelFx || {}).forEach(function(id) { st.panelFx[id] = Math.max(0, st.panelFx[id] - dt * 1000); });
 		// ★★ショップ・一時停止のあいだは、何も進まない
 		if (st.paused || st.shopOpen) return;
 		// ============================================================
@@ -6370,7 +6563,7 @@
 			//   ★そろえないと、★★**新しい満タンまで回復したのにバーは古い満タンで割る**ので、
 			//     ★★★**何回ぶつかってもバーが動かない**（＝島さんが見つけた「ダメージを受けない」）
 			st.staminaMax = curStaminaMax();
-			st.stamina = st.staminaMax;         // ★★全回復
+			st.stamina = Math.min(st.staminaMax, drinkRecovery());
 			st.reviveMs = REVIVE_MS;            // ★演出
 			reviveSound();                      // ★心地よい音
 		}
@@ -6401,12 +6594,16 @@
 
 		// ★ぶつかったあとの減速（残り時間が減っていく）
 		if (st.slowMs > 0) st.slowMs = Math.max(0, st.slowMs - dt * 1000);
-		var slowFactor = (st.slowMs > 0) ? HIT_SLOW : 1;
+		var slowFactor = (st.slowMs > 0) ? 1 - (1 - HIT_SLOW) / (1 + upgLevel("wheels") * 0.2) : 1;
 
 		// ★★走り出しの加速。GO からの経過で、速さがじわっと上がる
 		st.speedMs += dt * 1000;
 		// ★★SPEED のアップグレードはここで効く（→ `curSpeed()`）
 		var moved = curSpeed() * accelFactor() * slowFactor * dt;
+		updateLive(dt);
+		st.assistClock += dt * 1000;
+		st.assistPrevLift = currentLift();
+		st.cornerShift = Math.max(0, st.cornerShift - moved);
 		var hitsBeforeMove = st.hits;
 		st.dist += moved;
 		st.hpGrowMs = Math.max(0, st.hpGrowMs - dt * 1000);
@@ -6558,7 +6755,7 @@
 			//   ★扉の前後は何も置かない（2026-08-23 島さんの指定）
 			//   ★★他の障害物とケンカしない（★`railClashAt` が両側から見張る）
 			//   ★★★**種で決めない**（★間隔はランダム ＝ 覚えゲーにしない）
-			if (RAIL_ON && RAIL) {
+			if (railEnabled() && RAIL) {
 				st.nextRail -= moved;
 				if (st.nextRail <= 0) {
 					var railAt = worldX() + W + 4;
@@ -6881,7 +7078,7 @@
 			if (PICK_ON) {
 				// ★★★コインは**画面の行**で持っているので、主役の足も行で見る（2026-08-23）
 				var myRow = riderGroundRow() - 1 - currentLift();
-				var boxL = RIDER_X, boxR = RIDER_X + RIDER_FOOT * 2;
+				var boxL = RIDER_X + st.cornerShift, boxR = boxL + RIDER_FOOT * 2;
 				var magnet = magnetRadius(), magnetX = (boxL + boxR) / 2;
 				// ============================================================
 				// ★★★★★グラインド中は「**体に触れたら取れる**」（2026-09-02 島さんの指摘）
@@ -6984,8 +7181,12 @@
 		//   ★★★絵も `js/frames.js` の表も1つも変えていない
 		if (st.air >= 0) {
 			st.air += dt * 1000 / jumpDurationMul();
-			if (FR.frameAt(POSES[st.trick].ms, st.air) < 0) {
+			// Check the new pose as well: a descending frame must not skip a rail top.
+			if (FR.frameAt(POSES[st.trick].ms, st.air) >= 0) tryGrind();
+			if (!st.grind && FR.frameAt(POSES[st.trick].ms, st.air) < 0) {
+				liveLanding();
 				st.air = -1;
+				st.grindGrace = null; st.airJumps = 0;
 				st.djBase = 0;                   // ★★下駄をはずす（2026-08-22）
 				// ★★★★着地のけむり（2026-08-31）。★**跳ぶときと対になる反応**
 				//   ★桜井資料「操作したのに無反応の状態を作らない」
@@ -7000,6 +7201,7 @@
 		} else {
 			updateIdle(dt);
 		}
+		consumeBufferedAction();
 	}
 
 	// ------------------------------------------------------------
@@ -7452,6 +7654,173 @@
 		}
 	}
 
+	// LIVE is event based: empty jumps and idle menus never mint tips.
+	var liveReducedMotion = typeof global.matchMedia === "function" ? global.matchMedia("(prefers-reduced-motion: reduce)") : null;
+	function liveCounterText(value, format) {
+		var unit = format.slice(-1), divisor = {K:1e3,M:1e6,B:1e9}[unit];
+		if (!divisor) return String(value);
+		var n=value/divisor;
+		return (format.indexOf(".")>=0 ? (Math.floor(n*10)/10).toFixed(1) : String(Math.floor(n))) + unit;
+	}
+	function liveCounterSegment(c) {
+		var p = (c.step + 1) / c.steps;
+		c.next = c.step + 1 === c.steps ? c.target : Math.round(c.from + (c.target - c.from) * (1 - (1-p)*(1-p)));
+		// Both faces use the same unit while rolling; never show an old number with a new multiplier.
+		var format = shortNum(Math.max(c.value,c.next));
+		c.oldText = liveCounterText(c.value,format); c.newText = liveCounterText(c.next,format); c.age = 0;
+	}
+	function liveCounterPlan(c, target) {
+		var delta = Math.abs(target - c.value);
+		c.target = target; c.from = c.value; c.step = 0;
+		c.active = delta > 0 && shortNum(c.value) !== shortNum(target);
+		if (!c.active) { c.value = target; c.oldText = c.newText = shortNum(target); return; }
+		c.direction = target > c.value ? 1 : -1;
+		c.steps = delta >= 100 ? 4 : delta >= 10 ? 2 : 1;
+		c.duration = c.steps === 4 ? 50 : c.steps === 2 ? 70 : 100;
+		liveCounterSegment(c);
+	}
+	function updateLiveCounter(l, dt) {
+		var target = Math.max(0, Math.floor(l.viewers));
+		var c = l.counter || (l.counter = {value:0, target:0, active:false, oldText:"0", newText:"0", age:0});
+		if (liveReducedMotion && liveReducedMotion.matches) {
+			c.value = target; c.active = false; c.oldText = c.newText = shortNum(target); return c;
+		}
+		if (!c.active) liveCounterPlan(c, target);
+		var remaining = Math.max(0, dt * 1000);
+		// Finish the current short roll before retargeting. Frequent updates never restart a half-digit.
+		while (c.active) {
+			var used = Math.min(remaining, c.duration - c.age);
+			c.age += used; remaining -= used;
+			if (c.age < c.duration - 0.000001) break;
+			c.value = c.next; c.step++;
+			if (target !== c.target) liveCounterPlan(c, target);
+			else if (c.step < c.steps) liveCounterSegment(c);
+			else { c.active = false; c.oldText = c.newText = shortNum(c.value); }
+			if (remaining <= 0) break;
+		}
+		return c;
+	}
+	// Clip glyph rows directly: integer pixels, no canvas allocation, and no spill into the notice below.
+	function drawLiveCounterGlyph(ch, x, top, offset) {
+		var F = global.DotFont, rows = F.GLYPHS[ch];
+		if (!rows) return;
+		for (var pass=1; pass>=0; pass--) {
+			ctx.fillStyle = GB[pass ? 10 : 16];
+			for (var y=0; y<rows.length; y++) {
+				var py = top + offset + y + pass;
+				if (py < top || py >= top + F.GLYPH_H + 1) continue;
+				for (var col=0; col<F.GLYPH_W;) {
+					if (rows[y][col] !== "#") { col++; continue; }
+					var end=col+1; while(end<F.GLYPH_W && rows[y][end]==="#") end++;
+					ctx.fillRect(x+col+pass,py,end-col,1); col=end;
+				}
+			}
+		}
+	}
+	function drawLiveCounter(c, right, top) {
+		var F = global.DotFont, step=F.GLYPH_W+F.SPACING, height=F.GLYPH_H+1;
+		var p = c.active ? c.age/c.duration : 1, shift=Math.round(height*p*p*(3-2*p));
+		var count=Math.max(c.oldText.length,c.newText.length);
+		for(var i=0;i<count;i++) {
+			var oldCh=c.oldText[c.oldText.length-1-i] || " ", newCh=c.newText[c.newText.length-1-i] || " ";
+			var x=right-F.GLYPH_W-i*step;
+			if (!c.active || oldCh===newCh || !/^[0-9 ]$/.test(oldCh) || !/^[0-9 ]$/.test(newCh)) {
+				F.drawTextShadow(ctx,newCh,x,top,GB[16],GB[10]);
+			} else {
+				drawLiveCounterGlyph(oldCh,x,top,-c.direction*shift);
+				drawLiveCounterGlyph(newCh,x,top,c.direction*(height-shift));
+			}
+		}
+	}
+	function liveState() {
+		if (!st.live) st.live = { viewers: 0, combo: 0, lastTrick: "", repeat: 0, idle: 0, sinceClear: Infinity, sponsored: false, festivalUsed: false, festival: 0, notice: "", noticeMs: 0, tips: 0 };
+		return st.live;
+	}
+	function liveMilestones(l) {
+		if (l.viewers >= 10000 && !l.sponsored) { l.sponsored = true; l.notice = "SPONSOR +4%"; l.noticeMs = 2500; }
+		if (l.viewers >= 100000 && !l.festivalUsed) { l.festivalUsed = true; l.festival = 20; l.notice = "LIVE FES 20s"; l.noticeMs = 2500; }
+	}
+	function liveClear(baseCoins) {
+		var lv = upgLevel("live"); if (!lv) return 0;
+		var l = liveState(); l.combo++; l.idle = 0; l.sinceClear = 0;
+		var variety = Math.pow(0.82, Math.max(0, l.repeat - 2));
+		var speed = 1 + Math.max(0, (curSpeed() * accelFactor() - SPEED) / SPEED);
+		var risk = 1 + (st.air >= 0 ? 0.25 : 0) + (st.grind ? Math.min(1, st.grindDots/90) : 0) + (st.trick === poseIndex("POP") ? 0.6 : st.trick === poseIndex("KICKFLIP") ? 0.4 : 0);
+		var target = Math.min(1e9, 25 * Math.pow(2.5, Math.min(18, lv - 1)) * (1 + Math.min(40, l.combo) * 0.2) * speed * risk * variety);
+		l.viewers = Math.round(l.viewers * 0.35 + target * 0.65);
+		liveMilestones(l);
+		var rate = l.viewers >= 1000 ? 0.06 : l.viewers >= 100 ? 0.03 : 0;
+		if (l.sponsored) rate += 0.04;
+		if (l.festival > 0) rate += 0.05;
+		var tip = Math.floor(baseCoins * rate); l.tips += tip; return tip;
+	}
+	function liveLanding() {
+		if (!upgLevel("live")) return;
+		var l = liveState(), trick = POSES[st.trick].name;
+		l.repeat = l.lastTrick === trick ? l.repeat + 1 : 1; l.lastTrick = trick;
+		if (l.repeat > 2) { l.viewers = Math.floor(l.viewers * 0.82); if (l.noticeMs <= 1000) { l.notice = "TRY A NEW TRICK"; l.noticeMs = 900; } }
+		else if (l.sinceClear <= 12 && st.slowMs <= 0) {
+			l.viewers = Math.round(Math.min(1e9, l.viewers * (trick === "OLLIE" ? 1.25 : 1.6)));
+			if (l.noticeMs <= 1000) { l.notice = "PERFECT"; l.noticeMs = 900; } liveMilestones(l);
+		}
+	}
+	function updateLive(dt) {
+		if (!upgLevel("live")) return;
+		var l = liveState(); l.idle += dt; l.sinceClear += curSpeed() * accelFactor() * dt;
+		l.noticeMs = Math.max(0, l.noticeMs - dt * 1000); l.festival = Math.max(0, l.festival - dt);
+		if (l.idle > 3) l.viewers *= Math.exp(-dt * 0.08);
+		if (l.idle > 8) l.combo = 0;
+		updateLiveCounter(l, dt);
+	}
+	function drawLiveHud() {
+		if (!upgLevel("live")) return;
+		var l = liveState(), F = global.DotFont, c = updateLiveCounter(l, 0);
+		// Reserve five cells (up to 99.9K/M/B) so LIVE never shuffles as the digit count changes.
+		var right = W - 34, x = right - F.textWidth(10);
+		F.drawTextShadow(ctx, "LIVE", x, 3, GB[16], GB[10]);
+		drawLiveCounter(c, right, 3);
+		ctx.fillStyle = GB[25]; ctx.fillRect(x-4, 5, 2, 2);
+		if (l.noticeMs > 0) F.drawTextShadow(ctx, l.notice, right-F.textWidth(l.notice.length), 13, GB[19], GB[10]);
+		else if (l.festival > 0) { var fes="FES " + Math.ceil(l.festival) + "s"; F.drawTextShadow(ctx, fes, right-F.textWidth(fes.length), 13, GB[19], GB[10]); }
+	}
+	function lightSize() { return upgLevel("light") ? 40 + 4 * (upgLevel("light") - 1) : 0; }
+	function drawDroneLight() {
+		var size = lightSize(); if (!size || st.campPhase) return;
+		var cx = Math.round(riderFootX()), foot = riderGroundRow() - currentLift(), cy = Math.round(foot - 12);
+		var alpha = ctx.globalAlpha, op = ctx.globalCompositeOperation;
+		if (nightAlpha() > 0) {
+			ctx.globalCompositeOperation = "lighter"; ctx.fillStyle = "#b3c9b4";
+			// Three stepped pixel bands add up to 40% in the center. No blur or full-screen wash.
+			for (var i=0; i<3; i++) {
+				var inset=i*3, side=size-inset*2, cut=Math.round(side/5), x=Math.round(cx-size/2)+inset, y=Math.round(cy-size/2)+inset;
+				ctx.globalAlpha=[0.08,0.12,0.20][i] * Math.min(1, nightAlpha()/NIGHT_A1);
+				ctx.fillRect(x+cut,y,side-2*cut,cut); ctx.fillRect(x,y+cut,side,side-2*cut); ctx.fillRect(x+cut,y+side-cut,side-2*cut,cut);
+			}
+		}
+		ctx.globalCompositeOperation = op; ctx.globalAlpha = alpha;
+		var dx = cx-17, dy = cy-15 + (Math.floor(st.animMs/240)%2), spin=Math.floor(st.animMs/80)%2;
+		ctx.fillStyle=GB[10]; ctx.fillRect(dx+2,dy+1,5,4); ctx.fillRect(dx,dy+2,9,1);
+		ctx.fillStyle=GB[15]; ctx.fillRect(dx+3,dy+1,3,2); ctx.fillRect(dx-spin,dy,3,1); ctx.fillRect(dx+6+spin,dy,3,1);
+		ctx.fillStyle=GB[19]; ctx.fillRect(dx+4,dy+4,1,1);
+	}
+	function drawPinchWarning() {
+		if (!assistsActive() || st.stamina / st.staminaMax > PLAY_ASSIST.pinchRatio) return;
+		// Three faint pixel bands; leave the scenery center and all HUD lettering untouched.
+		// No pulse, flash, blur, extra canvas, or per-pixel loop.
+		var previousAlpha = ctx.globalAlpha;
+		ctx.save();
+		ctx.fillStyle = GB[25];
+		for (var n = 0; n < 3; n++) {
+			ctx.globalAlpha = [0.22, 0.12, 0.05][n];
+			ctx.fillRect(n, n, W - n * 2, 1);
+			ctx.fillRect(n, H - 1 - n, W - n * 2, 1);
+			ctx.fillRect(n, n + 1, 1, H - n * 2 - 2);
+			ctx.fillRect(W - 1 - n, n + 1, 1, H - n * 2 - 2);
+		}
+		ctx.restore();
+		ctx.globalAlpha = previousAlpha;
+	}
+
 	// ★★頭上のポップアップを描く（★出すのは `addPop()` 1か所だけ）
 	//   ★消え方: パレットに透明度が無いので、**最後に暗い色へ落として**消す
 	// ★★ドットごとの「ちらばり」を、**場所から作る**
@@ -7807,7 +8176,7 @@
 	function drawSkater(index) {
 		var P = currentPose(), A = P.art, f = A.FRAMES[index];
 		drawArt(f,
-			RIDER_X + (f.x - P.x0),                     // ★描いた位置をそのまま使う
+			RIDER_X + Math.round(st.cornerShift) + (f.x - P.x0),
 			// ★足がつく行を、いまの地面に重ねる。★★二段目だけ下駄のぶん持ち上がる
 			riderGroundRow() - 1 - A.FEET_ROW + f.y - djLift());
 	}
@@ -8591,6 +8960,8 @@
 		// ⑨' ★★スタミナバー（★★2026-08-23、島さんの指定で**画面のいちばん下**へ）
 		//   島さん「スタミナの見える化がないと、何故急に終了したのか分からない」
 		//   ★★★いちばん最後に描くので、★地面の上にちゃんと乗る
+		drawDroneLight();
+		drawPinchWarning();
 		drawStaminaBar();
 
 		// ★★★HP（2026-08-16 / Phase D）。★スタミナバーのすぐ下に、HP_MAX 個の四角
@@ -8607,6 +8978,7 @@
 		}
 
 		// ⑨ 距離と倍率（左上に2行）。★右上は [音][一時停止][もどる] が重なるので使わない
+		drawLiveHud();
 		//   ★単位の「m」つき（2026-08-12 島さんの指定）
 		//   ★★★2026-08-23、バーが**いちばん下**へ移ったので、
 		//     ★左上の文字は**押し下げなくてよくなった**（★上に詰められる）
@@ -8808,8 +9180,38 @@
 	//     ・**やめる**   … ★★**GAMEOVER から必ずタイトルへ戻る**ようになった
 	//   ★★★選ぶものが無いので、**なぞりもカーソルも要らない**
 	//   ★文字は `drawCenterText()` 1か所を通す（★READY / GO と同じ決まり）
+	// ★★★★★一時停止に RESUME / SAVE+QUIT（2026-09-13）。
+	//   ★描くところと当たり判定は `pauseBtnRects()` の1か所を共有（★campBtnRects と同じ作法）。
+	//   ★★テストモードでは SAVE+QUIT を押せない（★記録を汚さない）
+	function pauseBtnRects() {
+		var F = global.DotFont, h = F.GLYPH_H + 6, w = F.textWidth(9) + 16;
+		// ★PAUSE の文字とボタン2つを、ひとかたまりで上下のまん中に置く（→ pauseTop）
+		var x = Math.floor((W - w) / 2), top = pauseTop() + F.GLYPH_H + 12;
+		return [{ id: "resume", text: "RESUME", x: x, y: top, w: w, h: h, off: false },
+			{ id: "save", text: "SAVE+QUIT", x: x, y: top + h + 4, w: w, h: h, off: testMode }];
+	}
+	function pauseHit(lx, ly) {
+		var bs = pauseBtnRects();
+		for (var i = 0; i < bs.length; i++) {
+			var b = bs[i];
+			if (!b.off && lx >= b.x && lx < b.x + b.w && ly >= b.y && ly < b.y + b.h) return b.id;
+		}
+		return "";
+	}
+	function pauseTop() {
+		var F = global.DotFont, h = F.GLYPH_H + 6;
+		return Math.floor((H - (F.GLYPH_H + 12 + h * 2 + 4)) / 2);
+	}
 	function drawPauseScreen() {
-		drawCenterText("PAUSE", 0);
+		var F = global.DotFont;
+		drawCenterAt("PAUSE", pauseTop());
+		pauseBtnRects().forEach(function (b) {
+			var on = st.pauseBtn === b.id;
+			ctx.fillStyle = GB[9]; ctx.fillRect(b.x, b.y, b.w, b.h);
+			ctx.fillStyle = GB[on ? 9 : 29]; ctx.fillRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+			F.drawText(ctx, b.text, b.x + Math.floor((b.w - F.textWidth(b.text.length)) / 2),
+				b.y + Math.floor((b.h - F.GLYPH_H) / 2), GB[b.off ? 7 : (on ? 29 : 9)]);
+		});
 	}
 
 
@@ -9034,9 +9436,13 @@
 	function shopOrder() {
 		var rows = shopRows(), order = [], hoist = -1;
 		for (var i = 1; i < rows.length; i++) {
+			if (rows[i].hidden) continue;
 			if (rows[i].kind === "prestige") hoist = i;
 			else order.push(i);
 		}
+		var coinIndex = rows.findIndex(function (r) { return r.id === "coin"; });
+		var coinAt = order.indexOf(coinIndex);
+		if (coinAt > 0) { order.splice(coinAt, 1); order.unshift(coinIndex); }
 		if (hoist >= 0) order.splice(Math.min(3, order.length), 0, hoist);
 		return order;
 	}
@@ -9085,6 +9491,7 @@
 			var detail = shopRowText(r).slice(9).trim();
 			if (r.kind === "unlock" && !r.got) detail = r.hint;
 			if (r.kind === "item" && r.usedUp && !r.have) detail = "USED";
+			if (r.kind === "prestige") detail = "MAX+" + PRESTIGE_STEP + " / 0m";
 			F.drawText(g, detail, x + 7, y + 23, GB[enabled ? 19 : 7]);
 		} else {
 			var label = b.key === "close" ? "CLOSE" : (b.key === "prev" ? "PREV" : "NEXT");
@@ -9145,15 +9552,46 @@
 		shopButtons().forEach(function (b) {
 			var r = b.index ? rows[b.index] : null;
 			// ★★★★★新しく出てきた転生のパネルだけ、グリッチしながら現れる
-			var t = (r && r.kind === "prestige") ? prestigeGlitchT() : 0;
+			var t = (r && r.kind === "prestige") ? prestigeGlitchT() :
+				r && !(global.DotShop && global.DotShop.isOpen()) ? panelRevealMs(r.id) / 900 : 0;
 			if (t > 0) drawShopCardGlitch(b, r, t);
 			else drawShopCard(ctx, b, r);
 		});
-		var counter = ((st.shopPage || 0) + 1) + " OF " + Math.ceil((rows.length - 1) / 4);
+		var next = shopNextUnlock();
+		if (next && shopOrder().length <= 2) F.drawText(ctx, next.pixel, 8, 93, GB[7]);
+		var counter = ((st.shopPage || 0) + 1) + " OF " + Math.ceil(shopOrder().length / 4);
 		F.drawText(ctx, counter, Math.floor((W - F.textWidth(counter.length)) / 2), 139, GB[7]);
 		// ★★★★★押しまちがいを防ぐ問いかけ（2026-09-12 島さんの指定）。
 		//   ★キャンプの「CAMP?」と**同じ道具**（★★島さんが描いた YES / NO）
-		if (st.prestigeAsk) drawCampAsk(PRESTIGE_ASK_TEXT, st.prestigeBtn);
+		if (st.prestigeAsk) drawPrestigeAsk();
+	}
+	function prestigeButtons() {
+		return { yes: { x: 8, y: 124, w: 108, h: 34 }, no: { x: 124, y: 124, w: 108, h: 34 } };
+	}
+	function prestigeHit(x, y) {
+		var rects = prestigeButtons();
+		for (var key in rects) { var r = rects[key]; if (x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h) return key; }
+		return "";
+	}
+	function drawPrestigeAsk() {
+		var F = global.DotFont;
+		ctx.fillStyle = GB[10]; ctx.fillRect(0, 0, W, H);
+		F.drawText(ctx, "REBORN: GROW YOUR LIMIT", 8, 5, GB[19]);
+		prestigePreview().forEach(function (p, i) {
+			var x=8+(i%2)*116, y=19+Math.floor(i/2)*11;
+			F.drawText(ctx, p.name + " " + p.before + "→" + p.after, x, y, GB[20]);
+		});
+		if (!journeyRank) F.drawText(ctx, "+ RAIL SHOP: FIRST REBIRTH", 8, 72, GB[19]);
+		F.drawText(ctx, "RESTART → 0m", 8, 81, GB[18]);
+		F.drawText(ctx, "COIN / GROWTH LV / GEAR → 0", 8, 92, GB[18]);
+		F.drawText(ctx, "KEEP: RECORDS / TRICKS / CAPS", 8, 103, GB[7]);
+		F.drawText(ctx, "KEEP: SHOES / OPEN PANELS", 8, 113, GB[7]);
+		var rects = prestigeButtons();
+		Object.keys(rects).forEach(function (key) {
+			var r = rects[key], pressed = st.prestigeBtn === key, word = key === "yes" ? "REBORN" : "BACK";
+			ctx.fillStyle = GB[pressed ? 5 : 22]; ctx.fillRect(r.x, r.y, r.w, r.h-2);
+			F.drawText(ctx, word, r.x+Math.floor((r.w-F.textWidth(word.length))/2), r.y+11, GB[key === "yes" ? 19 : 16]);
+		});
 	}
 
 	// ============================================================
@@ -9537,6 +9975,11 @@
 			//   ★★消すのは `resetStatus()` と同じもの（★コイン・レベル・技・道具）。
 			//     ★★★**BEST は消しません**（★唯一ランをまたぐ記録。
 			//       ★そもそもテストモードは BEST を**更新もしません**）
+			// ★★★★★NEW GAME は技も成長も引き継がない（2026-09-13）。★旅の記録とセーブを消してから始める
+			if (!testMode && opts && opts.fresh) { if (PR) PR.clear(); deleteSave(); }
+			// ★★★★★CONTINUE: セーブを読んで、読んだら消す
+			var resumeData = (!testMode && opts && opts.resume) ? peekSave() : null;
+			if (resumeData) deleteSave();
 			if (PR) PR.load();
 			reloadCaps();               // ★★伸びた天井を控えに取る（2026-09-12）
 			resetStatus(); // A new departure always starts a new run.
@@ -9559,7 +10002,9 @@
 				if (sc > 0) coins = sc;
 			}
 			// ★シェルが SEED ID 画面で見せた種を、そのまま受け取る
-			reset(opts && typeof opts.seed === "number" ? opts.seed : undefined);
+			reset(resumeData ? resumeData.seed : (opts && typeof opts.seed === "number" ? opts.seed : undefined));
+			if (resumeData) applySave(resumeData);   // ★★同じ世界の、保存した場所・体力・財布から
+			syncShopUnlocks(false);
 			// ★READY の音。★enter から始まるときは、enter が明けた瞬間に鳴る（updatePhase）
 			if (st.phase === "ready") sound(660, 0.06);
 			startLoop();
@@ -9718,6 +10163,7 @@
 				// ★★★覚えていない技は出ない（2026-08-15 / Phase B）。
 				//   ★最初はオーリーだけ。キックフリップとポップは**買って覚える**
 				if (!knowsTrick(POSES[i].name)) return false;
+				clearActionAssist();
 				// ============================================================
 				// ★★★★地上から出したときだけ、数えと下駄をやり直す（2026-08-23 に直した）
 				//
@@ -9792,8 +10238,9 @@
 			// ★★★★レールに乗っているあいだのタップ ＝ **跳び出す**（2026-08-31）
 			//   ★★降りかたは終端と同じ（★オーリーの絵を流すので瞬間移動しない）
 			if (st.grind) { endGrind(true); return; }
+			if (coyoteRailOut()) return;
 			if (st.air >= 0) {
-				if (!st.dj || st.airJumps >= DJ_MAX) return;
+				if (!st.dj || st.airJumps >= DJ_MAX) { bufferAction("tap"); return; }
 				// ★★★★いまの足元の高さを覚えてから跳ぶ（2026-08-22 島さんの指定）。
 				//   > 「二段ジャンプの二回はタップしたところを基準としてほしい。」
 				//   ★★`trick()` より**先に**読むこと（★あちらが `st.air = 0` に戻すため）
@@ -9843,9 +10290,13 @@
 				return;
 			}
 			if (isFrozen(st.phase)) return;                  // ★走り出す前は何も起きない
+			if (!assistsActive() || !knownAction(how)) return;
+			if (st.grind) { endGrind(true); this.trick(how); return; }
+			if (coyoteRailOut()) { this.trick(how); return; }
 			var justTapped = (st.air >= 0 && st.air <= SWIPE_GRACE_MS &&
 				POSES[st.trick].how === "tap");
 			if (st.air < 0 || justTapped) this.trick(how);
+			else bufferAction(how);
 		},
 
 		// ★★★ショップの開け閉め（2026-08-16 島さんの指定）
@@ -9853,6 +10304,7 @@
 		//   ★キャンプで選んでいる最中も開かない（★世界の中の選択を邪魔しない）
 		toggleShop: function () {
 			if (st === null) return;
+			clearActionAssist();
 			// ★★★エンディング中も開かない（2026-08-22。★演出の裏で開くのを防ぐ）
 			if (st.phase === "over" || st.phase === "camp" ||
 				st.phase === "ending" || st.phase === "gift") return;
@@ -9908,6 +10360,7 @@
 
 		togglePause: function () {
 			if (st === null) return;
+			clearActionAssist();
 			// ★★★エンディング中・授かる場面は一時停止できない（2026-08-22。★止めるものが無い）
 			if (st.phase === "ending" || st.phase === "gift") return;
 			// ============================================================
@@ -9923,6 +10376,7 @@
 			if (st.campPhase === "fish" && !st.shopOpen) { st.paused = !st.paused; return; }
 			if (st.campPhase) return;
 			st.paused = !st.paused;
+			st.pauseBtn = "";
 			if (st.paused) { st.shopOpen = false; st.tapArmed = false; }
 			sound(st.paused ? 440 : 660, 0.06);
 		},
@@ -9941,6 +10395,13 @@
 		inputEscape: leaveFishing,
 		getBest: function () { return st ? best : loadBest(); },
 		_state: function () { return st; },
+		_assistConfig: function () { return Object.assign({}, PLAY_ASSIST); },
+		_liveClear: liveClear, _liveLanding: liveLanding, _lightSize: lightSize,
+		_updateLiveCounter: updateLiveCounter, _drawLiveCounter: drawLiveCounter,
+		_accelSpan: accelSpan,
+		_tryGrind: tryGrind,
+		_riderFootX: riderFootX,
+		_railLiftOf: railLiftOf,
 		// ★★★★覆う道具（2026-08-23、4か所にあった同じものをまとめた）。
 		//   ★テストが「前とぴったり同じ行を塗るか」を見張るために覗く
 		_fadeRows: fadeRows,
@@ -9980,8 +10441,9 @@
 		_toggleShop: function () { global.DotOllie.toggleShop(); },
 		_shopRows: shopRows,
 		shopView: function () {
-			return { coins: coins, rows: shopRows().slice(1).map(function (r) {
-				r.enabled = canBuy(r); return r;
+			var rows = shopRows();
+			return { coins: coins, next: shopNextUnlock(), firstPrestige: journeyRank === 0, prestige: prestigePreview(), rows: shopOrder().map(function (i) { return rows[i]; }).map(function (r) {
+				r.enabled = canBuy(r); r.fresh = !!(st && st.newPanels && st.newPanels[r.id]); return r;
 			}) };
 		},
 		buyShop: function (id) {
@@ -10003,7 +10465,10 @@
 		//   ★お店の画面は 2 つありますが、★★**決めるのはここ 1 か所**です
 		prestigeAsking: function () { return !!(st && st.prestigeAsk); },
 		prestigeAnswer: function (which) { return prestigeAnswer(which); },
+		_prestigeButtons: prestigeButtons,
 		prestigeGlitchMs: function () { return st ? (st.prestigeMs || 0) : 0; },
+		panelRevealMs: panelRevealMs,
+		_drinkRecovery: drinkRecovery, _railEnabled: railEnabled,
 		_upgLevel: upgLevel,
 		_knowsTrick: knowsTrick,
 		_curSpeed: curSpeed,
@@ -10044,6 +10509,13 @@
 		_addDust: addDust,
 		_addLandDust: addLandDust,
 		_baseClear: function () { return BASE_CLEAR; },
+		// ★★★★★旅のセーブ（2026-09-13）。★タイトル画面（js/shell.js）が使う
+		peekSave: peekSave,
+		deleteSave: deleteSave,
+		hasJourney: hasJourney,
+		clearJourney: function () { if (PR) PR.clear(); deleteSave(); },
+		_saveRun: saveRun,
+		_pauseRects: pauseBtnRects,
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
 		// ============================================================
@@ -10069,6 +10541,18 @@
 		//     （★押しまちがえたら、指をずらせば取り消せる ＝ ふつうのボタンの作法）
 		inputTapAt: function (lx, ly, down) {
 			if (!st) return false;
+			// ★★★★★一時停止の RESUME / SAVE+QUIT（2026-09-13）。★押したボタンの上で離したときだけ決まる
+			if (st.paused && !st.campPhase && !st.shopOpen) {
+				var pz = pauseHit(lx, ly);
+				if (down) { st.pauseBtn = pz; return true; }
+				var pzWas = st.pauseBtn;
+				st.pauseBtn = "";
+				if (pzWas && pzWas === pz) {
+					if (pz === "resume") this.togglePause();
+					else if (saveRun()) { sound(990, 0.06); st.paused = false; if (exitToMenu) exitToMenu(); }
+				}
+				return true;
+			}
 			// ★★★★★お店を開いているあいだは、お店の操作だけ（2026-09-05(4)）。
 			//   ★お店の画面はキャンプの絵より**手前**に出るので、
 			//     ★★ここで止めないと**見えていない YES / NO が押されて**しまいます
@@ -10079,7 +10563,7 @@
 				//     （★★★ 2026-09-05(4) にキャンプで踏んだのとまったく同じ罠）。
 				//   ★★押したボタンの上で離したときだけ決まります（★ふつうのボタンの作法）
 				if (st.prestigeAsk) {
-					var phit = campHitBtn(lx, ly);
+					var phit = prestigeHit(lx, ly);
 					if (down) { st.prestigeBtn = phit; return true; }
 					var pwas = st.prestigeBtn;
 					st.prestigeBtn = "";
@@ -10144,11 +10628,16 @@
 				return true;
 			}
 			if (!st || !st.shopOpen) return false;
+			if (st.prestigeAsk) {
+				if (prestigeHit(x, y) !== st.prestigeBtn) st.prestigeBtn = "";
+				return true;
+			}
 			var b = shopHit(x, y);
 			if (!b || b.key !== st.shopPressed) st.shopPressed = "";
 			return true;
 		},
 		_shopButtons: shopButtons,
+		_shopOrder: shopOrder,
 		inputDrag: function (dx, dy) {
 			if (!st || st.campPhase !== "in") return false;
 			// ★★★★★お店を開いているあいだは歩かない（2026-09-05(4)）。

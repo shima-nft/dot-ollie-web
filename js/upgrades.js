@@ -75,7 +75,7 @@
 	var UPGRADES = [
 		// ★★★いちばん安い ＝ **最初の1個**。★2026-08-16、150 → 40 に下げた。
 		//   ★狙い: **最初のランの、はじめの15秒で1個買える**（島さんの「もっと序盤に」）
-		{ id: "speed",   name: "SPEED",   maxLevel: 7, baseCost: 40, costGrowth: 2.7, per: 1.05 },
+		{ id: "speed",   name: "BEARING",   maxLevel: 7, baseCost: 40, costGrowth: 2.7, per: 1.05 },
 		// ★★★2026-08-16、島さんの指定で **JUMP は廃止した**:
 		//   > 「ジャンプレベルは廃止。」
 		//
@@ -105,7 +105,15 @@
 		//     70 → 49（3割引） → 70（★元に戻す） → ★★**56（さらに2割引）**
 		//   ★あわせて「1個あたりの取得」も上げています（→ `js/ollie.js` の `COIN_PER`）
 		{ id: "coin",    name: "COIN",    maxLevel: 20, baseCost: 56, costGrowth: 1.5, per: 1.40 },
-		{ id: "rail", name: "RAIL", maxLevel: 5, baseCost: 80, costGrowth: 1.8, per: 1.2 }
+		{ id: "rail", name: "TRUCK", maxLevel: 5, baseCost: 80, costGrowth: 1.8, per: 1.2 },
+		{ id: "wheels", name: "WHEELS", maxLevel: 5, baseCost: 80, costGrowth: 1.8, per: 1.18 },
+		{ id: "magnet", name: "MAGNET", maxLevel: 7, baseCost: 160, costGrowth: 1.8, per: 1.15 },
+		{ id: "shoes", name: "SHOES", group: "gear", maxLevel: 1, baseCost: 300, costGrowth: 1, per: 1 },
+		{ id: "light", name: "LIGHT", maxLevel: 5, baseCost: 220, costGrowth: 1.8, per: 1.1 },
+		{ id: "recover", name: "ENERGY", maxLevel: 5, baseCost: 300, costGrowth: 2, per: 1.15 },
+		{ id: "live", name: "LIVE", maxLevel: 7, baseCost: 500, costGrowth: 2.2, per: 2.5 },
+		{ id: "railpass", name: "RAIL", group: "gear", maxLevel: 1, baseCost: 120, costGrowth: 1, per: 1 },
+		{ id: "drink", name: "DRINK", group: "gear", maxLevel: 7, baseCost: 80, costGrowth: 1.8, per: 1 }
 	];
 
 	// ============================================================
