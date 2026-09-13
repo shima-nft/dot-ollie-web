@@ -2,6 +2,17 @@
 (function (global) {
   'use strict';
   var KEY = 'dotollie-journey-v1', profile = null;
+  // ★★★★★セーブスロット（2026-09-13 島さんの指定「セーブスロットを2つに」）。
+  //   ★スロット1 は昔からの名前のまま（★いまの記録がそのままスロット1）。スロット2 は名前の後ろに "-s2"。
+  //   ★★旅の記録・途中セーブ・BEST はスロットごと。★音・オプション・会ったモンスターは共通
+  var SLOT_KEY = 'dotollie-slot', slot = 1;
+  try { if (Number(global.localStorage.getItem(SLOT_KEY)) === 2) slot = 2; } catch (e) { /* 読めなければスロット1 */ }
+  function slotKey(base, n) { return (n || slot) === 2 ? base + '-s2' : base; }
+  function setSlot(n) {
+    slot = n === 2 ? 2 : 1; profile = null;
+    try { global.localStorage.setItem(SLOT_KEY, String(slot)); } catch (e) { /* 保存できなくても遊べる */ }
+    return slot;
+  }
   // ★★★★★`caps` …… **転生で伸びた上限**（2026-09-12 島さんの指定）
   //   ★例: `{ speed: 3, coin: 5 }` ＝ SPEED の天井が +3、COIN が +5 伸びている。
   //   ★★`rank` は**転生した回数**です（★上限はありません）。
@@ -13,9 +24,9 @@
   var CAP_IDS = ['speed', 'stamina', 'coin', 'rail', 'wheels', 'magnet', 'light', 'recover', 'live', 'drink'];
   var PANEL_IDS = CAP_IDS.concat(['shoes','railpass','maxdrink','kickflip','pop','prestige']);
   function read(key) { try { return JSON.parse(global.localStorage.getItem(key)); } catch (e) { return null; } }
-  function save() { try { global.localStorage.setItem(KEY, JSON.stringify(profile)); } catch (e) { /* Play remains available. */ } }
+  function save() { try { global.localStorage.setItem(slotKey(KEY), JSON.stringify(profile)); } catch (e) { /* Play remains available. */ } }
   function load() {
-    var raw = read(KEY); profile = fresh();
+    var raw = read(slotKey(KEY)); profile = fresh();
     if (raw && raw.version === 1) {
       // ★★★★★2026-09-12、**`=== 1` の頭打ちを外しました**。
       //   ★前は 1 以外を全部 0 に潰していたので、★★**転生 2 回目が保存できません**でした。
@@ -42,7 +53,8 @@
         var cm = raw.fish && raw.fish[id];
         if (Number.isFinite(cm) && cm >= 6 && cm <= 40) profile.fish[id] = Math.floor(cm);
       });
-    } else {
+    } else if (slot === 1) {
+      // ★引き継ぎはスロット1だけ（★スロット2に昔の技が紛れ込まないように）
       // Existing players keep purchased actions and an already reached 5000m milestone.
       var old = read('dotollie-upg'), best = Number(read('dotollie-best'));
       ['kickflip', 'pop'].forEach(function (id) { if (old && old.un && old.un[id] === true) profile.tricks[id] = true; });
@@ -96,5 +108,8 @@
   }
   global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish,
     prestige: prestige, CAP_IDS: CAP_IDS, unlockPanels: unlockPanels,
+    slot: function () { return slot; }, setSlot: setSlot, slotKey: slotKey,
+    // ★そのスロットの記録を、切り替えずに覗く（★タイトルのスロット一覧用。無ければ null）
+    peek: function (n) { var raw = read(slotKey(KEY, n)); return raw && raw.version === 1 ? raw : null; },
     clear: function () { profile = fresh(); save(); } };
 })(typeof window !== 'undefined' ? window : globalThis);

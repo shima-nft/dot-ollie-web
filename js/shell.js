@@ -214,7 +214,7 @@
 		if(TITLE){
 			lctx.save();lctx.translate(25,18);lctx.scale(2,2);DotFont.drawText(lctx,TITLE,0,0,GB[16]);lctx.restore();
 		}
-		var F=DotFont,best="BEST "+global.DotOllie.getBest()+"m";
+		var F=DotFont,best="BEST "+(global.DotOllie.bestOf?global.DotOllie.bestOf(curSlot()):global.DotOllie.getBest())+"m";
 		// A small trail marker separates the lifetime record from the selected journey.
 		lctx.fillStyle=GB[19];lctx.fillRect(212,17,1,16);lctx.fillRect(213,17,8,4);
 		F.drawText(lctx,best,132,31,GB[7]);
@@ -291,8 +291,10 @@
 	//   ★★ボタンはタップで決める（★押したボタンの上で離したときだけ ＝ ずらせば取り消せる）。
 	//   ★★★描くところ（renderSub）と当たり判定（subHit）は `subButtons()` の1か所を共有する
 	//     （★`campBtnRects()` と同じ作法。離すと「絵と判定がずれる」事故が起きる）
-	var SUB_MODES = { tests: 1, newgame: 1, newask: 1, seedpad: 1, "continue": 1, del: 1, options: 1 };
-	var SUB_HEAD = { tests: "TEST RUNS", newgame: "NEW GAME", newask: "ERASE OLD DATA?", seedpad: "INPUT SEED",
+	// ★★★★★2026-09-13: セーブスロットは2つ（島さんの指定）。
+	//   newslot = NEW GAME でスロットを選ぶ ／ continue = スロット一覧 ／ slot = そのスロットの LOAD・DELETE
+	var SUB_MODES = { tests: 1, newgame: 1, newslot: 1, newask: 1, seedpad: 1, "continue": 1, slot: 1, del: 1, options: 1 };
+	var SUB_HEAD = { tests: "TEST RUNS", newgame: "NEW GAME", newslot: "NEW GAME", newask: "ERASE OLD DATA?", seedpad: "INPUT SEED",
 		"continue": "CONTINUE", del: "DELETE?", options: "OPTIONS" };
 	// ★★★★★NEW GAME から来たか（★true なら技も成長も引き継がずに始める）
 	var pendingFresh = false;
@@ -326,14 +328,27 @@
 	global.DotOptions = { get: function (key) { return loadOptions()[key]; } };
 
 	// ---- セーブスロット（★中身を作るのは js/ollie.js。★まだ無ければ NO DATA）----
-	function peekSave() {
+	//   ★`n` を渡すと、切り替えずにそのスロットを覗く（★渡さなければ、いまのスロット）
+	function peekSave(n) {
 		var G = global.DotOllie;
-		return (G && G.peekSave) ? G.peekSave() : null;
+		return (G && G.peekSave) ? G.peekSave(n) : null;
 	}
 	// ★置き換える旅があるか（★セーブ、または覚えた技・転生・走った記録）
-	function hasJourney() {
+	function hasJourney(n) {
 		var G = global.DotOllie;
-		return !!(G && G.hasJourney && G.hasJourney());
+		return !!(G && G.hasJourney && G.hasJourney(n));
+	}
+	function curSlot() { return global.DotProgression ? global.DotProgression.slot() : 1; }
+	function pickSlot(n) { if (global.DotProgression) global.DotProgression.setSlot(n); }
+	// ★スロットのボタンの文字（★途中セーブ ＞ 旅の記録 ＞ 空）
+	function slotLabel(n) {
+		var s = peekSave(n);
+		if (s) return "SLOT " + n + " SAVE " + Math.floor(s.m || 0) + "m";
+		if (hasJourney(n)) {
+			var p = (global.DotProgression && global.DotProgression.peek(n)) || {};
+			return "SLOT " + n + " LAST " + (p.lastDistance || 0) + "m";
+		}
+		return "SLOT " + n + " EMPTY";
 	}
 
 	// 縦に並べるボタン（★いちばん長い文字にそろえて、まん中に置く）
@@ -369,7 +384,13 @@
 			return out;
 		}
 		if (mode === "newask") return listButtons([["yes", "YES"], ["no", "NO"]], 84);
-		if (mode === "continue") {
+		if (mode === "newslot" || mode === "continue") {
+			// ★CONTINUE では、空のスロットは押せない
+			var cont = mode === "continue";
+			return listButtons([["s1", slotLabel(1), cont && !hasJourney(1)],
+				["s2", slotLabel(2), cont && !hasJourney(2)], ["back", "BACK"]], 54);
+		}
+		if (mode === "slot") {
 			// ★セーブがあれば LOAD（保存した旅の再開）／無ければ NEXT RUN（技と記録を持って次のラン）
 			var s = peekSave(), j = hasJourney();
 			return listButtons([["load", s ? "LOAD" : "NEXT RUN", !j], ["delete", "DELETE", !j],
@@ -388,13 +409,14 @@
 
 	function renderSub() {
 		menuPaper();
-		drawCenterLine(SUB_HEAD[mode], (mode === "del" || mode === "newask") ? 64 : (mode === "seedpad" ? 10 : 24));
+		drawCenterLine(mode === "slot" ? "SLOT " + curSlot() : SUB_HEAD[mode],
+			(mode === "del" || mode === "newask") ? 64 : (mode === "seedpad" ? 10 : 24));
 		if (mode === "seedpad") {
 			var shown = seedDigits;
 			while (shown.length < SEED_DIGITS) shown += "-";
 			drawCenterLine(shown, 26);
 		}
-		if (mode === "continue") {
+		if (mode === "slot") {
 			var s = peekSave();
 			if (!s && !hasJourney()) drawCenterLine("NO DATA", 46);
 			else if (!s) {
@@ -449,7 +471,9 @@
 		var g = GAMES[cursor];
 		if (!g) return;
 		beep(990, 0.06);
-		if (g.sub === "newgame" && hasJourney()) openSub("newask", 1);   // ★置き換える前に一段はさむ（はじめは NO）
+		// ★NEW GAME も CONTINUE も、まずスロットを選ぶ（★いまのスロットを選んだ状態で開く）
+		if (g.sub === "newgame") openSub("newslot", curSlot() - 1);
+		else if (g.sub === "continue") openSub("continue", curSlot() - 1);
 		else if (g.sub) openSub(g.sub);
 		else enterSeed();                     // ★TEST の項目は、いままでどおり SEED ID 画面へ
 	}
@@ -469,22 +493,33 @@
 		if (mode === "newgame") {
 			if (id === "random") enterSeed(undefined, true);
 			else if (id === "input") { seedDigits = ""; openSub("seedpad"); }
-			else backToTitle();
+			else openSub("newslot", curSlot() - 1);
 		} else if (mode === "seedpad") {
 			if (id.length === 2 && id.charAt(0) === "d") { seedDigits += id.charAt(1); renderSub(); }
 			else if (id === "del") { seedDigits = seedDigits.slice(0, -1); renderSub(); }
 			else if (id === "ok") enterSeed(Number(seedDigits), true);
 			else openSub("newgame", 1);
+		} else if (mode === "newslot") {
+			if (id === "back") backToTitle();
+			else {
+				pickSlot(Number(id.slice(1)));
+				if (hasJourney()) openSub("newask", 1);   // ★置き換える前に一段はさむ（はじめは NO）
+				else openSub("newgame");
+			}
 		} else if (mode === "continue") {
+			if (id === "back") backToTitle();
+			else { pickSlot(Number(id.slice(1))); openSub("slot"); }
+		} else if (mode === "slot") {
 			if (id === "load") { if (peekSave()) loadGame(); else enterSeed(); }   // ★セーブが無ければ次のラン
 			else if (id === "delete") openSub("del", 1);   // ★はじめは NO を選んでおく（押し間違いよけ）
-			else backToTitle();
+			else openSub("continue", curSlot() - 1);
 		} else if (mode === "del") {
 			if (id === "yes" && global.DotOllie && global.DotOllie.clearJourney) global.DotOllie.clearJourney();
-			openSub("continue", id === "yes" ? 2 : 1);
+			if (id === "yes") openSub("continue", curSlot() - 1);
+			else openSub("slot", 1);
 		} else if (mode === "newask") {
 			if (id === "yes") openSub("newgame");
-			else backToTitle();
+			else openSub("newslot", curSlot() - 1);
 		} else if(mode === "tests") {
 			if(id==="back")openSub("options");else {cursor=Number(id.slice(4));enterSeed();}
 		} else if (mode === "options") {

@@ -2965,7 +2965,7 @@
 
 	function loadBest() {
 		try {
-			var v = parseInt(localStorage.getItem("dotollie-best"), 10);
+			var v = parseInt(localStorage.getItem(slotKey("dotollie-best")), 10);
 			best = (isFinite(v) && v > 0) ? v : 0;
 		} catch (e) { best = 0; }
 		return best;
@@ -2978,7 +2978,7 @@
 		if (testMode) return false;
 		if (m <= best) return false;
 		best = m;
-		try { localStorage.setItem("dotollie-best", String(best)); } catch (e) { /* 保存できなくても遊べる */ }
+		try { localStorage.setItem(slotKey("dotollie-best"), String(best)); } catch (e) { /* 保存できなくても遊べる */ }
 		return true;
 	}
 
@@ -3352,7 +3352,7 @@
 		resetStatus();              // ★★育てたものを全部消す（★中身はあちら1か所だけ）
 		best = 0;                   // ★★★ここだけが違い ＝ **記録も消す**
 		try {
-			localStorage.setItem("dotollie-best", "0");
+			localStorage.setItem(slotKey("dotollie-best"), "0");
 		} catch (e) { /* 消せなくても遊べる */ }
 		return true;
 	}
@@ -3430,7 +3430,11 @@
 	//   ★保存するのは一時停止の「SAVE+QUIT」を押したときだけ。
 	//   ★★CONTINUE で読んだら消す（★1つのセーブを何度もやり直しに使えない）。
 	//   ★★★GAMEOVER でも消す（★「死んだら最初から」を崩さない）。★テストでは書かない
-	var SAVE_KEY = "dotollie-save-v1";
+	// ★★★★★セーブスロット（2026-09-13）。★保存名はスロットごと（→ js/progression.js の slotKey）
+	function slotKey(base, n) {
+		return (PR && PR.slotKey) ? PR.slotKey(base, n) : base;
+	}
+	function saveKey(n) { return slotKey("dotollie-save-v1", n); }
 	var SAVE_ST = ["dist", "stamina", "staminaMax", "hp", "hpMax", "dayMs", "dj", "met", "coin",
 		"betMul", "betCount", "goalBorn", "goalDone", "gateBorn", "gatePassed", "mileIndex",
 		"hits", "picksGot", "campSeen", "lastMark", "phase", "phaseMs", "speedMs", "air", "airJumps", "djBase", "trick",
@@ -3442,11 +3446,11 @@
 			unlocked: unlocked, bag: bag, buys: buys, items: items, st: {} };
 		SAVE_ST.forEach(function (k) { data.st[k] = st[k]; });
 		data.grindIndex = st.cones.indexOf(st.grindRail);
-		try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
+		try { localStorage.setItem(saveKey(), JSON.stringify(data)); return true; } catch (e) { return false; }
 	}
-	function peekSave() {
+	function peekSave(n) {
 		try {
-			var o = JSON.parse(localStorage.getItem(SAVE_KEY));
+			var o = JSON.parse(localStorage.getItem(saveKey(n)));
 			return (o && o.v === 1 && Number.isFinite(o.seed) && o.st && Number.isFinite(o.st.dist) && o.st.dist>=0 &&
 				Number.isFinite(o.st.stamina) && o.st.stamina>0 && Number.isFinite(o.coins) && o.coins>=0 &&
 				o.upgLv && typeof o.upgLv === "object") ? o : null;
@@ -3454,8 +3458,8 @@
 	}
 	function deleteSave() {
 		try {
-			if (localStorage.removeItem) localStorage.removeItem(SAVE_KEY);
-			else localStorage.setItem(SAVE_KEY, "null");
+			if (localStorage.removeItem) localStorage.removeItem(saveKey());
+			else localStorage.setItem(saveKey(), "null");
 		} catch (e) { /* 消せなくても遊べる */ }
 	}
 	function applySave(o) {
@@ -3471,10 +3475,12 @@
 		saveCoins(); saveUpg(); saveItems();
 	}
 	// ★NEW GAME で「置き換える旅」があるか（★セーブか、覚えた技・転生・釣果・走った記録）
-	function hasJourney() {
-		if (peekSave()) return true;
+	//   ★`n` を渡すと、切り替えずにそのスロットを覗く（★タイトルのスロット一覧用）
+	function hasJourney(n) {
+		if (peekSave(n)) return true;
 		if (!PR) return false;
-		var p = PR.snapshot();
+		var p = (n && PR.peek) ? PR.peek(n) : PR.snapshot();
+		if (!p) return false;
 		return p.rank > 0 || !!p.doubleJump || p.lastDistance > 0 ||
 			Object.keys(p.tricks || {}).length > 0 || Object.keys(p.caps || {}).length > 0 ||
 			Object.keys(p.fish || {}).length > 0;
@@ -10606,7 +10612,16 @@
 		peekSave: peekSave,
 		deleteSave: deleteSave,
 		hasJourney: hasJourney,
-		clearJourney: function () { if (PR) PR.clear(); deleteSave(); },
+		// ★★DELETE はそのスロットを丸ごと空にする（★旅の記録・途中セーブ・BEST）
+		clearJourney: function () {
+			if (PR) PR.clear(); deleteSave(); best = 0;
+			try { localStorage.setItem(slotKey("dotollie-best"), "0"); } catch (e) { /* 消せなくても遊べる */ }
+		},
+		// ★そのスロットの BEST を、切り替えずに読む
+		bestOf: function (n) {
+			try { var v = parseInt(localStorage.getItem(slotKey("dotollie-best", n)), 10); return (isFinite(v) && v > 0) ? v : 0; }
+			catch (e) { return 0; }
+		},
 		_saveRun: saveRun,
 		_pauseRects: pauseBtnRects,
 		_resetOnExit: function () { return RESET_ON_EXIT; },

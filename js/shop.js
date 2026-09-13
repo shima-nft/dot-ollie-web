@@ -301,6 +301,8 @@
         refresh(); schedule();
       }, "shop-product");
       b.dataset.item = card.id;
+      // ★★★★★グリッチが終わったら印を外す（2026-09-13）。★iPhone で、演出のあと LV と値段が描き直されず消えていた
+      b.addEventListener("animationend", function () { b.classList.remove("glitch-in"); });
       // ★★★★★生まれたてのパネルは、グリッチしながら現れる（★島さんの指定）。
       //   ★長さを決めているのは `js/ollie.js` の `PRESTIGE_GLITCH_MS` **1 か所**だけです
       var glitchMs = (card.id === "prestige") ? game.prestigeGlitchMs() : 0;
