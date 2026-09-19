@@ -226,7 +226,7 @@ canvas.pad-label {
 	touch-action: manipulation;
 }
 .shop-product::after { content: ""; position: absolute; right: 5px; top: 5px; width: 2px; height: 2px; background: #afb3b5; }
-.shop-product[data-item="recover"] { grid-column: span 2; }
+.shop-product[data-item="recover"] { grid-column: auto; }
 .shop-product-name { display: flex; align-items: center; }
 .shop-demo { width: 100%; height: 100%; object-fit: contain; align-self: center; }
 .shop-product-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -266,7 +266,7 @@ canvas.pad-label {
 .shop-ask canvas { image-rendering: pixelated; height: 18px; }
 @media (prefers-reduced-motion: reduce) { .shop-product.glitch-in { animation: none; } }
 #pixel-shop button:focus-visible { outline: 3px solid #ffec27; outline-offset: -5px; }
-#pixel-shop button.pressed { transform: translateY(2px); box-shadow: inset 0 2px #000; }
+#pixel-shop button.pressed { box-shadow: inset 0 2px #000, inset 0 0 0 2px #ffec27; }
 @media (orientation: landscape) {
 	#pixel-shop[open] { grid-template-rows: 44px 44px minmax(0, 1fr); padding: 12px; gap: 8px; }
 	.shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -288,7 +288,7 @@ canvas.pad-label {
 .shop-next { margin: 0; border-left: 2px solid #83769c; padding: 4px 8px; font-size: 12px; line-height: 1.6; color: #afb3b5; }
 .shop-product { grid-template-rows: 14px 64px auto 14px; min-height: 190px; }
 .shop-demo { height: 64px; }
-.shop-product-help { margin: 0; font-size: 11px; line-height: 1.5; color: #b4c7cb; }
+.shop-product-help { margin: 0; font-size: 12px; line-height: 1.6; color: #d1dbd6; overflow-wrap: anywhere; }
 #pixel-shop .shop-grid { grid-auto-rows: max-content; }
 .shop-grid > .shop-product:only-child { grid-column: 1 / -1; width: min(100%, 340px); justify-self: center; min-height: 208px; }
 .shop-product[data-item="prestige"] { grid-column: 1 / -1; grid-template-rows: auto auto auto; background: #182a29; border-color: #ffec27; min-height: max-content; }
@@ -302,6 +302,9 @@ canvas.pad-label {
 .reborn-note { color: #afb3b5; font-size: 12px; }
 .reborn-reset { border-left: 2px solid #ff845e; padding: 4px 10px; color: #ffb49b; background: #292426; }
 .reborn-keeps { color: #b4d8c3; }
+/* 2026-09-15: 転生の説明の書き出し（何が起きるか）と「③ 残るもの」の枠 */
+.reborn-lead { color: #fff1e8; padding: 8px 10px; border-left: 3px solid #ffec27; background: #263735; }
+.reborn-keep { border-left: 2px solid #00e436; padding: 4px 10px; color: #b4d8c3; background: #1b2b25; }
 .reborn-open { margin: 0; padding-top: 5px; font-size: 12px; font-weight: 700; text-align: right; color: #ffec27; }
 .shop-ask { overflow-y: auto; touch-action: pan-y; padding: 8px; }
 .shop-ask-box { width: min(100%, 480px); box-sizing: border-box; gap: 10px; padding: 16px; max-height: 100%; overflow-y: auto; touch-action: pan-y; }
@@ -334,6 +337,24 @@ canvas.pad-label {
 @media (orientation: landscape) and (max-width: 640px) {
 	#pixel-shop[open] { grid-template-columns: 100px minmax(0,1fr); gap: 8px; padding: 8px; }
 	#pixel-shop .shop-product:not([data-item="prestige"]) { grid-template-columns: minmax(108px,.9fr) minmax(120px,1fr); padding: 8px; gap: 8px; }
+}
+
+/* Rebirth stays a single row until its own disclosure is opened. */
+#pixel-shop .shop-product[data-item="prestige"] { display:flex; align-items:center; justify-content:space-between; min-height:52px; padding:12px; gap:12px; }
+.reborn-indicator { margin:0; color:#ffec27; font-size:20px; line-height:1; }
+.reborn-inline { grid-column:1 / -1; padding:12px; border:1px solid #83769c; background:#182a29; }
+.reborn-inline > .shop-control { width:100%; margin-top:12px; gap:12px; color:#fff1e8; }
+.reborn-inline > .shop-control p { margin:0; font-size:12px; }
+#pixel-shop .shop-header .shop-control, #pixel-shop .shop-tabs .shop-control { min-height:48px; }
+#pixel-shop .shop-control:disabled { opacity:.55; cursor:default; }
+.shop-tabs .has-new::after { pointer-events:none; }
+.boost-display { image-rendering:pixelated; pointer-events:none; z-index:4; max-width:100%; }
+.boost-display[hidden] { display:none; }
+#pixel-shop.has-boost .shop-header { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:6px 8px; }
+#pixel-shop.has-boost .shop-wallet { justify-self:end; }
+#pixel-shop.has-boost .boost-display { grid-column:1 / -1; justify-self:end; }
+@media (orientation:landscape) and (max-height:620px) {
+  #pixel-shop.has-boost[open] { grid-template-rows:auto auto minmax(0,1fr); }
 }
 
 /* ============================================================

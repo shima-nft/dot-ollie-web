@@ -90,6 +90,20 @@
 		//     ★ひらがなが要るなら、`js/font.js` に字を足せば出せます（★島さんの持ち場）
 		{ label: "TEST RAIN", skater: 0, test: 1,
 			startRain: 0.85, startDayMs: 45000, startCoin: 1e12,
+			game: function () { return DotOllie; } },
+		// ============================================================
+		// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）
+		// ============================================================
+		//
+		//   > 島さん「テストモードで釣りを追加したい。」
+		//
+		//   ★★**いきなりキャンプの池（釣りの画面）から始まります**
+		//     （★ふつうは夜まで走ってキャンプに入らないと、釣りに行けません）。
+		//   ★時計は**完全な夜**（125秒）にしてあります（★キャンプは夜の中にあるため）。
+		//   ★★池を出ればキャンプの中 → 眠れば朝、と**ふつうの流れ**に戻ります。
+		//   ★★★釣果の記録は**覚えません**（★テスト中は localStorage に書かない決まり）
+		{ label: "TEST FISH", skater: 0, test: 1,
+			startFish: 1, startDayMs: 125000, startCoin: 1e12,
 			game: function () { return DotOllie; } }
 	];
 
@@ -594,6 +608,14 @@
 		if (x < 0 || y < 0 || x >= LCD_W || y >= LCD_H) return null;
 		return { x: x, y: y };
 	}
+	// ★★★★★横だけを「液晶のドット」に直す（2026-09-15 島さんの指定）
+	//   ★液晶の外（下・左右の余白）を触っても、**今回の指の横位置**を返します（範囲に収めない）。
+	//   ★★釣りで「液晶の外の左をタップ → 池の左へ」に使う。★前回の位置は使わない
+	function lcdX(ev) {
+		var r = lcd.getBoundingClientRect();
+		if (!r.width) return null;
+		return (ev.clientX - r.left) * LCD_W / r.width;
+	}
 	var swipeFromMode = null;  // 画面をまたいだタップを次の画面の決定に使わない
 	var swipeFired = false;     // このなぞりで、もう技を差し替えたか
 
@@ -619,7 +641,7 @@
 		//   ★ゲームが true を返したら、**跳ぶ・技を出すには渡しません**
 		if (activeGame && activeGame.inputTapAt) {
 			var lp = lcdPoint(ev);
-			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true)) {
+			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true, false, lcdX(ev))) {
 				try { tapEl.setPointerCapture(ev.pointerId); } catch (e) {}
 				return;
 			}
@@ -729,7 +751,7 @@
 		// ★★キャンプの中: 指が外れたら歩くのをやめる
 		if (activeGame && activeGame.inputDrag) activeGame.inputDrag(0, 0);
 		// ★★★ボタンを押したまま指が外れたら、押していないことにする（★決まらない）
-		if (activeGame && activeGame.inputTapAt) activeGame.inputTapAt(-1, -1, false);
+		if (activeGame && activeGame.inputTapAt) activeGame.inputTapAt(-1, -1, false, true);
 	});
 	tapEl.addEventListener("contextmenu", function (ev) { ev.preventDefault(); });
 	// RUN が出すボタン(特大の「跳ぶ」/ 右上の「音」「一時停止」「もどる」)
@@ -810,6 +832,8 @@
 			// ★★★★テストモードで最初から持っているお金（2026-09-03 島さんの指定）
 			//   ★ふつうの START には書いていないので **0**（＝いつもどおり空の財布）
 			startCoin: entry.startCoin || 0,
+			// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）。★池の画面から始める
+			startFish: !!entry.startFish,
 			// ★★★★★CONTINUE（2026-09-13 島さんの指定）。★セーブの中身を戻すのは js/ollie.js
 			resume: !!(extra && extra.resume),
 			// ★★★★★NEW GAME から来たときだけ、旅の記録を消して始める（→ js/ollie.js の start）

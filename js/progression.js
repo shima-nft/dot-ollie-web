@@ -19,7 +19,7 @@
   //   ★★★これまでこの保存には「足跡」しか入れていませんでしたが、
   //     ★**島さんが「残るのは記録だけにこだわらない」と決めた**ので、
   //     ★★**初めて「力になるもの」が永久に残ります**。
-  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true} }; }
+  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, fishSeen: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true} }; }
   // ★上限が伸びる項目（★`js/upgrades.js` の id とそろえること）
   var CAP_IDS = ['speed', 'stamina', 'coin', 'rail', 'wheels', 'magnet', 'light', 'recover', 'live', 'drink'];
   var PANEL_IDS = CAP_IDS.concat(['shoes','railpass','maxdrink','kickflip','pop','prestige']);
@@ -49,9 +49,10 @@
         if(profile.doubleJump) profile.panels.shoes=true;
       }
       ['kickflip', 'pop'].forEach(function (id) { if (raw.tricks && raw.tricks[id] === true) profile.tricks[id] = true; });
-      ['0', '1', '2'].forEach(function (id) {
+      ['0', '1', '2', '3', '4'].forEach(function (id) {
         var cm = raw.fish && raw.fish[id];
-        if (Number.isFinite(cm) && cm >= 6 && cm <= 40) profile.fish[id] = Math.floor(cm);
+        if (Number.isFinite(cm) && cm >= 6 && cm <= 120) { profile.fish[id] = Math.round(cm * 10) / 10; profile.fishSeen[id] = true; }
+        if (raw.fishSeen && raw.fishSeen[id] === true) profile.fishSeen[id] = true;
       });
     } else if (slot === 1) {
       // ★引き継ぎはスロット1だけ（★スロット2に昔の技が紛れ込まないように）
@@ -103,10 +104,16 @@
 
   function finish(distance) { get().lastDistance = Math.max(0, Math.floor(distance)); save(); }
   function recordFish(fish) {
+    if (!fish || !Number.isInteger(fish.type) || fish.type < 0 || fish.type > 4 || !Number.isFinite(fish.cm) || fish.cm < 6 || fish.cm > 120) return;
     var p = get(), id = String(fish.type);
-    if (fish.cm > (p.fish[id] || 0)) { p.fish[id] = fish.cm; save(); }
+    if (fish.cm > (p.fish[id] || 0)) { p.fish[id] = Math.round(fish.cm * 10) / 10; p.fishSeen[id] = true; save(); }
   }
-  global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish,
+  function observeFish(ids) {
+    var p = get(), changed = false;
+    ids.forEach(function (id) { if (Number.isInteger(id) && id >= 0 && id <= 4 && !p.fishSeen[id]) { p.fishSeen[id] = true; changed = true; } });
+    if (changed) save();
+  }
+  global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish, observeFish: observeFish,
     prestige: prestige, CAP_IDS: CAP_IDS, unlockPanels: unlockPanels,
     slot: function () { return slot; }, setSlot: setSlot, slotKey: slotKey,
     // ★そのスロットの記録を、切り替えずに覗く（★タイトルのスロット一覧用。無ければ null）

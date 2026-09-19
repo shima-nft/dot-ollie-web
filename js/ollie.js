@@ -1268,7 +1268,7 @@
 	//     ★★★**暮れはじめ**（＝ `nightAlpha() > 0` になる瞬間 ＝ 走り出しから60秒）です
 	//     （★`NIGHT_A0` のコメントに「夜のはじまり」と書いてあるのが、その定義）。
 	//     ★実測: ふつうの人のランは平均409秒なので、★★**夜には必ず届きます**
-	var CAMPMODE_ON = 0;      // ★0 で仕組みごと止まる（★ボタンも出ない）
+	var CAMPMODE_ON = 1;      // ★0 で仕組みごと止まる（★ボタンも出ない）
 	var CAMP_KEY    = "dotollie-met";   // ★★会った種類を覚えておく場所（★BEST と同じ扱い）
 
 	// ============================================================
@@ -2396,6 +2396,9 @@
 	// ★★★★★キャンプの中の絵（2026-09-04 島さんが描いた。★`tools/camp2art.py` が起こす）
 	//   ★★240×160 ＝ **液晶とまったく同じ大きさ**なので、そのまま1枚出します
 	var CSCENE = global.DotCampScene || null;
+	// The former walking camp remains available, but the lakeside is the active camp.
+	function lakesideCamp() { return global.DotCampLakeside && global.DotCampLakeside.enabled; }
+	function campFishEntry() { return lakesideCamp() ? global.DotCampLakeside.ENTRY : global.DotFishing.ENTRY; }
 	// ★★★★★YES / NO のボタン（2026-09-04 島さんが描いた。★`tools/botan2art.py` が起こす）
 	//   ★ふつう（白い本体 ＋ 黒い影）と、★★押しているあいだ（黒い本体 ＋ 緑のふち）の2枚ずつ
 	var CBTN = global.DotCampBtnArt || null;
@@ -2961,6 +2964,7 @@
 	//   ★★`startAtDay` … 昼と夜の時計を、この時刻から始める（★-1 = ふつうに朝から）
 	var startAtRain = 0;
 	var startAtDay = -1;
+	var startAtFish = false; // ★★★★★2026-09-15 島さんの指定: キャンプの池（釣り）から始める
 	var testMode = false;   // ★★テストモードのあいだは BEST を更新しない
 
 	function loadBest() {
@@ -3435,6 +3439,27 @@
 		return (PR && PR.slotKey) ? PR.slotKey(base, n) : base;
 	}
 	function saveKey(n) { return slotKey("dotollie-save-v1", n); }
+	// A deadline, not simulation dt: menus, suspension and reload cannot extend the boost.
+	var boostMemory = {};
+	function boostDeadline(n) {
+		var key=slotKey("dotollie-boost-v1",n);
+		if(Object.prototype.hasOwnProperty.call(boostMemory,key))return boostMemory[key];
+		try { var value=Number(localStorage.getItem(key));return boostMemory[key]=Number.isFinite(value)&&value>0?value:0; }
+		catch(e){return boostMemory[key]||0;}
+	}
+	function setBoostDeadline(value) {
+		if(testMode && value>0)return;
+		var key=slotKey("dotollie-boost-v1");boostMemory[key]=value;
+		try{localStorage.setItem(key,String(value));}catch(e){/* Keep this session playable without storage. */}
+	}
+	function boostView(n) {
+		var end=(testMode && n===undefined)?0:boostDeadline(n),left=end-Date.now();
+		var seconds=Math.max(0,Math.ceil(left/1000)),active=left>0;
+		return {active:active,remaining:seconds,multiplier:active?5:1,urgent:active&&left<=30000,
+			text:active?"BOOST ×5 "+String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0"):
+				(end && left>-1500?"BOOST END":"")};
+	}
+	function boostMultiplier() { return !testMode && boostDeadline()>Date.now()?5:1; }
 	var SAVE_ST = ["dist", "stamina", "staminaMax", "hp", "hpMax", "dayMs", "dj", "met", "coin",
 		"betMul", "betCount", "goalBorn", "goalDone", "gateBorn", "gatePassed", "mileIndex",
 		"hits", "picksGot", "campSeen", "lastMark", "phase", "phaseMs", "speedMs", "air", "airJumps", "djBase", "trick",
@@ -4319,7 +4344,7 @@
 
 	// ★その絵の「上面が地面から何行上か」（★絵から出す。★直書きしない）
 
-	function railCoinPerDot() { return curCoinPer() * 3 * (1 + upgLevel("rail") * 0.2) / RAIL_LEN; }
+	function railCoinPerDot() { return curCoinPer() * 3 * (1 + upgLevel("rail") * 0.2) / RAIL_LEN * boostMultiplier(); }
 	function learnJourneyAction(id, label) {
 		if (unlocked[id]) return;
 		unlocked[id] = true; st.moment = label;
@@ -5100,6 +5125,8 @@
 		n = Math.floor(n * ((st && st.betMul) || 1));
 		// Round each coin before batching, preserving fractional BET's original payout.
 		n *= count || 1;
+		// Grind distance already accrued its multiplier; tips retain their earned amount in flight.
+		if(kind!=="grind")n*=boostMultiplier();
 		if (n <= 0) return;
 		if (!kind) queueLiveTip(liveClear(n));
 		st.coin += n;
@@ -5904,6 +5931,7 @@
 		if (!ids.length) return false;
 		var keepDoubleJump = st.dj;
 		PR.prestige(ids, PRESTIGE_STEP);
+		setBoostDeadline(Date.now()+60000);   // ★★2026-09-15 島さん「五分間は長すぎた。1分に」
 		reloadCaps();                      // ★★天井が伸びたので、控えを取り直す
 		resetStatus();                     // ★コイン・レベル・道具が消える（★既存）
 		st.dj = keepDoubleJump;             // SHOES stays through rebirth, but not a new run after death.
@@ -5919,6 +5947,7 @@
 		st.prestigeSeen = false;           // ★★次に MAX へ届いたとき、また知らせる
 		prestigeSound();
 		readyAgain();                      // ★★既存の道具。0m から READY / GO
+		if(global.DotBoostUI)global.DotBoostUI.render();
 		return true;
 	}
 
@@ -6008,8 +6037,8 @@
 			// ============================================================
 			if (r.id === "stamina" && st) {
 				var nowMax = curStaminaMax();
-				var add = nowMax - (st.staminaMax || 0);
-				if (add > 0) st.stamina += add;   // ★増えたぶんだけ、その場で耐えられる
+				// ★★★★★2026-09-14 島さんの指定「スタミナのレベルを上げた時の効果は
+				//   上限が一つ増加するのみで回復はしないこと」。★いまの体力は1つも増やさない
 				st.hpGrowMs = 650;
 				st.staminaMax = nowMax;           // ★★バーの満タンもそろえる
 			}
@@ -6190,25 +6219,55 @@
 	}
 
 	// ★キャンプをやめる（★入る前にやめた／中断した）
-	function fishAct() {
-		var before = st.fishing.count;
-		global.DotFishing.tap(st.fishing);
-		if (st.fishing.count > before && !testMode && PR) {
-			if (!PR.snapshot().fish[st.fishing.fish.type]) st.moment = "NEW FISH FOUND";
-			PR.recordFish(st.fishing.fish); st.fishing.records = PR.snapshot().fish;
-		}
+	function syncFishing() {
+		var f = st.fishing, discovered = [];
+		f.pool.forEach(function (o) { if (o.alive && !f.seen[o.type]) { f.seen[o.type] = true; discovered.push(o.type); } });
+		if (!testMode && PR && discovered.length) PR.observeFish(discovered);
+		// ★★★★★釣り場の音（2026-09-15 島さんが選んだ）。★自然の出来事は js/fishing-sound.js、知らせは電子音
+		f.events.splice(0).forEach(function (e) {
+			if (e.type === 'cast' || e.type === 'water' || e.type === 'hit') fishSound(e);
+			else if (e.type === 'miss') sound(165,.08);
+			else if (e.type === 'catch') {
+				if (!testMode && PR) { PR.recordFish(e.data); f.records = PR.snapshot().fish; }
+				fishSound(e);   // ★水から出る水音（★知らせの電子音は下のまま）
+				melody(e.data.rare || e.data.giant || e.data.cm >= 35 ? [[660,.05,0],[880,.05,85],[1320,.09,170]] : [[660,.04,0],[880,.06,80]]);
+			}
+		});
+		// ★泡・暴れる水音の合図（★遊びの出来事とは別の袋。★毎回ここで空にする）
+		(f.sfx || []).splice(0).forEach(fishSound);
 	}
+	// ★★★★★釣り場の自然の音（★中身は js/fishing-sound.js。★音を切っているときは鳴らさない）
+	function fishSound(e) {
+		if (soundOn && global.DotFishSound) global.DotFishSound.event(e);
+	}
+	function fishAct(down, x, y, cancel) {
+		if (down) global.DotFishing.press(st.fishing, x === undefined ? 156 : x, y === undefined ? 80 : y);
+		else global.DotFishing.release(st.fishing, cancel);
+		syncFishing();
+	}
+	function cancelFishingHold() {
+		if (st && st.campPhase === 'fish') { global.DotFishing.release(st.fishing, true); st.fishOutside = false; }
+	}
+	if (global.addEventListener) global.addEventListener('blur', cancelFishingHold);
+	if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', function () { if (document.hidden) cancelFishingHold(); });
 	function enterFishing() {
 		if (!global.DotFishing || !st || st.campPhase !== "in" || st.shopOpen) return;
 		if (!st.fishing) st.fishing = global.DotFishing.create(WD.getSeed() ^ Date.now());
 		st.campVX = 0; st.campVY = 0;
 		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = "";
 		st.fishing.records = !testMode && PR ? PR.snapshot().fish : {};
+		st.fishing.seen = !testMode && PR ? PR.snapshot().fishSeen : {};
+		var opt = {}; try { opt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
+		st.fishing.options = { reduced: !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches), shake: opt.shake !== 0, flash: opt.flash !== 0 };
 		st.campPhase = "fish";
+		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣り場の音と二重にしない）
+		if (soundOn && global.DotFishSound) global.DotFishSound.wake();   // ★触った瞬間に音を起こす（iPhone）
+		cancelFishingHold(); syncFishing();
 	}
 	function leaveFishing() {
 		if (!st || st.campPhase !== "fish") return false;
 		global.DotFishing.leave(st.fishing);
+		if (global.DotFishSound) global.DotFishSound.stop();
 		st.campPhase = "in"; st.paused = false; st.fishBtn = "";
 		st.campVX = 0; st.campVY = 0;
 		return true;
@@ -6226,6 +6285,8 @@
 	// ★★キャンプの中へ入る
 	function campEnter() {
 		st.campPhase = "in";
+		if (lakesideCamp()) st.campLakeside = global.DotCampLakeside.create(WD.getSeed());
+		if (soundOn && global.DotCampSound) global.DotCampSound.wake();   // ★触った瞬間に音を起こす（iPhone）
 		st.campX = CAMP_START.x;
 		st.campY = CAMP_START.y;
 		st.campVX = 0; st.campVY = 0;
@@ -6245,6 +6306,7 @@
 	// ★★眠りにつく（★ここではまだ切り替えない。★ゆっくり暗くなるだけ）
 	function campSleepStart() {
 		st.campPhase = "fade";
+		if (global.DotCampSound) global.DotCampSound.stop();   // ★眠りにつく ＝ キャンプの音は静かに消える
 		st.campFadeMs = 0;
 		st.campBtn = "";
 		st.campVX = 0; st.campVY = 0;
@@ -6430,6 +6492,10 @@
 	function updateCamp(dt) {
 		if (st.campPhase === "fish") {
 			if (typeof document === "undefined" || !document.hidden) global.DotFishing.update(st.fishing, dt);
+			else cancelFishingHold();
+			syncFishing();
+			// ★池の環境音とリールの音（★ここが呼ばれなくなる＝一時停止・ショップ・池を出た → 音は静かに消える）
+			if (global.DotFishSound) global.DotFishSound.frame(st.fishing, soundOn && (typeof document === "undefined" || !document.hidden));
 			return;
 		}
 		// ★★★★★眠りにつく途中（★ゆっくり暗転）。2026-09-04(4) 島さんの指定
@@ -6456,6 +6522,15 @@
 			return;
 		}
 		if (st.campPhase !== "in") return;
+		if (lakesideCamp()) {
+			st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0;
+			if (!st.campLakeside) st.campLakeside = global.DotCampLakeside.create(WD.getSeed());
+			if (typeof document === "undefined" || !document.hidden) global.DotCampLakeside.update(st.campLakeside, dt);
+			// ★★★★★キャンプの音（2026-09-18 島さんが選んだ B 構成。中身は js/camp-sound.js）
+			//   ★ここが呼ばれなくなる ＝ 一時停止・ショップ・眠り・朝・釣り → 音は静かに消える
+			if (global.DotCampSound) global.DotCampSound.frame(st.campLakeside, soundOn && (typeof document === "undefined" || !document.hidden));
+			return;
+		}
 		if (st.campVX || st.campVY) {
 			// ★★★★★向きを決めて、コマを進める（2026-09-05）。
 			//   ★止まっているあいだは進めない ＝ **0コマ目のまま立つ**
@@ -7851,9 +7926,10 @@
 		else if (l.festival > 0) { var fes="FES " + Math.ceil(l.festival) + "s"; F.drawTextShadow(ctx, fes, right-F.textWidth(fes.length), 13, GB[19], GB[10]); }
 	}
 	function lightSize() { return upgLevel("light") ? 40 + 4 * (upgLevel("light") - 1) : 0; }
+	function droneHeight() { return 42 + Math.max(0, upgLevel("light") - 1); }
 	function droneRig() {
-		if (!st.drone) st.drone = { x:riderFootX()-17, y:riderGroundRow()-42-currentLift()*.55, vx:0, vy:0,
-			beam:riderFootX()+4, vb:0, width:lightSize(), vw:0, targetY:riderGroundRow()-42-currentLift()*.55 };
+		if (!st.drone) st.drone = { x:riderFootX()-17, y:riderGroundRow()-droneHeight()-currentLift()*.55, vx:0, vy:0,
+			beam:riderFootX()+4, vb:0, width:lightSize(), vw:0, level:upgLevel("light"), targetY:riderGroundRow()-droneHeight()-currentLift()*.55 };
 		return st.drone;
 	}
 	function springAxis(d,key,velocity,target,omega,dt) {
@@ -7863,8 +7939,9 @@
 	}
 	function updateDrone(dt) {
 		if (!upgLevel("light")) { st.drone=null;return; }
-		var d=droneRig(),targetY=riderGroundRow()-42-currentLift()*.55;
-		if(Math.abs(targetY-d.targetY)>1.25)d.targetY=targetY;
+		var d=droneRig(),targetY=riderGroundRow()-droneHeight()-currentLift()*.55,level=upgLevel("light");
+		if(d.level!==level || Math.abs(targetY-d.targetY)>1.25)d.targetY=targetY;
+		d.level=level;
 		var slow=st.slowMs>0 ? 1-(1-HIT_SLOW)/(1+upgLevel("wheels")*.2) : 1;
 		var speed=curSpeed()*accelFactor()*slow,p=Math.max(0,Math.min(1,(speed-80)/40)),lead=28*p*p*(3-2*p);
 		springAxis(d,"x","vx",riderFootX()-17,6.5,dt);
@@ -8816,6 +8893,12 @@
 	}
 
 	function draw() {
+		// The pond is a dedicated screen: do not render the scrolling world underneath it.
+		if (st && st.campPhase === 'fish') {
+			global.DotFishing.draw(ctx, st.fishing, st.fishBtn, st.paused, st.fishing.options);
+			if (st.shopOpen) drawShopScreen();
+			return;
+		}
 		// ★★★ぶつかったときの揺れ（2026-08-15）。★**ここから ⑧ までだけを揺らす**
 		//   ★★HUD（距離・倍率・まん中の文字）は揺らさない ＝ 読めなくならない
 		//   ★★★揺れは**描画だけ**。距離・倍率・当たり判定・世界には1ドットも触らない
@@ -9725,10 +9808,13 @@
 		// ★★「入りますか？」の段は、まだキャンプに入っていないので**絵を出さない**
 		if (st.campPhase === "ask") { if (!sceneOnly) drawCampAsk(CAMP_ASK_TEXT); return; }
 		// ★★★島さんの絵を、液晶ぜんぶに1枚（★240×160 ＝ 液晶とまったく同じ大きさ）
-		if (CSCENE) drawEndingArt(CSCENE);
-		drawCampHero();
-		if (st.campPhase === "fish") { global.DotFishing.draw(ctx, st.fishing, st.fishBtn, st.paused); return; }
-		if (st.campPhase === "in" && global.DotFishing) global.DotFishing.button(ctx, global.DotFishing.ENTRY, "FISH", st.fishBtn === "open");
+		if (lakesideCamp()) global.DotCampLakeside.draw(ctx, st.campLakeside, {reduced:!!(liveReducedMotion && liveReducedMotion.matches)});
+		else { if (CSCENE) drawEndingArt(CSCENE); drawCampHero(); }
+		if (st.campPhase === "fish") { global.DotFishing.draw(ctx, st.fishing, st.fishBtn, st.paused, st.fishing.options); return; }
+		if (!sceneOnly && st.campPhase === "in" && global.DotFishing) {
+			if (lakesideCamp()) global.DotCampLakeside.button(ctx, st.fishBtn === "open");
+			else global.DotFishing.button(ctx, campFishEntry(), "FISH", st.fishBtn === "open");
+		}
 		// ★★お店の下に敷くときは、ここまで（★問いかけも一覧も暗転も出さない）
 		if (sceneOnly) return;
 		if (st.campPhase === "sleep") drawCampAsk(CAMP_SLEEP_TEXT);
@@ -10030,6 +10116,7 @@
 		//   ★ラン終了の画面の一覧は**そのまま残す**（島さんの指定）。
 		//     ★★同じ一覧を、いつでも開ける場所が増えただけ
 		getJourney: function () { return PR.snapshot(); },
+		getBoostView: boostView,
 		pad: ["act", "sound", "pause", "shop"],
 		padIcons: { sound: "BTN_SOUND_ON" },
 
@@ -10057,6 +10144,8 @@
 			startAtRain = (opts && opts.startRain) || 0;
 			startAtDay = (opts && typeof opts.startDayMs === "number")
 				? opts.startDayMs : -1;
+			// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）
+			startAtFish = !!(opts && opts.startFish);
 			// ============================================================
 			// ★★★★テストモードは**さらな状態から**始める（2026-08-23 島さんの指定）
 			// ============================================================
@@ -10072,7 +10161,7 @@
 			//     ★★★**BEST は消しません**（★唯一ランをまたぐ記録。
 			//       ★そもそもテストモードは BEST を**更新もしません**）
 			// ★★★★★NEW GAME は技も成長も引き継がない（2026-09-13）。★旅の記録とセーブを消してから始める
-			if (!testMode && opts && opts.fresh) { if (PR) PR.clear(); deleteSave(); }
+			if (!testMode && opts && opts.fresh) { if (PR) PR.clear(); deleteSave(); setBoostDeadline(0); }
 			// ★★★★★CONTINUE: セーブを読んで、読んだら消す
 			var resumeData = (!testMode && opts && opts.resume) ? peekSave() : null;
 			if (resumeData) deleteSave();
@@ -10101,6 +10190,10 @@
 			reset(resumeData ? resumeData.seed : (opts && typeof opts.seed === "number" ? opts.seed : undefined));
 			if (resumeData) applySave(resumeData);   // ★★同じ世界の、保存した場所・体力・財布から
 			syncShopUnlocks(false);
+			// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）
+			//   ★ふつうの道（キャンプに入る → FISH）を**そのまま2つ呼ぶだけ**（★近道の仕組みは作らない）。
+			//   ★★テストモードのときだけ（★釣果は `enterFishing` / `syncFishing` が testMode で書かない）
+			if (testMode && startAtFish && global.DotFishing) { campEnter(); enterFishing(); }
 			// ★READY の音。★enter から始まるときは、enter が明けた瞬間に鳴る（updatePhase）
 			if (st.phase === "ready") sound(660, 0.06);
 			startLoop();
@@ -10185,7 +10278,7 @@
 			//   ★★★★★お店を開いているあいだは、**お店の操作が先**（2026-09-05(4)）。
 			//     ★ここで戻してしまうと、★★お店の上下キーもタップも効きません
 			if (st && st.campPhase === "fish" && !st.shopOpen) {
-				if (action === "act" && !st.paused) fishAct();
+				if (action === "act" && !st.paused) fishAct(true);
 				return;
 			}
 			if (st && st.campPhase === "box" && !st.shopOpen) { campLeaveBag(); return; }
@@ -10220,6 +10313,7 @@
 		inputUp: function (action, swiped) {
 			if (action !== "act") return;
 			if (st === null) return;
+			if (st.campPhase === 'fish' && !st.shopOpen) { fishAct(false, 0, 0, st.paused || swiped); return; }
 			// ★★ショップ（液晶の外のボタンで開いたもの）も「離したときに決める」
 			if (st.shopOpen) {
 				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
@@ -10400,6 +10494,7 @@
 		//   ★キャンプで選んでいる最中も開かない（★世界の中の選択を邪魔しない）
 		toggleShop: function () {
 			if (st === null) return;
+			cancelFishingHold();
 			clearActionAssist();
 			// ★★★エンディング中も開かない（2026-08-22。★演出の裏で開くのを防ぐ）
 			if (st.phase === "over" || st.phase === "camp" ||
@@ -10469,7 +10564,7 @@
 			//     （★ショップボタンと同じ「外に出る」。★島さんの指定と同じ筋で塞ぎます）
 			//   ★★★眠りにつく暗転（fade / dark / wake）も同じです ＝
 			//     ★**演出を飛ばせない**（2026-09-04(4) 島さんの指定）
-			if (st.campPhase === "fish" && !st.shopOpen) { st.paused = !st.paused; return; }
+			if (st.campPhase === "fish" && !st.shopOpen) { cancelFishingHold(); st.paused = !st.paused; return; }
 			if (st.campPhase) return;
 			st.paused = !st.paused;
 			st.pauseBtn = "";
@@ -10482,6 +10577,16 @@
 			soundOn = !soundOn;
 			this.padIcons.sound = soundOn ? "BTN_SOUND_ON" : "BTN_SOUND_OFF";
 			saveSound(soundOn);
+			// ★釣り場の音も一緒に（★切ったら鳴りかけの環境音もすぐ消える）
+			if (global.DotFishSound) {
+				if (!soundOn) global.DotFishSound.stop();
+				else if (st && st.campPhase === "fish") global.DotFishSound.wake();
+			}
+			// ★キャンプの音も（★切ったらすぐ消える。★入れ直したら次のフレームから、そのときの出来事だけ鳴る）
+			if (global.DotCampSound) {
+				if (!soundOn) global.DotCampSound.stop();
+				else if (st && st.campPhase === "in") global.DotCampSound.wake();
+			}
 			if (refreshPad) refreshPad();
 			sound(880, 0.05);
 		},
@@ -10614,7 +10719,7 @@
 		hasJourney: hasJourney,
 		// ★★DELETE はそのスロットを丸ごと空にする（★旅の記録・途中セーブ・BEST）
 		clearJourney: function () {
-			if (PR) PR.clear(); deleteSave(); best = 0;
+			if (PR) PR.clear(); deleteSave(); setBoostDeadline(0); best = 0;
 			try { localStorage.setItem(slotKey("dotollie-best"), "0"); } catch (e) { /* 消せなくても遊べる */ }
 		},
 		// ★そのスロットの BEST を、切り替えずに読む
@@ -10647,7 +10752,8 @@
 		//     ＝ ★★★**問いかけのあいだは、どこを触っても跳ばない**
 		//   ★★押したボタンの上で離したときだけ決まります
 		//     （★押しまちがえたら、指をずらせば取り消せる ＝ ふつうのボタンの作法）
-		inputTapAt: function (lx, ly, down) {
+		// ★gx = 今回の指の横位置（液晶のドット・範囲外もそのまま）。★釣りの液晶外タップだけが使う
+		inputTapAt: function (lx, ly, down, cancelled, gx) {
 			if (!st) return false;
 			// ★★★★★一時停止の RESUME / SAVE+QUIT（2026-09-13）。★押したボタンの上で離したときだけ決まる
 			if (st.paused && !st.campPhase && !st.shopOpen) {
@@ -10699,22 +10805,26 @@
 			//   "ask"（入りますか）／"bag"（リュックを開きますか）／"sleep"（出ますか）
 			var fish = global.DotFishing;
 			if (fish && st.campPhase === "fish") {
-				var back = fish.contains(fish.BACK, lx, ly);
+				var outside = lx < 0 || ly < 0 || lx >= W || ly >= H;
 				if (down) {
-					st.fishBtn = back ? "back" : "";
-					if (!back && lx >= 0 && ly >= 0 && lx < W && ly < H && !st.paused) fishAct();
-				} else {
-					var returnToCamp = back && st.fishBtn === "back";
 					st.fishBtn = "";
-					if (returnToCamp) leaveFishing();
+					st.fishOutside = outside;
+					// ★★液晶の外: **今回の指の横位置**へ投げる（2026-09-15）。
+					//   ★前は前回のキャスト先（targetX）を使っていて、左を触っても右へ飛んだ。
+					//   ★池の範囲に収めるのは `DotFishing.cast` の clamp。★縦は水面の下に固定
+					if (!st.paused) fishAct(true, outside ? (Number.isFinite(gx) ? gx : undefined) : lx, outside ? 100 : ly);
+				} else {
+					fishAct(false, lx, ly, cancelled || st.paused || !!st.fishBtn || (outside && !st.fishOutside));
+					st.fishOutside = false;
+					st.fishBtn = "";
 				}
 				return true;
 			}
 			if (fish && st.campPhase === "in") {
-				var entry = fish.contains(fish.ENTRY, lx, ly);
+				var entry = fish.contains(campFishEntry(), lx, ly);
 				if (down) { st.fishBtn = entry ? "open" : ""; if (entry) return true; }
 				else if (st.fishBtn) {
-					var openFishing = entry && st.fishBtn === "open";
+					var openFishing = entry && st.fishBtn === "open" && !cancelled;
 					st.fishBtn = "";
 					if (openFishing) enterFishing();
 					return true;
@@ -10731,9 +10841,13 @@
 		},
 
 		inputPointerMove: function (x, y) {
+			if (st && st.campPhase === 'fish' && !st.shopOpen) {
+				if (!st.fishOutside && (x < 0 || y < 0 || x >= W || y >= H)) cancelFishingHold();
+				return true;
+			}
 			if(st && st.paused && !st.campPhase && !st.shopOpen){if(pauseHit(x,y)!==st.pauseBtn)st.pauseBtn="";return true;}
 			if (st && !st.shopOpen && st.fishBtn && global.DotFishing) {
-				var r = st.campPhase === "fish" ? global.DotFishing.BACK : global.DotFishing.ENTRY;
+				var r = campFishEntry();
 				if (!global.DotFishing.contains(r, x, y)) st.fishBtn = "cancel";
 				return true;
 			}
@@ -10753,6 +10867,7 @@
 			// ★★★★★お店を開いているあいだは歩かない（2026-09-05(4)）。
 			//   ★false を返すので、なぞりは**お店のカーソル**に渡ります
 			if (st.shopOpen) return false;
+			if (lakesideCamp()) { st.campVX = 0; st.campVY = 0; return true; }
 			var d = Math.sqrt(dx * dx + dy * dy);
 			if (d < CAMP_DEAD) { st.campVX = 0; st.campVY = 0; return true; }
 			st.campVX = dx / d;
@@ -10778,6 +10893,7 @@
 		},
 		_inCampExit: inCampExit,
 		_campScene: function () { return CSCENE; },
+		_campFishEntry: campFishEntry,
 		// ★★★★★キャンプの中を歩く姿（2026-09-05）
 		_campWalkArt: function () { return CAMP_WALK_ART; },
 		_campHealOn: function () { return CAMP_HEAL_ON; },

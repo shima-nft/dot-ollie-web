@@ -2,15 +2,15 @@
 // Only visible shop canvases animate, at 24fps; no timer survives closing.
 (function (global) {
   "use strict";
-  var game, dialog, grid, wallet, tabs, trailHint, cards = [], group = "upg", raf = 0, last = 0, ask = null;
+  var game, dialog, grid, wallet, tabs, trailHint, cards = [], group = "upg", raf = 0, last = 0, ask = null, rebornOpen = false;
   var previousFocus, cache = new Map(), reduced = matchMedia("(prefers-reduced-motion: reduce)");
   var F = global.DotFont, P = global.DotPalette.COLORS;
   var help = {
-    speed: "ベアリング：最高速が上がる", stamina: "最大HPが増える", coin: "障害物・拾うコイン・レールの報酬が大きくなる", rail: "トラック：手すりの報酬倍率が1Lvごとに+20%。出現頻度とジャンプの高さは変わらない",
-    railpass: "このランに手すりが出現し始める。購入するとTRUCKも開放。転生・死亡後は買い直し", drink: "MAXDRINKの回復量を1Lvごとに+1。基本5回復、最大HPまで",
-    wheels: "ウィール：加速が速くなり、ダメージ後の減速が軽くなる", shoes: "シューズ：二段ジャンプを使える。転生では引継ぎ、死亡後の新しいランでは未所持", light: "夜の路面をドローンが照らす。基本の照射幅40px、1Lvごとに+4px。速く走るほど先まで照らす", live: "SNS配信：成功・速さ・技の変化で視聴者が増え、投げ銭を獲得。転倒と同じ技の連打で減少",
-    magnet: "近くのコインを引き寄せる範囲が広がる", recover: "無傷で走るとHPが回復。強化で必要な距離が短くなる",
-    kickflip: "レールを滑って習得。コインの小さな吸着補助も得る", pop: "手すりを半分ほど滑り、タップで跳び降りると習得", maxdrink: "HPが尽きたとき自動で5回復。DRINK強化で回復量+1/Lv。最大HPまで。購入は1ランに1回"
+    speed: "最高速が上がり、遠くへ速く進める。", stamina: "体力の上限が増え、より多くの衝突に耐えられる。", coin: "障害物・コイン・レールからの収入が増える。", rail: "レールを滑って得るコインが増える。",
+    railpass: "旅にレールが現れ、上を滑れるようになる。", drink: "MAXドリンク1本で回復できる体力が増える。",
+    wheels: "加速が速くなり、ぶつかった後も速度を保ちやすい。", shoes: "空中でもう一度ジャンプできる。転生後も使える。", light: "夜道を広く照らす。速く走るほど前方が見やすい。", live: "走りを配信し、視聴者から投げ銭をもらえる。",
+    magnet: "遠くのコインまで引き寄せられる。", recover: "無傷で走ると体力が回復。強化で回復が早まる。",
+    kickflip: "レールを滑って覚える、デッキを回す技。", pop: "レールを半分滑り、跳び出すと覚えられる技。", maxdrink: "体力が0になると自動で回復する、使い切りの1本。"
   };
   function textCanvas(text, color) {
     var c = document.createElement("canvas");
@@ -22,23 +22,29 @@
   function button(label, action, className) {
     var b = document.createElement("button"); b.type = "button"; b.className = className || "shop-control";
     b.setAttribute("aria-label", label); b.appendChild(textCanvas(label));
-    var armed = false, cancelled = false;
+    var armed = false, cancelled = false, bounds, pointer, startX, startY;
+    var slop = className === "shop-product" ? 0 : 8;
+    function inside(e) { return bounds && e.clientX >= bounds.left-slop && e.clientX < bounds.right+slop && e.clientY >= bounds.top-slop && e.clientY < bounds.bottom+slop; }
     b.addEventListener("pointerdown", function (e) {
-      if (!e.isPrimary || e.button !== 0) return;
-      armed = true; cancelled = false; b.classList.add("pressed"); b.setPointerCapture(e.pointerId);
+      if (e.isPrimary === false || e.button !== 0) return;
+      bounds=b.getBoundingClientRect();pointer=e.pointerId;startX=e.clientX;startY=e.clientY;
+      armed = true; cancelled = false;b.classList.add("pressed"); b.setPointerCapture(e.pointerId);
     });
     b.addEventListener("pointermove", function (e) {
-      if (!armed) return;
-      var r = b.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX >= r.right || e.clientY < r.top || e.clientY >= r.bottom) {
+      if (!armed || e.pointerId!==pointer) return;
+      if (!inside(e) || (className === "shop-product" && Math.hypot(e.clientX-startX,e.clientY-startY)>10)) {
         cancelled = true; b.classList.remove("pressed");
       }
     });
     b.addEventListener("pointercancel", function () { armed = false; cancelled = true; b.classList.remove("pressed"); });
-    b.addEventListener("pointerup", function () { b.classList.remove("pressed"); });
+    b.addEventListener("pointerup", function (e) {
+      if(e.pointerId!==pointer)return;
+      var valid=armed&&!cancelled&&inside(e);armed=false;b.classList.remove("pressed");
+      if(valid)action();
+    });
     b.addEventListener("click", function (e) {
-      var valid = e.detail === 0 || (armed && !cancelled);
-      armed = false; if (valid) action();
+      // Native keyboard / assistive activation has no pointer release. Pointer clicks were handled above.
+      if(e.detail===0)action();
     });
     return b;
   }
@@ -98,6 +104,35 @@
     var w = 128, h = 52, p = (seconds % 3.6) / 3.6;
     c.clearRect(0, 0, w, h); c.imageSmoothingEnabled = false;
     c.fillStyle = P[10]; c.fillRect(0, 0, w, h);
+    if(id === "rail") {
+      // Deck underside: two baseplates, hangers, axles and four wheels. Static.
+      c.fillStyle=P[5];c.fillRect(17,15,94,22);c.fillRect(12,20,104,12);
+      c.fillStyle=P[22];c.fillRect(20,17,88,18);c.fillRect(15,21,98,10);
+      c.fillStyle=P[10];c.fillRect(55,20,18,12);
+      [37,89].forEach(function(x){
+        c.fillStyle=P[15];c.fillRect(x-5,19,10,14);
+        c.fillStyle=P[7];c.fillRect(x-2,10,4,32);c.fillRect(x-7,23,14,6);
+        c.fillStyle=P[16];c.fillRect(x-1,16,2,20);c.fillRect(x-4,24,8,2);
+        c.fillStyle=P[19];c.fillRect(x-5,7,10,9);c.fillRect(x-5,36,10,9);
+        c.fillStyle=P[5];c.fillRect(x-1,10,2,4);c.fillRect(x-1,38,2,4);
+      });
+      return;
+    }
+    if(id === "stamina") {
+      c.fillStyle=P[5];c.fillRect(20,21,68,10);
+      for(var cell=0;cell<6;cell++){c.fillStyle=P[20];c.fillRect(22+cell*11,23,9,6);}
+      c.fillStyle=P[20];c.fillRect(99,21,3,11);c.fillRect(95,25,11,3);
+      return;
+    }
+    if(id === "maxdrink") {
+      var restored=p>=.42, recovery=game._drinkRecovery();
+      var bottle=sprite(global.DotPartsArt.MAXdrink,0);
+      if(bottle&&!restored)c.drawImage(bottle,23-bottle.width,26-bottle.height,bottle.width*2,bottle.height*2);
+      c.fillStyle=P[5];c.fillRect(48,24,60,9);
+      if(restored){c.fillStyle=P[20];c.fillRect(50,26,Math.round(56*Math.min(1,recovery/game._curStaminaMax())),5);}
+      F.drawText(c,restored?"+"+Math.min(recovery,game._curStaminaMax())+"HP":"0HP",49,10,P[restored?20:16]);
+      return;
+    }
     c.fillStyle = P[22]; c.fillRect(0, 42, w, 1);
     var pace = id === "speed" || id === "wheels" ? 1.4 + Math.min(lv, 15) * 0.08 : 1;
     c.fillStyle = P[5];
@@ -110,7 +145,7 @@
       riderY -= Math.round(Math.abs(Math.sin(p * Math.PI * (id === "shoes" ? 2 : 1))) * 10);
     }
     var rider = sprite(art, frame) || sprite(global.DotStandbyArt, 0);
-    if (rider) c.drawImage(rider, 32, riderY - rider.height);
+    if (id!=="railpass" && rider) c.drawImage(rider, 32, riderY - rider.height);
     var coin = sprite(global.DotPartsArt.coin, 0);
     function drawCoin(x, y) {
       if (coin) c.drawImage(coin, Math.round(x), Math.round(y));
@@ -121,15 +156,18 @@
       F.drawText(c, "100→1K", 72, 24, P[19]);
       c.fillStyle=P[25];c.fillRect(65,11,2,2);
     } else if (id === "light") {
-      var dy=6+Math.round(Math.sin(seconds*1.6)*1.5), aim=46+Math.sin(seconds*.8)*5;
+      var dy=9-Math.min(7,Math.max(0,lv-1))+Math.round(Math.sin(seconds*1.6)), aim=46+Math.sin(seconds*.8)*5;
+      var coneH=42-dy-5;
       c.globalCompositeOperation="lighter";c.globalAlpha=.28;c.fillStyle="#b3c9b4";
-      for(var band=0;band<32;band+=2){var t=band/32,wide=2+t*40;c.fillRect(Math.round(25+(aim-25)*t-wide/2),dy+5+band,Math.round(wide),2);}
+      for(var band=0;band<coneH;band+=2){var t=band/coneH,wide=2+t*(40+4*Math.max(0,lv-1));c.fillRect(Math.round(25+(aim-25)*t-wide/2),dy+5+band,Math.round(wide),Math.min(2,coneH-band));}
       c.globalAlpha=1;c.globalCompositeOperation="source-over";
       c.fillStyle=P[15];c.fillRect(21,dy+2,7,3);c.fillRect(18,dy,5,1);c.fillRect(27,dy,5,1);
-      F.drawText(c, String(40+4*Math.max(0,lv-1))+"px", 78, 20, P[19]);
-    } else if (id === "rail" || id === "railpass") {
-      c.fillStyle = P[15]; c.fillRect(15,30,100,2); c.fillRect(20,32,2,10); c.fillRect(110,32,2,10);
-      drawCoin(86,20);
+    } else if (id === "railpass") {
+      c.fillStyle=P[15];c.fillRect(14,33,100,2);c.fillRect(22,35,3,7);c.fillRect(105,35,3,7);
+      var grind=sprite(global.DotGrindArt,0),gx=24+Math.floor(p*58);
+      if(grind)c.drawImage(grind,gx,34-(global.DotGrindArt.FEET_ROW-global.DotGrindArt.FRAMES[0].y));
+      c.fillStyle=P[19];c.fillRect(gx-3,34,2,1);c.fillRect(gx-7,36,1,1);
+      F.drawText(c,"→",96,17,P[16]);
     } else if (id === "magnet") {
       var radius = global.DotUpgrades.magnetRadius(Math.max(1, lv));
       var reach = 28 + radius * 0.35;
@@ -148,27 +186,25 @@
       var bottle = sprite(global.DotPartsArt.MAXdrink, 0);
       if (bottle) c.drawImage(bottle, 72, 25);
       F.drawText(c, "+" + (5+lv) + "HP", 72, 10, P[20]);
-    } else if (id === "recover" || id === "stamina" || id === "maxdrink") {
-      var completion = id === "recover" ? 0.3 + global.DotUpgrades.recoverDistance(Math.max(1, lv)) / 360 : 0.65;
-      var full = p > completion, amount = id === "stamina" ? Math.min(6, 4 + Math.min(2, lv)) : (full ? (id === "maxdrink" ? 5 : 3) : 2);
-      c.fillStyle = P[5]; c.fillRect(67, 13, 48, 6);
-      c.fillStyle = P[full ? 20 : 18]; c.fillRect(68, 14, amount * 7, 4);
-      if (id === "recover") {
-        c.fillStyle = P[5]; c.fillRect(68, 23, 46, 2);
-        c.fillStyle = P[full ? 16 : 4]; c.fillRect(68, 23, full ? 46 : Math.floor(46 * p / completion), 2);
-        if (full) { c.fillRect(87, 30, 7, 1); c.fillRect(90, 27, 1, 7); }
-      } else if (id === "maxdrink") {
-        var drink = sprite(global.DotPartsArt.MAXdrink, 0);
-        if (drink && !full) c.drawImage(drink, 86, 26);
-      } else {
-        for (var b = 0; b < 6; b++) { c.fillStyle = P[10]; c.fillRect(68 + b * 7, 14, 1, 4); }
-        F.drawText(c, "+", 85, 27, P[20]);
+    } else if (id === "recover") {
+      var completion = 0.3 + global.DotUpgrades.recoverDistance(Math.max(1, lv)) / 360;
+      var full = p >= completion, amount = full ? 3 : 2, flash = full && (p-completion)*3.6 < .45;
+      // Same arrangement as the running HUD: recharge above, discrete HP blocks below.
+      var bx=64, by=24, A=global.DotBarArt;
+      c.fillStyle=P[5];c.fillRect(bx+8,by-4,48,2);
+      c.fillStyle=P[flash?16:4];c.fillRect(bx+8,by-4,flash?48:full?0:Math.floor(48*p/completion),2);
+      c.fillRect(bx+2,by-4,5,1);c.fillRect(bx+4,by-6,1,5);
+      if(A)for(var ay=0;ay<A.H;ay++)for(var ax=0;ax<56;ax++){
+        var ch=A.rows[ay].charAt(ax);if(!ch||ch===".")continue;
+        var block=Math.floor((ax-A.FILL_X0)/A.BLOCK_PITCH);
+        c.fillStyle=ch===A.FILL_CHAR?P[block<amount?game._barColorFor(amount/A.BLOCK_N):5]:P[global.DotPalette.indexOfChar(ch)];
+        c.fillRect(bx+ax,by+ay,1,1);
       }
     } else if (id === "coin") {
       var cone = sprite(global.DotConeArt, 0);
       if (cone) c.drawImage(cone, 88, 42 - cone.height);
       drawCoin(83, 9);
-      F.drawText(c, "+" + game._shortNum(Math.round(game._curCoinPer())), 88, 10, P[19]);
+      F.drawText(c, "+" + game._shortNum(Math.floor(game._curCoinPer()) * game.getBoostView().multiplier), 88, 10, P[19]);
     } else if (id === "speed" || id === "wheels") {
       c.fillStyle = P[8];
       for (var line = 0; line < 3; line++) c.fillRect(13 + line * 3, 20 + line * 6, 9, 1);
@@ -178,9 +214,13 @@
   function updateCard(card) {
     var r = card.row;
     if (r.kind === "prestige") {
-      card.summary.replaceChildren(prestigeSummary(false));
-      card.button.setAttribute("aria-label", "転生。MAXの上限を永久に伸ばし、コイン・強化レベル・道具を手放して0mから再出発。購入済みの二段ジャンプは引き継ぐ。内容を確認する");
-      card.button.setAttribute("aria-disabled", String(!r.enabled));
+      card.summary.replaceChildren(prestigeSummary(true));
+      card.button.setAttribute("aria-label", "転生の詳細" + (rebornOpen ? "を閉じる" : "を開く"));
+      card.button.setAttribute("aria-expanded", String(rebornOpen));
+      card.details.hidden=!rebornOpen;
+      card.indicator.textContent=rebornOpen?"−":"＋";
+      card.confirm.disabled=!r.enabled;
+      card.confirm.setAttribute("aria-label",r.enabled?"転生内容を最終確認":"強化をMAXにすると転生できます");
       return;
     }
     if (card.help) card.help.textContent = help[r.id] || "";
@@ -228,27 +268,29 @@
   function prose(text, className) {
     var p = document.createElement("p"); p.className = className || ""; p.textContent = text; return p;
   }
-  function prestigeSummary(full) {
+  // ★★★★★2026-09-15 島さんの指定: ブースト（5分×5）と初転生の特典は**サプライズなので書かない**。
+  //   ★読む順 = 何が起きるか → ①伸びる上限 → ②0に戻るもの → ③残るもの → 戻れない
+  function prestigeSummary() {
+    var view = game.shopView();
     var section = document.createElement("div"); section.className = "reborn-summary";
-    if (game.shopView().firstPrestige) section.appendChild(prose("初転生の特典：GEARにRAIL開放。購入すると旅に手すりが現れます。", "reborn-reward"));
-    section.appendChild(prose("永久に伸びる上限", "reborn-label"));
-    if (!game.shopView().prestige.length) section.appendChild(prose("強化を1項目MAXにすると転生できます。", "reborn-note"));
-    game.shopView().prestige.forEach(function (p) {
+    section.appendChild(prose("同じ世界の0mから、もう一度育て直します。そのかわり、MAXにした強化の上限が永久に伸びます。", "reborn-lead"));
+    section.appendChild(prose("① 伸びる上限", "reborn-label"));
+    if (!view.prestige.length) section.appendChild(prose("強化を1項目MAXにすると転生できます。", "reborn-note"));
+    view.prestige.forEach(function (p) {
       var line = document.createElement("div"); line.className = "reborn-gain";
       line.append(textCanvas(p.name, P[16]), textCanvas(p.before + " → " + p.after, P[20]));
       line.setAttribute("aria-label", p.name + "の上限が" + p.before + "から" + p.after);
       section.appendChild(line);
     });
-    section.appendChild(prose("MAXになった項目の上限だけが伸びます。", "reborn-note"));
     var reset = document.createElement("div"); reset.className = "reborn-reset";
-    reset.appendChild(prose("0mから再出発", "reborn-label"));
-    reset.appendChild(prose("所持コイン・強化Lv・道具 → 0"));
+    reset.appendChild(prose("② 0に戻るもの", "reborn-label"));
+    reset.appendChild(prose("所持コイン・強化のレベル・道具"));
     section.appendChild(reset);
-    if (full) {
-      section.appendChild(prose("引き継ぐもの", "reborn-label"));
-      section.appendChild(prose("開放済みの全パネル・購入済みの二段ジャンプ・BEST・覚えた技・発見と釣りの記録・伸びた上限", "reborn-keeps"));
-      section.appendChild(prose("同じ世界を、Lv0から育て直します。今の旅には戻れません。", "reborn-note"));
-    } else section.appendChild(prose("開放パネル・購入済みの二段ジャンプ・技・記録・伸びた上限は残る", "reborn-note"));
+    var keep = document.createElement("div"); keep.className = "reborn-keep";
+    keep.appendChild(prose("③ 残るもの", "reborn-label"));
+    keep.appendChild(prose("開放したパネル・買った二段ジャンプ・BEST・覚えた技・発見と釣りの記録"));
+    section.appendChild(keep);
+    section.appendChild(prose("転生すると、今の旅には戻れません。", "reborn-note"));
     return section;
   }
   function closeAsk() {
@@ -278,6 +320,9 @@
     box.appendChild(row); ask.appendChild(box); dialog.appendChild(ask);
     [grid, tabs, wallet.parentNode, trailHint].forEach(function (node) { node.inert = true; });
     no.focus({ preventScroll: true });
+    // A touch-generated click can move focus after pointerup made the source inert.
+    var currentAsk=ask;
+    requestAnimationFrame(function(){if(ask===currentAsk&&!ask.contains(document.activeElement))no.focus({preventScroll:true});});
   }
   function build() {
     var focusId = document.activeElement && document.activeElement.dataset.item;
@@ -286,9 +331,19 @@
     Array.from(tabs.children).forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.group === group)); });
     var keys = rowKeys();
     grid.classList.toggle("reborn", keys.indexOf("prestige") >= 0);
-    game.shopView().rows.filter(inGroup).forEach(function (r) {
+    game.shopView().rows.filter(inGroup).sort(function(a,b){return (a.kind==="prestige")-(b.kind==="prestige");}).forEach(function (r) {
       var card = { id: r.id || r.kind, row: r };
       var b = button(r.name, function () {
+        if(card.id==="prestige") {
+          rebornOpen=!rebornOpen;updateCard(card);
+          // ★★★★★2026-09-15 島さんの指摘「開いたかどうか下へスクロールしないとわからない」
+          //   ★開いたら、パネルの見出しを一覧のいちばん上へ運ぶ（★中身がその下に見える）
+          if(rebornOpen) requestAnimationFrame(function(){
+            var still=global.matchMedia&&global.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            b.scrollIntoView({block:"start",behavior:still?"auto":"smooth"});
+          });
+          return;
+        }
         if (!card.row.enabled) return;
         if (!game.buyShop(card.id)) return;
         // ★★★★★転生はここでは進みません（★一段はさむ問いかけへ）
@@ -314,9 +369,13 @@
       name.appendChild(b.firstChild); b.appendChild(name);
       if (r.kind === "prestige") {
         name.appendChild(prose("転生", "reborn-heading"));
-        card.summary = document.createElement("div"); b.appendChild(card.summary);
-        b.appendChild(prose("内容を確認 →", "reborn-open"));
-        card.button = b; cards.push(card); grid.appendChild(b); return;
+        card.indicator=prose("＋","reborn-indicator");b.appendChild(card.indicator);
+        card.details=document.createElement("div");card.details.className="reborn-inline";card.details.id="shop-reborn-details";
+        card.summary=document.createElement("div");card.details.appendChild(card.summary);
+        card.confirm=button("REBORN",function(){if(card.row.enabled&&game.buyShop("prestige"))askReborn();});
+        card.confirm.appendChild(prose("転生内容を確認"));card.details.appendChild(card.confirm);
+        b.setAttribute("aria-controls",card.details.id);
+        card.button = b; cards.push(card); grid.append(b,card.details); return;
       }
       var demo = document.createElement("canvas"); demo.width = 128; demo.height = 52;
       demo.className = "shop-demo"; demo.setAttribute("aria-hidden", "true"); b.appendChild(demo);
@@ -333,9 +392,9 @@
   function render(time) {
     var viewport = grid.getBoundingClientRect(), revealed = false;
     cards.forEach(function (card) {
+      var rect=card.button.getBoundingClientRect(),visible=dialog.open&&rect.bottom>viewport.top&&rect.top<viewport.bottom;
       if (!card.revealed && card.id !== "prestige" && dialog.open) {
-        var rect = card.button.getBoundingClientRect();
-        if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+        if (visible) {
           var ms = game.panelRevealMs(card.id); card.revealed = true;
           if (ms > 0) {
             revealed = true;
@@ -344,7 +403,9 @@
           }
         }
       }
-      paint(card, reduced.matches ? 2.7 : time / 1000);
+      if(visible && (!card.staticPainted || (card.id!=="rail"&&card.id!=="stamina"))) {
+        paint(card, reduced.matches ? 2.7 : time / 1000);card.staticPainted=true;
+      }
       if (card.flashUntil && time >= card.flashUntil) { card.button.classList.remove("bought"); card.flashUntil = 0; }
     });
     if (revealed) updateTabNotices(game.shopView().rows);
@@ -362,7 +423,7 @@
   global.DotShop = {
     isOpen: function () { return !!(dialog && dialog.open); },
     open: function (g) {
-      init(); game = g; group = "upg"; previousFocus = document.activeElement;
+      init(); game = g; group = "upg"; rebornOpen=false;previousFocus = document.activeElement;
       build(); dialog.showModal(); schedule();
     },
     close: function () {
