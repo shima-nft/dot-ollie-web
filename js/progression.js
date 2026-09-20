@@ -19,7 +19,7 @@
   //   ★★★これまでこの保存には「足跡」しか入れていませんでしたが、
   //     ★**島さんが「残るのは記録だけにこだわらない」と決めた**ので、
   //     ★★**初めて「力になるもの」が永久に残ります**。
-  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, fishSeen: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true} }; }
+  function fresh() { return { version: 1, rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, fishSeen: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true}, mining: null }; }
   // ★上限が伸びる項目（★`js/upgrades.js` の id とそろえること）
   var CAP_IDS = ['speed', 'stamina', 'coin', 'rail', 'wheels', 'magnet', 'light', 'recover', 'live', 'drink'];
   var PANEL_IDS = CAP_IDS.concat(['shoes','railpass','maxdrink','kickflip','pop','prestige']);
@@ -54,6 +54,8 @@
         if (Number.isFinite(cm) && cm >= 6 && cm <= 120) { profile.fish[id] = Math.round(cm * 10) / 10; profile.fishSeen[id] = true; }
         if (raw.fishSeen && raw.fishSeen[id] === true) profile.fishSeen[id] = true;
       });
+      // ★★★★★採掘（2026-09-19）: 素材・ツルハシ（HEAD / HANDLE）・その地点の鉱石。★中身の確かめは DotMining.create がもう一度する
+      profile.mining = cleanMining(raw.mining);
     } else if (slot === 1) {
       // ★引き継ぎはスロット1だけ（★スロット2に昔の技が紛れ込まないように）
       // Existing players keep purchased actions and an already reached 5000m milestone.
@@ -64,6 +66,21 @@
     if (profile.rank > 0) { profile.panels.prestige = true; profile.panels.railpass = true; }
     save(); return snapshot();
   }
+  // ★採掘の記録: 素材の数は 0 以上の整数だけ。★キャンプ側のクラフト・装備からも、この名前のまま読める
+  function cleanMining(m) {
+    if (!m || typeof m !== 'object') return null;
+    var out = { mats: {}, head: Number.isInteger(m.head) && m.head >= 0 ? m.head : 0, handle: Number.isInteger(m.handle) && m.handle >= 0 ? m.handle : 0, broken: Number.isInteger(m.broken) && m.broken >= 0 ? m.broken : 0,
+      headMade: Number.isInteger(m.headMade) && m.headMade >= 0 ? m.headMade : 0, handleMade: Number.isInteger(m.handleMade) && m.handleMade >= 0 ? m.handleMade : 0,
+      seenOre: {}, seenMat: {}, matOrder: [], site: null };
+    // ★★見つけた鉱石・見つけた素材（★一度見つけたものが「?」に戻らないように保存する。2026-09-20(9)）
+    Object.keys(m.seenOre || {}).forEach(function (k) { if (/^[a-z]+$/.test(k) && m.seenOre[k]) out.seenOre[k] = 1; });
+    Object.keys(m.seenMat || {}).forEach(function (k) { if (/^[a-z]+$/.test(k) && m.seenMat[k]) out.seenMat[k] = 1; });
+    if (Array.isArray(m.matOrder)) m.matOrder.forEach(function (k) { if (/^[a-z]+$/.test(k) && out.matOrder.indexOf(k) < 0 && out.matOrder.length < 32) out.matOrder.push(k); });
+    Object.keys(m.mats || {}).forEach(function (k) { var v = m.mats[k]; if (/^[a-z]+$/.test(k) && Number.isFinite(v) && v >= 0) out.mats[k] = Math.floor(Math.min(v, 1e9)); });
+    if (m.site && Array.isArray(m.site.ores) && m.site.ores.length <= 8) out.site = JSON.parse(JSON.stringify(m.site));
+    return out;
+  }
+  function saveMining(m) { var p = get(); p.mining = cleanMining(m); save(); }
   function get() { if (!profile) load(); return profile; }
   function snapshot() { return JSON.parse(JSON.stringify(get())); }
   function unlockPanels(ids) {
@@ -113,7 +130,7 @@
     ids.forEach(function (id) { if (Number.isInteger(id) && id >= 0 && id <= 4 && !p.fishSeen[id]) { p.fishSeen[id] = true; changed = true; } });
     if (changed) save();
   }
-  global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish, observeFish: observeFish,
+  global.DotProgression = { load: load, snapshot: snapshot, learn: learn, finish: finish, recordFish: recordFish, observeFish: observeFish, saveMining: saveMining,
     prestige: prestige, CAP_IDS: CAP_IDS, unlockPanels: unlockPanels,
     slot: function () { return slot; }, setSlot: setSlot, slotKey: slotKey,
     // ★そのスロットの記録を、切り替えずに覗く（★タイトルのスロット一覧用。無ければ null）

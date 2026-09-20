@@ -365,10 +365,17 @@
    ctx.fillStyle='rgb('+d[i0]+','+d[i0+1]+','+d[i0+2]+')';ctx.fillRect(x0,y,x-x0,1);x0=x;}}}
   ctx.restore();
  }
+ // 2026-09-19: the way into the mine, a small sign at the bottom left (the FISH sign's twin). Hit area 68x30.
+ var MINE_ENTRY={x:2,y:128,w:68,h:30};
+ function mineButton(ctx,pressed){
+  var y=pressed?139:138;ctx.fillStyle='#081e2b';ctx.fillRect(6,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(8,y,51,1);
+  ctx.fillStyle='#d1c39d';ctx.fillRect(11,y+4,7,1);ctx.fillRect(10,y+5,1,2);ctx.fillRect(18,y+5,1,2);ctx.fillStyle='#9a5528';ctx.fillRect(14,y+5,1,8);
+  g.DotFont.drawText(ctx,'MINE',26,y+5,'#e9debc');
+ }
  function button(ctx,pressed){
   var y=pressed?139:138;ctx.fillStyle='#081e2b';ctx.fillRect(179,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(181,y,51,1);ctx.fillStyle='#d1c39d';
   ctx.fillRect(184,y+8,1,5);ctx.fillRect(185,y+6,1,2);ctx.fillRect(186,y+4,1,2);ctx.fillRect(187,y+3,5,1);ctx.fillRect(192,y+4,1,6);ctx.fillRect(191,y+10,2,1);
   g.DotFont.drawText(ctx,'FISH',199,y+5,'#e9debc');
  }
- g.DotCampLakeside={enabled:true,ENTRY:ENTRY,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
+ g.DotCampLakeside={enabled:true,ENTRY:ENTRY,MINE_ENTRY:MINE_ENTRY,mineButton:mineButton,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
 })(typeof window!=='undefined'?window:globalThis);

@@ -21,6 +21,10 @@
 	// label は液晶に出る名前(英数字のみ。5×7フォントに日本語は無い)
 	// sprite はメニューに出る絵。★選択画面には**スケーターの1コマ目**を出す
 	var TITLE = "OLLIE";          // 画面上部に出す題名。空なら出さない
+	// ★★タイトル画面の右下に出す版数（2026-09-20 島さんの指定）
+	//   ★★★**`sw.js` の `CACHE` の番号と必ずそろえる**（★dot-ollie-v167 なら "V167"）。
+	//     ★`tools/build-web.py` が、さわしていないと NG を出します
+	var VERSION = "V168";
 	// ============================================================
 	// ★★★★テストモードを出すか（2026-08-22 島さんの指定）
 	// ============================================================
@@ -229,6 +233,8 @@
 			lctx.save();lctx.translate(25,18);lctx.scale(2,2);DotFont.drawText(lctx,TITLE,0,0,GB[16]);lctx.restore();
 		}
 		var F=DotFont,best="BEST "+(global.DotOllie.bestOf?global.DotOllie.bestOf(curSlot()):global.DotOllie.getBest())+"m";
+		// ★版数（★右下に小さく・薄く。★遊びの邪魔にならない位置）
+		F.drawText(lctx,VERSION,LCD_W-10-F.textWidth(VERSION.length),7,GB[7]);
 		// A small trail marker separates the lifetime record from the selected journey.
 		lctx.fillStyle=GB[19];lctx.fillRect(212,17,1,16);lctx.fillRect(213,17,8,4);
 		F.drawText(lctx,best,132,31,GB[7]);
@@ -616,6 +622,12 @@
 		if (!r.width) return null;
 		return (ev.clientX - r.left) * LCD_W / r.width;
 	}
+	// ★縦も同じく「液晶のドット」に直す（★液晶の外でも、範囲に収めない）。★採掘の「液晶の外からスワイプ」に使う（2026-09-19）
+	function lcdY(ev) {
+		var r = lcd.getBoundingClientRect();
+		if (!r.height) return null;
+		return (ev.clientY - r.top) * LCD_H / r.height;
+	}
 	var swipeFromMode = null;  // 画面をまたいだタップを次の画面の決定に使わない
 	var swipeFired = false;     // このなぞりで、もう技を差し替えたか
 
@@ -641,7 +653,7 @@
 		//   ★ゲームが true を返したら、**跳ぶ・技を出すには渡しません**
 		if (activeGame && activeGame.inputTapAt) {
 			var lp = lcdPoint(ev);
-			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true, false, lcdX(ev))) {
+			if (activeGame.inputTapAt(lp ? lp.x : -1, lp ? lp.y : -1, true, false, lcdX(ev), lcdY(ev))) {
 				try { tapEl.setPointerCapture(ev.pointerId); } catch (e) {}
 				return;
 			}
@@ -681,7 +693,7 @@
 		}
 		if (activeGame && activeGame.inputPointerMove) {
 			var point = lcdPoint(ev);
-			if (activeGame.inputPointerMove(point ? point.x : -1, point ? point.y : -1)) return;
+			if (activeGame.inputPointerMove(point ? point.x : -1, point ? point.y : -1, lcdX(ev), lcdY(ev))) return;   // ★3・4番目 = 液晶の外でも使える位置
 		}
 		// ★★★★★キャンプの中では、指のスライドで歩く（2026-09-04 島さんの指定）
 		//   ★ゲーム側が true を返したら、下の「技の差し替え」はしない
@@ -990,6 +1002,7 @@
 		getSeedDigits: function () { return seedDigits; },
 		padDown: padDown,
 		padUp: padUp,
-		backToMenu: backToMenu
+		backToMenu: backToMenu,
+		getVersion: function () { return VERSION; }
 	};
 })(typeof window !== "undefined" ? window : globalThis);

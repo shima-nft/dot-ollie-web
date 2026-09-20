@@ -2399,6 +2399,8 @@
 	// The former walking camp remains available, but the lakeside is the active camp.
 	function lakesideCamp() { return global.DotCampLakeside && global.DotCampLakeside.enabled; }
 	function campFishEntry() { return lakesideCamp() ? global.DotCampLakeside.ENTRY : global.DotFishing.ENTRY; }
+	// ★★★★★採掘（2026-09-19 島さんの指定）: キャンプの左下の看板「MINE」から入る。★中身は js/mining.js
+	function mineEntry() { return global.DotMining && lakesideCamp() ? global.DotCampLakeside.MINE_ENTRY : null; }
 	// ★★★★★YES / NO のボタン（2026-09-04 島さんが描いた。★`tools/botan2art.py` が起こす）
 	//   ★ふつう（白い本体 ＋ 黒い影）と、★★押しているあいだ（黒い本体 ＋ 緑のふち）の2枚ずつ
 	var CBTN = global.DotCampBtnArt || null;
@@ -6166,6 +6168,7 @@
 	function toggleCamp() {
 		clearActionAssist();
 		if (st && st.campPhase === "fish" && !st.shopOpen) { leaveFishing(); return; }
+		if (st && st.campPhase === "mine" && !st.shopOpen) { leaveMining(); return; }
 		if (!CAMPMODE_ON || !st) return;
 		// ============================================================
 		// ★★★★★眠りにつく演出の最中は、閉じられない（2026-09-04(9)）
@@ -6263,6 +6266,35 @@
 		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣り場の音と二重にしない）
 		if (soundOn && global.DotFishSound) global.DotFishSound.wake();   // ★触った瞬間に音を起こす（iPhone）
 		cancelFishingHold(); syncFishing();
+	}
+	function enterMining() {
+		if (!global.DotMining || !st || st.campPhase !== "in" || st.shopOpen) return;
+		// ★素材・ツルハシ・その地点の鉱石は旅の記録から戻す（★テストモードでは読みも書きもしない）
+		var saved = !testMode && PR && PR.snapshot ? PR.snapshot().mining : null;
+		st.mining = global.DotMining.create((WD.getSeed() ^ Date.now()) >>> 0, saved || null);
+		st.mineSavedAt = Date.now(); st.mineDown = null; st.mineBtn = ""; st.fishBtn = "";
+		st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0;
+		st.campPhase = "mine";
+		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣りと同じ）
+		if (soundOn && global.DotMineSound) global.DotMineSound.wake();
+	}
+	function saveMining() {
+		if (!st || !st.mining || testMode || !PR || !PR.saveMining) return;
+		PR.saveMining(global.DotMining.saveData(st.mining)); st.mining.dirty = false; st.mineSavedAt = Date.now();
+	}
+	function leaveMining() {
+		if (!st || st.campPhase !== "mine") return false;
+		global.DotMining.release(st.mining); saveMining();
+		st.campPhase = "in"; st.paused = false; st.mineBtn = ""; st.mineDown = null;
+		st.campVX = 0; st.campVY = 0;
+		return true;
+	}
+	// ★採掘の出来事 → 音。★素材が増えたら、ときどき保存（★2秒に1回まで。出るときは必ず保存）
+	function syncMining() {
+		var m = st.mining; if (!m) return;
+		var upNow = false;
+		m.events.splice(0).forEach(function (e) { if (soundOn && global.DotMineSound) global.DotMineSound.event(e); if (/^upgrade_/.test(e.type)) upNow = true; });
+		if (m.dirty && (upNow || Date.now() - (st.mineSavedAt || 0) > 2000)) saveMining();   // ★作ったときは、すぐ保存
 	}
 	function leaveFishing() {
 		if (!st || st.campPhase !== "fish") return false;
@@ -6490,6 +6522,11 @@
 	//     ★ここで進むのは「中を歩いている」ことだけ。
 	//   ★★★問いかけ（CAMP? / WANT TO GO TO SLEEP?）のあいだは、**中も止まります**
 	function updateCamp(dt) {
+		if (st.campPhase === "mine") {
+			if (typeof document === "undefined" || !document.hidden) global.DotMining.update(st.mining, dt);
+			syncMining();
+			return;
+		}
 		if (st.campPhase === "fish") {
 			if (typeof document === "undefined" || !document.hidden) global.DotFishing.update(st.fishing, dt);
 			else cancelFishingHold();
@@ -8899,6 +8936,13 @@
 			if (st.shopOpen) drawShopScreen();
 			return;
 		}
+		if (st && st.campPhase === 'mine' && st.mining) {
+			var mOpt = {}; try { mOpt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
+			global.DotMining.draw(ctx, st.mining, { reduced: !!(liveReducedMotion && liveReducedMotion.matches), shake: mOpt.shake !== 0 });
+			if (st.paused) { ctx.fillStyle = '#0d101a'; ctx.fillRect(77, 69, 86, 18); global.DotFont.drawText(ctx, 'PAUSED', 102, 74, '#fff1e8'); }
+			if (st.shopOpen) drawShopScreen();
+			return;
+		}
 		// ★★★ぶつかったときの揺れ（2026-08-15）。★**ここから ⑧ までだけを揺らす**
 		//   ★★HUD（距離・倍率・まん中の文字）は揺らさない ＝ 読めなくならない
 		//   ★★★揺れは**描画だけ**。距離・倍率・当たり判定・世界には1ドットも触らない
@@ -9813,6 +9857,7 @@
 		if (st.campPhase === "fish") { global.DotFishing.draw(ctx, st.fishing, st.fishBtn, st.paused, st.fishing.options); return; }
 		if (!sceneOnly && st.campPhase === "in" && global.DotFishing) {
 			if (lakesideCamp()) global.DotCampLakeside.button(ctx, st.fishBtn === "open");
+			if (mineEntry()) global.DotCampLakeside.mineButton(ctx, st.mineBtn === "open");
 			else global.DotFishing.button(ctx, campFishEntry(), "FISH", st.fishBtn === "open");
 		}
 		// ★★お店の下に敷くときは、ここまで（★問いかけも一覧も暗転も出さない）
@@ -10281,6 +10326,10 @@
 				if (action === "act" && !st.paused) fishAct(true);
 				return;
 			}
+			if (st && st.campPhase === "mine" && !st.shopOpen) {
+				if (action === "act" && !st.paused) global.DotMining.press(st.mining);
+				return;
+			}
 			if (st && st.campPhase === "box" && !st.shopOpen) { campLeaveBag(); return; }
 			if (st && st.campPhase && !st.shopOpen) return;
 			// ★ショップを開いているあいだも、上下キーでカーソルが動く
@@ -10314,6 +10363,7 @@
 			if (action !== "act") return;
 			if (st === null) return;
 			if (st.campPhase === 'fish' && !st.shopOpen) { fishAct(false, 0, 0, st.paused || swiped); return; }
+			if (st.campPhase === 'mine' && !st.shopOpen) { global.DotMining.release(st.mining); return; }
 			// ★★ショップ（液晶の外のボタンで開いたもの）も「離したときに決める」
 			if (st.shopOpen) {
 				if (swiped || !st.tapArmed) { st.tapArmed = false; return; }
@@ -10565,6 +10615,7 @@
 			//   ★★★眠りにつく暗転（fade / dark / wake）も同じです ＝
 			//     ★**演出を飛ばせない**（2026-09-04(4) 島さんの指定）
 			if (st.campPhase === "fish" && !st.shopOpen) { cancelFishingHold(); st.paused = !st.paused; return; }
+			if (st.campPhase === "mine" && !st.shopOpen) { global.DotMining.release(st.mining); st.paused = !st.paused; return; }
 			if (st.campPhase) return;
 			st.paused = !st.paused;
 			st.pauseBtn = "";
@@ -10594,7 +10645,7 @@
 		// ------------------------------------------------------------
 		// テスト用の覗き窓
 		// ------------------------------------------------------------
-		inputEscape: leaveFishing,
+		inputEscape: function () { return leaveMining() || leaveFishing(); },
 		getBest: function () { return st ? best : loadBest(); },
 		_state: function () { return st; },
 		_assistConfig: function () { return Object.assign({}, PLAY_ASSIST); },
@@ -10753,7 +10804,7 @@
 		//   ★★押したボタンの上で離したときだけ決まります
 		//     （★押しまちがえたら、指をずらせば取り消せる ＝ ふつうのボタンの作法）
 		// ★gx = 今回の指の横位置（液晶のドット・範囲外もそのまま）。★釣りの液晶外タップだけが使う
-		inputTapAt: function (lx, ly, down, cancelled, gx) {
+		inputTapAt: function (lx, ly, down, cancelled, gx, gy) {
 			if (!st) return false;
 			// ★★★★★一時停止の RESUME / SAVE+QUIT（2026-09-13）。★押したボタンの上で離したときだけ決まる
 			if (st.paused && !st.campPhase && !st.shopOpen) {
@@ -10803,6 +10854,21 @@
 			}
 			// ★★★★★問いかけは3つ（2026-09-04(5)）:
 			//   "ask"（入りますか）／"bag"（リュックを開きますか）／"sleep"（出ますか）
+			// ★★★★★採掘: 長押しで掘る／離すと止まる。★左右になぞると隣の鉱石へ（inputPointerMove）
+			if (global.DotMining && st.campPhase === "mine") {
+				// ★液晶の外で押しても、そこからのスワイプを覚える（gx, gy ＝ 液晶の外でも使える位置。2026-09-19）
+				if (down) { var dx0 = gx != null ? gx : lx, dy0 = gy != null ? gy : ly;
+					st.mineDown = { x: dx0, y: dy0, x0: dx0, y0: dy0, swiped: false, vertical: false, axis: null };
+					if (!st.paused) global.DotMining.press(st.mining, lx, ly); }
+				else { global.DotMining.release(st.mining); st.mineDown = null; }
+				return true;
+			}
+			var mEntry = mineEntry();
+			if (mEntry && st.campPhase === "in" && global.DotFishing) {
+				var onMine = global.DotFishing.contains(mEntry, lx, ly);
+				if (down) { st.mineBtn = onMine ? "open" : ""; if (onMine) return true; }
+				else if (st.mineBtn) { var openMine = onMine && st.mineBtn === "open" && !cancelled; st.mineBtn = ""; if (openMine) enterMining(); return true; }
+			}
 			var fish = global.DotFishing;
 			if (fish && st.campPhase === "fish") {
 				var outside = lx < 0 || ly < 0 || lx >= W || ly >= H;
@@ -10840,7 +10906,34 @@
 			return true;
 		},
 
-		inputPointerMove: function (x, y) {
+		inputPointerMove: function (x, y, gx, gy) {
+			if (st && st.campPhase === 'mine' && !st.shopOpen) {
+				var md = st.mineDown;
+				// ★左右になぞる ＝ 隣の鉱石へ（★2026-09-20 島さんの指定「右 → 左」。★いまの壁を左へ払いのけて、右にある次の鉱石を中央へ）。★1回なぞって1つ
+				//   ★液晶の外で始めても・液晶の外へ出ても続く（★gx, gy）。★縦に大きく動いたら、そのなぞりはスワイプにしない
+				var mx = gx != null ? gx : x, my = gy != null ? gy : y;
+				// ★★アップグレードの画面では、上下になぞって履歴を見る（★横の鉱石切り替えは起こさない。2026-09-20(3)）
+				if (md && st.mining && st.mining.phase === "craft") {
+					// ★★アップグレードの画面（2026-09-20(6)）: 縦になぞる = 装備の列／横になぞる = HEAD ←→ HANDLE
+					//   ★どちらか一度決めたら、その指を離すまで変えない（★斜めでも迷わない）。★採掘の鉱石スワイプはここでは起きない
+					var uy = my - md.y, ux = mx - md.x;
+					if (st.mining.craftKind && !md.axis) {
+						var tx = Math.abs(mx - md.x0), ty = Math.abs(my - md.y0);
+						if (Math.max(tx, ty) >= 6) md.axis = ty > tx ? "y" : "x";
+					}
+					if (md.axis === "y") { global.DotMining.dragScroll(st.mining, uy); md.y = my; md.x = mx; }
+					else if (md.axis === "x") { global.DotMining.dragSide(st.mining, ux); md.y = my; md.x = mx; }
+					return true;
+				}
+				if (md && !md.swiped && !md.vertical && mx > -1e6) {
+					var ddx = mx - md.x, ddy = my - md.y;
+					if (Math.abs(ddx) >= 6 && Math.abs(ddx) > Math.abs(ddy)) global.DotMining.dragStart(st.mining);   // ★なぞり始めたら、案内はすぐ消す
+					if (Math.abs(ddy) >= 22 && Math.abs(ddy) > Math.abs(ddx)) md.vertical = true;
+					else if (Math.abs(ddx) >= 22 && Math.abs(ddx) >= Math.abs(ddy) * 1.5) { md.swiped = true; global.DotMining.swipe(st.mining, ddx < 0 ? 1 : -1); }   // ★指を左へ → 右の鉱石へ
+				}
+				return true;
+			}
+			if (st && st.mineBtn && mineEntry() && global.DotFishing && !global.DotFishing.contains(mineEntry(), x, y)) { st.mineBtn = "cancel"; return true; }
 			if (st && st.campPhase === 'fish' && !st.shopOpen) {
 				if (!st.fishOutside && (x < 0 || y < 0 || x >= W || y >= H)) cancelFishingHold();
 				return true;
@@ -10894,6 +10987,8 @@
 		_inCampExit: inCampExit,
 		_campScene: function () { return CSCENE; },
 		_campFishEntry: campFishEntry,
+		_mineEntry: mineEntry,
+		_enterMining: enterMining,
 		// ★★★★★キャンプの中を歩く姿（2026-09-05）
 		_campWalkArt: function () { return CAMP_WALK_ART; },
 		_campHealOn: function () { return CAMP_HEAL_ON; },

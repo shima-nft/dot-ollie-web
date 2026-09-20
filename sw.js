@@ -12,7 +12,7 @@
 //   → **音は素通しにして、Safari に任せる。**
 //     音がオフラインで鳴らなくても `AUDIO_GUIDE` 決まり1
 //     「音が出せない環境でも遊べる」を満たしているので、遊びには影響しない
-var CACHE = "dot-ollie-v151";
+var CACHE = "dot-ollie-v168";
 
 // このパスを含むものは、サービスワーカーが一切触らない
 function isPassThrough(url) {
@@ -73,6 +73,11 @@ var FILES = [
 	"./js/fishing-pond-art.js",
 	"./js/fishing-sound.js",
 	"./js/camp-sound.js",
+	"./js/mining-balance.js",
+	"./js/mining-art.js",
+	"./js/mining-sprites.js",
+	"./js/mining.js",
+	"./js/mining-sound.js",
 	"./js/ollie.js",
 	"./js/shop.js",
 	"./js/shell.js",
