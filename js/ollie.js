@@ -3629,7 +3629,7 @@
 			//   ★★★★★2026-09-04(5)、**"box" が増えました**（★リュックサックの中身）
 			//     "" / "ask" / "in" / "bag"（リュックに近づいた）/ "box"（中身）/
 			//     "sleep"（出ますか）/ "fade"（眠りにつく暗転）
-			campPhase: "",
+			campPhase: "", trip: null,
 			lastMark: !testMode && PR ? PR.snapshot().lastDistance : 0, moment: "", hpGrowMs: 0,
 			fishing: null, fishBtn: "", // 釣果はこのランだけ。再訪時は保持。
 			campBagMs: 0,          // ★リュックに近づいてからの時間（★通りすがりよけ）
@@ -6168,6 +6168,7 @@
 	function toggleCamp() {
 		clearActionAssist();
 		if (st && st.campPhase === "fish" && !st.shopOpen) { leaveFishing(); return; }
+		if (st && st.campPhase === "trip") return;                        // ★つなぎの途中では戻らない
 		if (st && st.campPhase === "mine" && !st.shopOpen) { leaveMining(); return; }
 		if (!CAMPMODE_ON || !st) return;
 		// ============================================================
@@ -6274,9 +6275,39 @@
 		st.mining = global.DotMining.create((WD.getSeed() ^ Date.now()) >>> 0, saved || null);
 		st.mineSavedAt = Date.now(); st.mineDown = null; st.mineBtn = ""; st.fishBtn = "";
 		st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0;
-		st.campPhase = "mine";
 		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣りと同じ）
 		if (soundOn && global.DotMineSound) global.DotMineSound.wake();
+		// ★★★すぐには切り替えず、「地上 → 地下」を短い絵と音で見せる（2026-09-21 島さんの指定）
+		startTrip("down");
+	}
+	// ============================================================
+	// ★★★★★キャンプ（地上）↔ 採掘（地下）のつなぎ（2026-09-21 島さんの指定）
+	// ============================================================
+	//   ★中身は `js/trip.js`（★段取り・時間・絵・音の名前は、ぜんぶあちら）
+	//   ★★**途中の状態は保存しません**（★保存するのは camp か mining の、決まった形だけ）
+	//   ★★★**1回押したら、そのまま目的地へ行きます**（2026-09-21(2) 島さんの指定）。
+	//     ★途中で何も要求しない ／ ★初回も2回目も同じ ／ ★250ms の坑道ワイプ1つだけ
+	function startTrip(dir) {
+		if (!global.DotTrip || !st) return false;
+		st.trip = global.DotTrip.create(dir);
+		st.campPhase = "trip"; st.paused = false;
+		st.mineDown = null; st.mineBtn = ""; st.fishBtn = "";
+		return true;
+	}
+	// ★つなぎの出来事（音）→ 採掘の音の仕組みへ。★終わったら、行き先の画面に落ち着く
+	function updateTrip(dt) {
+		var T = global.DotTrip, tr = st.trip;
+		if (!T || !tr) { st.campPhase = "in"; return; }
+		var done = T.update(tr, dt);
+		tr.sfx.splice(0).forEach(function (k) { if (soundOn && global.DotMineSound) global.DotMineSound.event({ type: k }); });
+		if (!done) return;
+		st.trip = null;
+		if (tr.dir === "down") {
+			st.campPhase = "mine";
+		} else {
+			st.campPhase = "in"; st.campVX = 0; st.campVY = 0;
+			if (soundOn && global.DotCampSound) global.DotCampSound.wake();   // ★キャンプの音へ戻す
+		}
 	}
 	function saveMining() {
 		if (!st || !st.mining || testMode || !PR || !PR.saveMining) return;
@@ -6284,9 +6315,14 @@
 	}
 	function leaveMining() {
 		if (!st || st.campPhase !== "mine") return false;
-		global.DotMining.release(st.mining); saveMining();
-		st.campPhase = "in"; st.paused = false; st.mineBtn = ""; st.mineDown = null;
+		global.DotMining.release(st.mining);
+		// ★★★飛んでいる途中の素材は、ここで必ず所持数にする（★戻ったせいで失われない）
+		if (global.DotMining.collectAll) global.DotMining.collectAll(st.mining);
+		saveMining();
+		st.paused = false; st.mineBtn = ""; st.mineDown = null;
 		st.campVX = 0; st.campVY = 0;
+		// ★★★地下 → 地上（★つなぎのあいだ、採掘の状態はそのまま残す ＝ 壊さない）
+		if (!startTrip("up")) st.campPhase = "in";
 		return true;
 	}
 	// ★採掘の出来事 → 音。★素材が増えたら、ときどき保存（★2秒に1回まで。出るときは必ず保存）
@@ -6522,6 +6558,8 @@
 	//     ★ここで進むのは「中を歩いている」ことだけ。
 	//   ★★★問いかけ（CAMP? / WANT TO GO TO SLEEP?）のあいだは、**中も止まります**
 	function updateCamp(dt) {
+		// ★★キャンプ ↔ 採掘のつなぎ（★このあいだ、採掘も釣りも動かさない）
+		if (st.campPhase === "trip") { updateTrip(dt); return; }
 		if (st.campPhase === "mine") {
 			if (typeof document === "undefined" || !document.hidden) global.DotMining.update(st.mining, dt);
 			syncMining();
@@ -8936,6 +8974,15 @@
 			if (st.shopOpen) drawShopScreen();
 			return;
 		}
+		// ★★★キャンプ（地上）↔ 採掘（地下）のつなぎ（2026-09-21）
+		if (st && st.campPhase === 'trip' && st.trip && global.DotTrip) {
+			var tOpt = {}; try { tOpt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
+			global.DotTrip.draw(ctx, st.trip, {
+				camp: function () { var was = st.campPhase; st.campPhase = "in"; drawCampInside(false); st.campPhase = was; },
+				mine: function () { if (st.mining) global.DotMining.draw(ctx, st.mining, { reduced: !!(liveReducedMotion && liveReducedMotion.matches), shake: tOpt.shake !== 0 }); }
+			});
+			return;
+		}
 		if (st && st.campPhase === 'mine' && st.mining) {
 			var mOpt = {}; try { mOpt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
 			global.DotMining.draw(ctx, st.mining, { reduced: !!(liveReducedMotion && liveReducedMotion.matches), shake: mOpt.shake !== 0 });
@@ -10326,6 +10373,7 @@
 				if (action === "act" && !st.paused) fishAct(true);
 				return;
 			}
+			if (st && st.campPhase === "trip") return;                    // ★つなぎの最中は、何も受け付けない（★1回押せば必ず着く）
 			if (st && st.campPhase === "mine" && !st.shopOpen) {
 				if (action === "act" && !st.paused) global.DotMining.press(st.mining);
 				return;
@@ -10855,6 +10903,8 @@
 			// ★★★★★問いかけは3つ（2026-09-04(5)）:
 			//   "ask"（入りますか）／"bag"（リュックを開きますか）／"sleep"（出ますか）
 			// ★★★★★採掘: 長押しで掘る／離すと止まる。★左右になぞると隣の鉱石へ（inputPointerMove）
+			// ★★つなぎの最中のタップは無視する（★1回押せば必ず着く。★誤タップで掘り出さない）
+			if (st.campPhase === "trip") return true;
 			if (global.DotMining && st.campPhase === "mine") {
 				// ★液晶の外で押しても、そこからのスワイプを覚える（gx, gy ＝ 液晶の外でも使える位置。2026-09-19）
 				if (down) { var dx0 = gx != null ? gx : lx, dy0 = gy != null ? gy : ly;

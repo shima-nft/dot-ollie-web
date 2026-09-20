@@ -73,6 +73,8 @@ var MAT_NEW_HANG = 110, MATFX_MS = 700;
 //   ★未読の知らせではなく「いま作れる」という状態の表示 ＝ クラフト画面を開いても消えない。作れなくなったら消える
 //   ★出るのは「最後の素材が所持数に届いた瞬間」（★飛んでいる途中では出ない ＝ s.mats だけで判定）
 var NEW_TEXT = "NEW", NEW_POP_MS = 220, NEW_BREATH_MS = 1300;
+// ★★NEW を「キラッ」のあとに回す分（ms。★2026-09-21(3) 島さんの指定「数字 → キラッ → NEW」）
+var NEW_AFTER_SPARK = 180;
 // ★作り上げたときの演出（★音と合わせる）: 沈んでカチッとはまる → 火花 → ふちを光が1周
 var MAKE_FX = { sinkMs: 110, sink: 3, sparkAt: 90, sweepFrom: 170, sweepMs: 220 };
 // ★初めて見る鉱石は、少しだけ光る（★文字では説明しない。★叩いてみて「カァン！」で分かる）
@@ -194,6 +196,7 @@ function create(seed, saved) {
 		nextIn: 0, reveal: 1, craftKind: null, craftSel: -1, menuT: 0, craftT: 0, pulse: 0, flash: 0, dirty: false, pressX: null, swiped: false,
 		broken: 0, pop: {}, chain: {}, hudBits: [], iconDown: false, canUp: false, newPop: 0, pity: {}, seenOre: {}, discover: 0, hud: null, hudKey: "", lastOre: null, familiar: null,
 		seenMat: {}, matOrder: [], matFx: {},   // ★★見つけた素材（★見つけた順に並ぶ）／見つけた直後の光
+		sparkQ: [], spark: null, newHold: 0,   // ★★届いたあとの「キラッ」の待ち行列と、いま光っているもの／NEW を少しだけ後ろへ
 		canUpHead: false, canUpHandle: false, newPopHead: 0, newPopHandle: 0,   // ★部位ごとの NEW
 		headMade: 0, handleMade: 0, scroll: 0, scrollV: 0, snap: null, snapPop: 0, dragClock: 0, tapAt: null, craftDrag: false, side: 0, sideAnim: null, sideOther: null };   // chain = 続けて届いた数（★音が少しずつ高く）／hudBits = 届いたときの粒   // broken = これまでに砕いた数（★はじめの体験に使う）／pop = 所持数が一瞬ふくらむ残り時間
 	if (saved) {
@@ -496,10 +499,15 @@ function update(s, dt) {
 	Object.keys(s.pop).forEach(function (k) { s.pop[k] = Math.max(0, s.pop[k] - ms); });
 	s.discover = Math.max(0, s.discover - ms);
 	MAT_IDS.forEach(function (k) { if (s.matFx[k] > 0) s.matFx[k] = Math.max(0, s.matFx[k] - ms); });   // ★見つけた直後の光
+	updateSpark(s, ms);   // ★★届いたあとの「キラッ」（★採掘とは別に流れる）
 	// ★「NEW」が出た瞬間だけ、小さくポンと跳ねる（★出っぱなしの間は静かに呼吸）
 	if (s.phase === "craft") { s.menuT = Math.min(CRAFT.openMs, s.menuT + ms); s.craftT = Math.min(CRAFT.dive, s.craftT + ms); updateScroll(s, ms); updateSide(s, ms); }
 	// ★「作れなかった → 作れる」に変わった瞬間だけ、知らせの音（★出ている間は鳴らし続けない）
 	var ch = canUpgradePart(s, "head"), cl = canUpgradePart(s, "handle"), can = ch || cl;
+	// ★★「数字が増える → キラッ → NEW」の順にする（2026-09-21(3)）。
+	//   ★出せるようになった瞬間だけ、ちょっとだけ後ろへ（★大幅には遅らせない）
+	if (can && !s.canUp && s.newHold <= 0 && (s.spark || s.sparkQ.length)) { s.newHold = NEW_AFTER_SPARK; can = ch = cl = false; }
+	else if (s.newHold > 0) { s.newHold = Math.max(0, s.newHold - ms); if (s.newHold > 0) { can = ch = cl = false; } }
 	if (ch && !s.canUpHead) s.newPopHead = NEW_POP_MS;
 	if (cl && !s.canUpHandle) s.newPopHandle = NEW_POP_MS;
 	if (can && !s.canUp) { s.newPop = NEW_POP_MS; event(s, "upgrade_available", { head: ch, handle: cl }); }   // ★両方同時でも1回だけ
@@ -669,6 +677,8 @@ function counterAt(s, k) {
 // ★素材を1つ生む。★ここで軌道を全部決める（★あとは時間から位置を計算するだけ）
 // ★多すぎたら古いものから、すぐ所持数へ（★素材は1つも失われない）
 function capPickups(s) { while (s.pickups.length > FLY.max) arrive(s, s.pickups.shift(), true); }
+// ★★飛んでいる素材を、いま全部所持数にする（★採掘を出るとき。★戻ったせいで失われない）
+function collectAll(s) { if (s && s.pickups) while (s.pickups.length) arrive(s, s.pickups.shift(), true); }
 function spawnPickup(s, k, j, cx, cy, pull) {
 	var rare = !!MATS[k].rare, fl = FLOCK[j % FLOCK.length], r1 = rng(s);
 	// ★★飛び方の種類（2026-09-20(10)）: 通常素材にも「反対側まで飛んで戻る」「弱い螺旋」を混ぜる
@@ -746,6 +756,8 @@ function arrive(s, p, quiet) {
 	var ch = s.chain[p.mat]; if (!ch || s.clock - ch.at > 250) ch = s.chain[p.mat] = { n: 0, at: 0 };
 	ch.n++; ch.at = s.clock;
 	event(s, "absorb", { mat: p.mat, seq: ch.n, rare: p.rare });
+	// ★★届いたあとの「キラッ」を頑む（★初めて見つけたときは、発見の光がその役）
+	if (!found) askSpark(s, p.mat, p.rare);
 	var to = counterAt(s, p.mat), n = 1 + Math.floor(rng(s) * 3);
 	for (var i = 0; i < n; i++) { var a = -Math.PI * rng(s); s.hudBits.push({ x: to.x + COUNTER.box / 2, y: to.y + COUNTER.box / 2, vx: Math.cos(a) * 40, vy: Math.sin(a) * 40 + 10, life: .16, rare: p.rare }); }
 }
@@ -1081,6 +1093,100 @@ function drawIcon(box, k, x, y, step, center) {
 	}
 	return true;
 }
+// ============================================================
+// ■ ★★★素材が届いたあとの「キラッ」（2026-09-21(3) 島さんの指定）
+// ============================================================
+//   ★流れ: 届く → 数字が +1 → ★少し間 → 素材アイコンがキラッ → NEW
+//   ★★**同時に光らせない**。★1つずつ順番に（★待ち行列）
+//   ★★★**採掘は止めない**（★次の鉱石・ツルハシ・素材の飛び方は、これと関係なく動く）
+var SPARK = {
+	on: 1,
+	delay: 100,      // ★届いてから光るまで（ms）
+	dur: 180,        // ★1回の長さ（ms）
+	gap: 90,         // ★ちがう素材どうしの最小の間（ms）
+	merge: 300,      // ★同じ素材は、この間にまとめて「1回だけ」
+	overlap: .6,     // ★前のキラッがこれだけ進んだら、次を始めてよい（★最大の大きさは重ならない）
+	max: 5,          // ★待ち行列の上限（★あふれたら古い要求から捨てる。★素材の数は絶対に減らさない）
+	stale: 900,      // ★これより古くなった要求は捨てる（★いまさら光っても分からないため）
+	rareDur: 280, rareBig: 1,   // ★レアは少し長く・1ドット大きく ＋ 追い光1つ
+	rareTail: 70,    // ★レアの追い光（★キラッのあと、これだけ経って小さく ✦）
+	r: 3,            // ★腕の長さ（ドット）
+	sound: 0         // ★★いまは音を鳴らさない（★ほしくなったら 1。★小さな高音を1つだけ）
+};
+// ★光のかたち3種（★同じ素材でも毎回少しちがう）
+//   cross 十字 ／ diag 斜め十字 ／ beam 大きい1本＋小さな粒2つ
+var SPARK_KIND = ["cross", "diag", "beam"];
+// ★素材ごとの色（★必ず白い芯を持たせて、先だけ素材の色を混ぜる）
+var SPARK_TIP = {
+	iron: "#bcd4ff", carbon: "#c9b9ff", quartz: "#b8f0ff", crystal: "#9fe8ff",
+	chromite: "#ffb8e4", tungsten: "#e2c9ff", titanium: "#bfe4ff", core: "#ffd9a0"
+};
+var SPARK_CORE = "#ffffff", SPARK_MID = "#fff3b0";
+// ★アイコンの中心から、どれだけずらすか（★右上・左上・右下・左下）
+var SPARK_OFF = [[3, -3], [-3, -3], [3, 3], [-3, 2]];
+
+// ★★キラッを1つ頼む（★届いた瞬間に呼ぶ。★同じ素材が続いたら、まとめて1回）
+function askSpark(s, mat, rare) {
+	if (!SPARK.on || !s) return;
+	var q = s.sparkQ, i;
+	for (i = 0; i < q.length; i++) if (q[i].mat === mat) {
+		q[i].at = Math.min(s.clock, q[i].first + SPARK.merge);   // ★最後に届いたところで光る（★ただし待ちすぎない）
+		q[i].n++; if (rare) q[i].rare = true;
+		return;
+	}
+	if (s.spark && s.spark.mat === mat && s.spark.t < SPARK.merge * .5) return;   // ★いま光っている最中の同じ素材は、足さない
+	q.push({ mat: mat, first: s.clock, at: s.clock, n: 1, rare: !!rare, seed: Math.floor(rng(s) * 1e6) });
+	while (q.length > SPARK.max) q.shift();                      // ★あふれたら古い要求から捨てる（★素材の数は減らさない）
+}
+// ★待ち行列を進める（★1つずつ・順番に）
+function updateSpark(s, ms) {
+	if (!SPARK.on) return;
+	var sp = s.spark;
+	if (sp) { sp.t += ms; if (sp.t >= sp.dur + (sp.rare ? SPARK.rareTail + 60 : 0)) { s.spark = sp = null; } }
+	var q = s.sparkQ;
+	while (q.length && s.clock - q[0].at > SPARK.stale) q.shift();   // ★古すぎる要求は捨てる
+	if (!q.length) return;
+	if (sp && (sp.t < sp.dur * SPARK.overlap || sp.t < SPARK.gap)) return;   // ★最大の大きさが重ならないように
+	var head = q[0];
+	if (s.clock - head.at < SPARK.delay) return;                     // ★届いてから少し待つ
+	q.shift();
+	s.spark = { mat: head.mat, t: 0, dur: head.rare ? SPARK.rareDur : SPARK.dur, rare: head.rare,
+		kind: SPARK_KIND[head.seed % SPARK_KIND.length], off: SPARK_OFF[(head.seed >> 3) % SPARK_OFF.length], seed: head.seed };
+	if (SPARK.sound) event(s, "spark", { mat: head.mat, rare: head.rare });
+}
+// ★1回ぶんの大きさ（0 → 1 → 0。★出て・広がって・細くなって・消える）
+function sparkBell(u) { return u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * Math.pow(u, .55)); }
+// ★★キラッを描く（★素材アイコンの上に重ねる）
+function drawSpark(box, s) {
+	var sp = s.spark; if (!SPARK.on || !sp) return;
+	var at = counterAt(s, sp.mat);
+	var cx = at.x + MATERIAL_ICON_CENTER_X + sp.off[0], cy = at.y + MATERIAL_ICON_CENTER_Y + sp.off[1];
+	var tip = SPARK_TIP[sp.mat] || SPARK_MID;
+	var u = sp.t / sp.dur, r = (SPARK.r + (sp.rare ? SPARK.rareBig : 0)) * sparkBell(u);
+	if (r > .2) {
+		var n = Math.max(1, Math.round(r)), i;
+		box(cx, cy, 1, 1, SPARK_CORE);                                   // ★芯
+		if (sp.kind === "cross" || sp.kind === "beam") {
+			var up = sp.kind === "beam" ? n + 1 : n;
+			for (i = 1; i <= up; i++) box(cx, cy - i, 1, 1, i === up ? tip : SPARK_MID);
+			for (i = 1; i <= n; i++) box(cx, cy + i, 1, 1, i === n ? tip : SPARK_MID);
+			if (sp.kind === "cross") for (i = 1; i <= n; i++) { box(cx - i, cy, 1, 1, i === n ? tip : SPARK_MID); box(cx + i, cy, 1, 1, i === n ? tip : SPARK_MID); }
+			else { box(cx - 2, cy + 1, 1, 1, tip); box(cx + 2, cy - 1, 1, 1, tip); }   // ★大きい1本 ＋ 小さな粒2つ
+		} else {
+			for (i = 1; i <= n; i++) { box(cx - i, cy - i, 1, 1, i === n ? tip : SPARK_MID); box(cx + i, cy - i, 1, 1, i === n ? tip : SPARK_MID);
+				box(cx - i, cy + i, 1, 1, i === n ? tip : SPARK_MID); box(cx + i, cy + i, 1, 1, i === n ? tip : SPARK_MID); }
+		}
+		// ★斜めに飛ぶ小さな粒（2〜4個）
+		if (sp.kind !== "diag") { var m = 2 + (sp.seed % 3);
+			for (i = 0; i < m; i++) { var a = (sp.seed + i * 97) % 4, dx = a < 2 ? 1 : -1, dy = a % 2 ? 1 : -1;
+				box(cx + dx * (n + 1), cy + dy * (n + 1), 1, 1, SPARK_MID); } }
+	}
+	// ★レアだけ: キラッのあと、小さな追い光をひとつ
+	if (sp.rare && sp.t > sp.dur + SPARK.rareTail && sp.t < sp.dur + SPARK.rareTail + 60) {
+		box(cx + 4, cy - 4, 1, 1, SPARK_CORE); box(cx + 3, cy - 4, 1, 1, tip); box(cx + 5, cy - 4, 1, 1, tip);
+		box(cx + 4, cy - 5, 1, 1, tip); box(cx + 4, cy - 3, 1, 1, tip);
+	}
+}
 // ★★左はしの縦並び（★発見した素材だけ。★いちばん下に「まだ知らない素材」が1つ）
 function drawCounters(ctx, s, box) {
 	var F = global.DotFont, N = F && F.NUM ? F.NUM : F, S = sprites(), H = hudRows(s);
@@ -1096,6 +1202,7 @@ function drawCounters(ctx, s, box) {
 		if (N) N.drawTextShadow(ctx, String(Math.min(999, s.mats[k] || 0)), at.x + COUNTER.num, cy - 3, pop || fx ? "#ffcc4a" : "#fff1e8", PAL.void);
 	});
 	if (H.unknown >= 0) drawUnknown(box, COUNTER.x + MATERIAL_ICON_CENTER_X, COUNTER.y + H.unknown * COUNTER.step + MATERIAL_ICON_CENTER_Y);
+	drawSpark(box, s);   // ★★届いたあとの「キラッ」（★アイコンの上に重ねる）
 }
 // ============================================================
 // ■ ★★鉱石は「壁の中に埋まっている」（2026-09-20(10) 島さんの指定）
@@ -1704,7 +1811,7 @@ global.DotMining = {
 	create: create, update: update, draw: draw, press: press, release: release, swipe: swipe, dragSide: dragSide, dragSideEnd: dragSideEnd, openPart: openPart, scrollRange: scrollRange, minScroll: minScroll, craft: craft, saveData: saveData,
 	stageOf: stageOf, canBreak: canBreak, breakableCount: breakableCount, lockedCount: lockedCount, fixGroup: fixGroup, guardOre: guardOre, pickBreakableOre: pickBreakableOre, canUpgradePart: canUpgradePart, craftRows: craftRows, dragScroll: dragScroll, dragEnd: dragEnd, LIST: LIST, rowTop: rowTop, maxScroll: maxScroll, historyRows: historyRows, scrollBy: scrollBy, owned: owned, canMake: canMake, costOf: costOf, tierAt: tierAt, CRAFT: CRAFT, SKIP_MUL: SKIP_MUL, damageOf: damageOf, swingPose: swingPose, counterAt: counterAt, POSE: POSE, HIT: HIT,
 	setDebug: function (v) { DEBUG.on = v ? 1 : 0; }, DEBUG: DEBUG, balance: B, etaMs: etaMs,
-	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
+	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, collectAll: collectAll, SPARK: SPARK, SPARK_KIND: SPARK_KIND, SPARK_TIP: SPARK_TIP, askSpark: askSpark, drawSpark: drawSpark, NEW_AFTER_SPARK: NEW_AFTER_SPARK, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
 	STARTER_BREAKS: STARTER_BREAKS, STARTER_ROCKS: STARTER_ROCKS,
 	FEEL: FEEL, HEADS: HEADS, HANDLES: HANDLES, ORES: ORES, MATS: MATS, MAT_IDS: MAT_IDS, CRAFT_ICON: CRAFT_ICON, SPACING: SPACING,
 	TEXTS: ["HEAD", "HANDLE", "MAX", "BREAK", "SPEED", "EQUIPPED", "MAKE", "OWNED", "SKIPPED", "?????", "???", "PICKAXE UPGRADE", "0123456789", NEW_TEXT]

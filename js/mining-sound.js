@@ -11,9 +11,9 @@
 (function (global) {
 "use strict";
 var MINE_SOUND_ON = 1;
-var LV = { hit: 0.42, hitHard: 0.42, clang: 0.5, crack: 0.3, break: 0.62, scatter: 0.2, absorb: 0.16, rare: 0.34, upgrade_complete_head: 0.34, upgrade_complete_handle: 0.3, upgrade_available: 0.24, ui_tick: 0.07, discover: 0.26, new_material_discovered: 0.3 };
+var LV = { hit: 0.42, hitHard: 0.42, clang: 0.5, crack: 0.3, break: 0.62, scatter: 0.2, absorb: 0.16, rare: 0.34, upgrade_complete_head: 0.34, upgrade_complete_handle: 0.3, upgrade_available: 0.24, ui_tick: 0.07, discover: 0.26, new_material_discovered: 0.3, trip_close: 0.4, mine_arrive: 0.55, camp_arrive: 0.38 };
 // ★音のファイルに差し替える口（2026-09-19）: ここに "assets/sound/xxx.wav" のように書くと、その音を鳴らす（★無い・読めないときは下の作った音）
-var SAMPLES = { upgrade_complete_head: null, upgrade_complete_handle: null, upgrade_available: null, ui_tick: null, new_material_discovered: null };
+var SAMPLES = { upgrade_complete_head: null, upgrade_complete_handle: null, upgrade_available: null, ui_tick: null, new_material_discovered: null, trip_close: null, mine_arrive: null, camp_arrive: null };
 
 var seed = ((Date.now() ^ 0x1b873593) >>> 0) || 1;
 function rnd() { seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; }
@@ -64,6 +64,23 @@ var VOICES = {
 	// 砕けない「カァン！」: 金属の倍音（整数比でない）＋火花の粒
 	clang: function (o) { [1, 2.76, 5.4, 8.93].forEach(function (m, i) { tone(o, { f: 620 * m * R(.99, 1.01), dur: .55 - i * .1, g: .32 / (i + 1), atk: .001 }); });
 		burst(o, { type: "highpass", f: 4000, dur: .08, g: .4, atk: .0005 }); for (var i = 0; i < 4; i++) burst(o, { type: "highpass", f: 6000, at: .02 + i * R(.02, .05), dur: .012, g: .18 }); },
+	// ============================================================
+	// ★★★キャンプ（地上）↔ 採掘（地下）の坑道ワイプの音（2026-09-21(2)）
+	// ============================================================
+	//   ★★使うのは3つだけ（★閉じる「ザッ」・地下の「ゴトン」・地上の「コトッ」）。★どれも 0.3 秒以内
+	//   ★★どれも **仮の音**（★SAMPLES で WAV に差し替えられます）
+	// 岩壁が閉じる「ザッ」
+	trip_close: function (o) {
+		burst(o, { type: "lowpass", f: 900, f2: 260, dur: .13, g: .55, atk: .003 });
+		for (var i = 0; i < 3; i++) burst(o, { type: "bandpass", f: R(320, 700), q: 1.4, at: i * .03, dur: .05, g: .2 }); },
+	// 地下に着いた「ゴトン」
+	mine_arrive: function (o) {
+		tone(o, { f: 104, f2: 62, dur: .22, g: 1.05, atk: .002 });
+		burst(o, { type: "lowpass", f: 620, f2: 190, dur: .24, g: .6, atk: .002 }); },
+	// 地上に着いた「コトッ」（★地下よりやわらかく）
+	camp_arrive: function (o) {
+		tone(o, { wave: "triangle", f: 190, f2: 130, dur: .13, g: .55, atk: .004 });
+		burst(o, { type: "lowpass", f: 900, f2: 380, dur: .15, g: .28, atk: .006 }); },
 	// ★★新しい「素材」を初めて手に入れた合図（2026-09-20(9) 島さんの指定）
 	//   ★「コロン → キラッ」。★0.4秒ほど・明るい・少し不思議・ファンファーレにはしない
 	//   ★★これは **仮の音** です（本番は tools/preview-sound.html で島さんが選ぶ）
@@ -123,7 +140,7 @@ var VOICES = {
 	// ★装備の列が1段カチッと決まった音（★とても小さい）
 	ui_tick: function (o) { burst(o, { f: 2000, q: 4, dur: .014, g: .5, atk: .0004 }); tone(o, { wave: "square", f: 620, dur: .02, g: .12 }); }
 };
-var BY = { hit: {}, hitHard: {}, clang: {}, crack: {}, "break": {}, scatter: {}, absorb: {}, rare: {}, upgrade_complete_head: {}, upgrade_complete_handle: {}, upgrade_available: {}, ui_tick: {}, discover: {}, new_material_discovered: {} };   // ★HEAD × 鉱石で差し替える口（★absorb は素材ごと: BY.absorb.iron など）
+var BY = { hit: {}, hitHard: {}, clang: {}, crack: {}, "break": {}, scatter: {}, absorb: {}, rare: {}, upgrade_complete_head: {}, upgrade_complete_handle: {}, upgrade_available: {}, ui_tick: {}, discover: {}, new_material_discovered: {}, trip_close: {}, mine_arrive: {}, camp_arrive: {} };   // ★HEAD × 鉱石で差し替える口（★absorb は素材ごと: BY.absorb.iron など）
 function voice(kind, head, ore, mat) { var t = BY[kind] || {}; return (mat && t[mat]) || t[head + ":" + ore] || t[head] || t[ore] || VOICES[kind]; }
 var lastAbsorb = 0, loaded = {}, recent = [], ABSORB_WINDOW = .15, ABSORB_MAX = 4;
 // ★SAMPLES に書いたファイルを1度だけ読んで鳴らす（★読めるまでは作った音）
