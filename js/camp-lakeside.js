@@ -372,10 +372,25 @@
   ctx.fillStyle='#d1c39d';ctx.fillRect(11,y+4,7,1);ctx.fillRect(10,y+5,1,2);ctx.fillRect(18,y+5,1,2);ctx.fillStyle='#9a5528';ctx.fillRect(14,y+5,1,8);
   g.DotFont.drawText(ctx,'MINE',26,y+5,'#e9debc');
  }
+ // 2026-09-21(6): the SAVE sign, top right. Same 55x16 plate as MINE / FISH. Hit area 60x24.
+ var SAVE_ENTRY={x:176,y:2,w:60,h:24};
+ function saveButton(ctx,pressed,ok){
+  var y=pressed?7:6;ctx.fillStyle='#081e2b';ctx.fillRect(179,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(181,y,51,1);
+  // a floppy-disk mark: body, shutter, label
+  if(ok){// written: the floppy is replaced by a tick, so SAVED fits on the same plate
+   ctx.fillStyle='#8fe388';ctx.fillRect(184,y+8,1,2);ctx.fillRect(185,y+9,1,2);ctx.fillRect(186,y+8,1,2);
+   ctx.fillRect(187,y+6,1,2);ctx.fillRect(188,y+4,1,2);
+   g.DotFont.drawText(ctx,'SAVED',193,y+5,'#8fe388');
+  } else {
+   ctx.fillStyle='#d1c39d';ctx.fillRect(184,y+4,9,9);ctx.fillStyle='#081e2b';ctx.fillRect(186,y+4,5,3);
+   ctx.fillStyle='#9a5528';ctx.fillRect(186,y+9,5,4);
+   g.DotFont.drawText(ctx,'SAVE',199,y+5,'#e9debc');
+  }
+ }
  function button(ctx,pressed){
   var y=pressed?139:138;ctx.fillStyle='#081e2b';ctx.fillRect(179,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(181,y,51,1);ctx.fillStyle='#d1c39d';
   ctx.fillRect(184,y+8,1,5);ctx.fillRect(185,y+6,1,2);ctx.fillRect(186,y+4,1,2);ctx.fillRect(187,y+3,5,1);ctx.fillRect(192,y+4,1,6);ctx.fillRect(191,y+10,2,1);
   g.DotFont.drawText(ctx,'FISH',199,y+5,'#e9debc');
  }
- g.DotCampLakeside={enabled:true,ENTRY:ENTRY,MINE_ENTRY:MINE_ENTRY,mineButton:mineButton,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
+ g.DotCampLakeside={enabled:true,ENTRY:ENTRY,MINE_ENTRY:MINE_ENTRY,mineButton:mineButton,SAVE_ENTRY:SAVE_ENTRY,saveButton:saveButton,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
 })(typeof window!=='undefined'?window:globalThis);

@@ -2401,6 +2401,20 @@
 	function campFishEntry() { return lakesideCamp() ? global.DotCampLakeside.ENTRY : global.DotFishing.ENTRY; }
 	// ★★★★★採掘（2026-09-19 島さんの指定）: キャンプの左下の看板「MINE」から入る。★中身は js/mining.js
 	function mineEntry() { return global.DotMining && lakesideCamp() ? global.DotCampLakeside.MINE_ENTRY : null; }
+	// ★★★★★キャンプの SAVE 看板（2026-09-21(6) 島さんの指定）
+	//   ★★**1回押すだけ**（★問いかけなし・確認なし・やり直しなし）。
+	//   ★★★書けたら**小さなチェックと SAVED** が 900ms だけ出ます（★音も鳴る）。
+	//   ★★★★ここで保存すると、★**次に開いたときはキャンプから再開**します（resumeMode）
+	var SAVE_OK_MS = 900;
+	function saveEntry() { return lakesideCamp() && global.DotCampLakeside.SAVE_ENTRY ? global.DotCampLakeside.SAVE_ENTRY : null; }
+	function campSaveNow() {
+		saveRun();                                  // ★いまのラン（場所・体力・財布・レベル）
+		if (PR && PR.setResume) PR.setResume("camp");   // ★★次はキャンプから
+		saveGame("camp-save");                      // ★★★旅の記録（素材・釣果・総距離）を書き切る
+		st.saveOkMs = SAVE_OK_MS;
+		sound(880, 0.05); setTimeout(function () { sound(1174, 0.07); }, 70);   // ★知らせの音（★電子音）
+		return true;
+	}
 	// ★★★★★YES / NO のボタン（2026-09-04 島さんが描いた。★`tools/botan2art.py` が起こす）
 	//   ★ふつう（白い本体 ＋ 黒い影）と、★★押しているあいだ（黒い本体 ＋ 緑のふち）の2枚ずつ
 	var CBTN = global.DotCampBtnArt || null;
@@ -2969,9 +2983,47 @@
 	var startAtFish = false; // ★★★★★2026-09-15 島さんの指定: キャンプの池（釣り）から始める
 	var testMode = false;   // ★★テストモードのあいだは BEST を更新しない
 
+	// ============================================================
+	// ★★★★★覚える場所は、この3つだけを通る（2026-09-21(6) 島さんの指定）
+	// ============================================================
+	//
+	//   ★★★**2026-09-21、「採掘の素材が消える」の原因がここでした。**
+	//
+	//     ★「テストモードでは localStorage に書かない」という決まりが、
+	//     ★★**「なにも覚えない」**まで広がっていて、
+	//     ★★★採掘・釣り・コインが**モードに入るたびまっさらから作り直されて**いました。
+	//     （★島さんは TEST 4950m で遊ぶことが多いので、★★ほぼ毎回踏んでいた）
+	//
+	//   ★★★★**直し方**: テスト中は「覚えない」のではなく、
+	//     ★★★★★**心の中（`MEM`）だけで覚える**。
+	//     ★ localStorage には★★**1バイトも書きません**（★決まりはそのまま守られる）。
+	//     ★★でも**アプリを閉じるまでは消えません** ＝ 素材も釣果も残る。
+	//
+	//   ★★★★★**AIへ: `localStorage` を直に呼ばないこと**。
+	//     ★必ず `lsGet` / `lsSet` / `lsDel` を通す（★通さないと、また同じ事故が起きる）
+	var MEM = {};           // ★テストモードの「心の中の保存」
+	function lsGet(key) {
+		// ★★写し取り（copy-on-write）: テスト中でも、まだ書いていないものは
+		//   ★**本物を読むだけ**（★BEST などがいままでどおり見える）。★★書き戻しはしない
+		if (testMode && Object.prototype.hasOwnProperty.call(MEM, key)) return MEM[key];
+		try { return localStorage.getItem(key); } catch (e) { return null; }
+	}
+	function lsSet(key, val) {
+		if (testMode) { MEM[key] = String(val); return true; }
+		try { localStorage.setItem(key, String(val)); return true; } catch (e) { return false; }
+	}
+	function lsDel(key) {
+		if (testMode) { MEM[key] = null; return true; }   // ★null = 「消した」の印（★本物を読みに行かない）
+		try {
+			if (localStorage.removeItem) localStorage.removeItem(key);
+			else localStorage.setItem(key, "null");
+			return true;
+		} catch (e) { return false; }
+	}
+
 	function loadBest() {
 		try {
-			var v = parseInt(localStorage.getItem(slotKey("dotollie-best")), 10);
+			var v = parseInt(lsGet(slotKey("dotollie-best")), 10);
 			best = (isFinite(v) && v > 0) ? v : 0;
 		} catch (e) { best = 0; }
 		return best;
@@ -2979,12 +3031,13 @@
 
 	// ★★超えたときだけ更新する（**同じ距離では更新しない**）
 	function updateBest(m) {
-		// ★★★テストモードでは記録を残さない（2026-08-22）。
-		//   ★4950m から始めるので、そのままだと**必ず BEST を塗り替えてしまう**
-		if (testMode) return false;
+		// ★★★テストモードでは**本物の記録を残さない**（2026-08-22）。
+		//   ★4950m から始めるので、そのままだと**必ず BEST を塗り替えてしまう**。
+		//   ★★★★ 2026-09-21(6): `lsSet` がテスト中は心の中へ書くので、
+		//     ★★**ここで止めなくてよくなりました**（★テスト中も BEST が伸びるが、★★外には残らない）
 		if (m <= best) return false;
 		best = m;
-		try { localStorage.setItem(slotKey("dotollie-best"), String(best)); } catch (e) { /* 保存できなくても遊べる */ }
+		lsSet(slotKey("dotollie-best"), String(best));
 		return true;
 	}
 
@@ -3002,7 +3055,7 @@
 
 	function loadMet() {
 		try {
-			var o = JSON.parse(localStorage.getItem(CAMP_KEY) || "{}");
+			var o = JSON.parse(lsGet(CAMP_KEY) || "{}");
 			metKinds = (o && typeof o === "object") ? o : {};
 		} catch (e) { metKinds = {}; }
 		return metKinds;
@@ -3013,10 +3066,8 @@
 		if (!CAMPMODE_ON || !id) return false;
 		if (metKinds[id]) return false;               // ★もう会っている
 		metKinds[id] = 1;
-		// ★★★テストモードでは覚えない（2026-09-03 の `saveCoins` などと同じ作法）。
-		//   ★4950m から始めるので、そのままだと**本物の記録を汚します**
-		if (testMode) return true;
-		try { localStorage.setItem(CAMP_KEY, JSON.stringify(metKinds)); } catch (e) { /* 保存できなくても遊べる */ }
+		// ★★★テストモードでは**外に**覚えない（★`lsSet` が心の中へ書く。2026-09-21(6)）
+		lsSet(CAMP_KEY, JSON.stringify(metKinds));
 		return true;
 	}
 
@@ -3074,7 +3125,7 @@
 	function loadUpg() {
 		upgLv = {}; unlocked = {}; bag = {}; buys = {};
 		try {
-			var raw = localStorage.getItem("dotollie-upg");
+			var raw = lsGet("dotollie-upg");
 			var o = raw ? JSON.parse(raw) : null;
 			if (o && o.lv) upgLv = o.lv;
 			if (o && o.un) unlocked = o.un;
@@ -3089,12 +3140,9 @@
 		//   ★★テストモードは**お金を持って始まります**（1T）。
 		//     ★それを覚えてしまうと、★★★**次にふつうに始めたとき 1T のまま**になります
 		//     （★実際にそうなって、テストが捕まえました）。
-		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです
-		if (testMode) return ;
-		try {
-			localStorage.setItem("dotollie-upg",
-				JSON.stringify({ lv: upgLv, un: unlocked, bag: bag, buys: buys }));
-		} catch (e) { /* 保存できなくても遊べる */ }
+		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです。
+		//   ★★★★ 2026-09-21(6): `lsSet` がテスト中は心の中へ書くので、ここで止めなくてよくなりました
+		lsSet("dotollie-upg", JSON.stringify({ lv: upgLv, un: unlocked, bag: bag, buys: buys }));
 	}
 
 	// ★何本持っているか
@@ -3247,7 +3295,7 @@
 	function loadItems() {
 		items = {};
 		try {
-			var raw = localStorage.getItem("dotollie-items");
+			var raw = lsGet("dotollie-items");
 			var o = raw ? JSON.parse(raw) : null;
 			// ★★配列は弾く（★通すと `items` が配列になり、以後の保存が効かなくなる）
 			if (o && typeof o === "object" && !Array.isArray(o)) items = o;
@@ -3260,10 +3308,9 @@
 		//   ★★テストモードは**お金を持って始まります**（1T）。
 		//     ★それを覚えてしまうと、★★★**次にふつうに始めたとき 1T のまま**になります
 		//     （★実際にそうなって、テストが捕まえました）。
-		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです
-		if (testMode) return ;
-		try { localStorage.setItem("dotollie-items", JSON.stringify(items)); }
-		catch (e) { /* 保存できなくても遊べる */ }
+		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです。
+		//   ★★★★ 2026-09-21(6): `lsSet` がテスト中は心の中へ書く
+		lsSet("dotollie-items", JSON.stringify(items));
 	}
 
 	function hasItem(id) { return !!items[id]; }
@@ -3272,7 +3319,7 @@
 	function giveItem(id) {
 		if (items[id]) return false;
 		items[id] = true;
-		saveItems();
+		saveItems(); touchSave();
 		return true;
 	}
 
@@ -3320,7 +3367,7 @@
 		if (st) { st.fishing = null; st.fishBtn = ""; st.live = null; st.drone = null; st.dj = false; }
 		coins = 0;
 		upgLv = {};
-		unlocked = !testMode && PR ? PR.snapshot().tricks : {};
+		unlocked = PR ? PR.snapshot().tricks : {};
 		bag = {};                   // ★★★持ち物も無くなる（★コインやレベルと同じ）
 		buys = {};                  // ★★買った回数も忘れる ＝ 値段が 120 に戻る
 		items = {};                 // ★拾った鍵も忘れる（★保留中の仕組み）
@@ -3340,12 +3387,11 @@
 		//
 		//   ★2026-09-03 の決まり「★★テストは記録を汚さない」に、ここもそろえました。
 		//   ★★★**AIへ: この1行を外さないこと**（★外すと、また島さんの記録が消えます）。
-		if (testMode) return true;
-		try {
-			localStorage.setItem("dotollie-coins", "0");
-			localStorage.setItem("dotollie-upg", JSON.stringify({ lv: {}, un: {} }));
-			localStorage.setItem("dotollie-items", "{}");
-		} catch (e) { /* 消せなくても遊べる */ }
+		//   ★★★★ 2026-09-21(6): `lsSet` がテスト中は心の中だけを消すので、
+		//     ★★**島さんの本物の記録はここでは決して消えません**
+		lsSet("dotollie-coins", "0");
+		lsSet("dotollie-upg", JSON.stringify({ lv: {}, un: {} }));
+		lsSet("dotollie-items", "{}");
 		return true;
 	}
 
@@ -3353,13 +3399,11 @@
 	//   ★★★**AIへ: 中身をここに書き戻さないこと**（★消すものが増えたとき、
 	//     ★★**片方だけ直す**という事故が構造的に作れなくなる）
 	function resetAll() {
-		if (PR && !testMode) PR.clear();
+		if (PR) PR.clear();   // ★テスト中は「記憶だけモード」なので、★★外の記録は消えない（2026-09-21(6)）
 		reloadCaps();
 		resetStatus();              // ★★育てたものを全部消す（★中身はあちら1か所だけ）
 		best = 0;                   // ★★★ここだけが違い ＝ **記録も消す**
-		try {
-			localStorage.setItem(slotKey("dotollie-best"), "0");
-		} catch (e) { /* 消せなくても遊べる */ }
+		lsSet(slotKey("dotollie-best"), "0");
 		return true;
 	}
 
@@ -3408,7 +3452,7 @@
 
 	function loadCoins() {
 		try {
-			var v = parseInt(localStorage.getItem("dotollie-coins"), 10);
+			var v = parseInt(lsGet("dotollie-coins"), 10);
 			coins = (isFinite(v) && v > 0) ? v : 0;
 		} catch (e) { coins = 0; }
 		return coins;
@@ -3419,14 +3463,15 @@
 		//   ★★テストモードは**お金を持って始まります**（1T）。
 		//     ★それを覚えてしまうと、★★★**次にふつうに始めたとき 1T のまま**になります
 		//     （★実際にそうなって、テストが捕まえました）。
-		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです
-		if (testMode) return coins;
-		try { localStorage.setItem("dotollie-coins", String(coins)); } catch (e) { /* 保存できなくても遊べる */ }
+		//   ★★★テストで**本物の記録を汚さない**のが、この作品の決まりです。
+		//   ★★★★ 2026-09-21(6): `lsSet` がテスト中は心の中へ書く
+		lsSet("dotollie-coins", String(coins));
 		return coins;
 	}
 
 	function addCoins(n) {
 		coins += n;
+		touchSave();          // ★★旅の記録のほうも、このあとまとめて書く（2026-09-21(6)）
 		return saveCoins();
 	}
 
@@ -3446,13 +3491,13 @@
 	function boostDeadline(n) {
 		var key=slotKey("dotollie-boost-v1",n);
 		if(Object.prototype.hasOwnProperty.call(boostMemory,key))return boostMemory[key];
-		try { var value=Number(localStorage.getItem(key));return boostMemory[key]=Number.isFinite(value)&&value>0?value:0; }
+		try { var value=Number(lsGet(key));return boostMemory[key]=Number.isFinite(value)&&value>0?value:0; }
 		catch(e){return boostMemory[key]||0;}
 	}
 	function setBoostDeadline(value) {
 		if(testMode && value>0)return;
 		var key=slotKey("dotollie-boost-v1");boostMemory[key]=value;
-		try{localStorage.setItem(key,String(value));}catch(e){/* Keep this session playable without storage. */}
+		lsSet(key,String(value));
 	}
 	function boostView(n) {
 		var end=(testMode && n===undefined)?0:boostDeadline(n),left=end-Date.now();
@@ -3467,28 +3512,29 @@
 		"hits", "picksGot", "campSeen", "lastMark", "phase", "phaseMs", "speedMs", "air", "airJumps", "djBase", "trick",
 		"idle", "idleMs", "nextPush", "cones", "picks", "nextCone", "nextEnemy", "nextBird", "nextRail", "nextPick", "nextAosura",
 		"grind", "grindEndWx", "grindCoin", "grindPaid", "grindDots", "slowMs", "live", "recoverProgress"];
+	//   ★★★★★ 2026-09-21(6): **キャンプからでも保存できます**。
+	//     ★前は一時停止メニューからしか呼べず、
+	//     ★★**キャンプで遊んだ分はまるごと保存できませんでした**。
+	//     ★キャンプの中にいるときは `campPhase` も一緒に保存します（★戻るとキャンプ）
 	function saveRun() {
-		if (!st || testMode || st.phase === "over" || st.stamina <= 0) return false;
+		if (!st || st.phase === "over" || st.stamina <= 0) return false;
 		var data = { v: 1, seed: WD.getSeed(), m: meters(), coins: coins, upgLv: upgLv,
 			unlocked: unlocked, bag: bag, buys: buys, items: items, st: {} };
 		SAVE_ST.forEach(function (k) { data.st[k] = st[k]; });
 		data.grindIndex = st.cones.indexOf(st.grindRail);
-		try { localStorage.setItem(saveKey(), JSON.stringify(data)); return true; } catch (e) { return false; }
+		// ★★キャンプにいたなら、戻ったときもキャンプ（★`mine` / `fish` / `trip` は外に出してから）
+		data.camp = (st.campPhase === "in" || st.campPhase === "mine" || st.campPhase === "fish" || st.campPhase === "trip") ? 1 : 0;
+		return lsSet(saveKey(), JSON.stringify(data));
 	}
 	function peekSave(n) {
 		try {
-			var o = JSON.parse(localStorage.getItem(saveKey(n)));
+			var o = JSON.parse(lsGet(saveKey(n)));
 			return (o && o.v === 1 && Number.isFinite(o.seed) && o.st && Number.isFinite(o.st.dist) && o.st.dist>=0 &&
 				Number.isFinite(o.st.stamina) && o.st.stamina>0 && Number.isFinite(o.coins) && o.coins>=0 &&
 				o.upgLv && typeof o.upgLv === "object") ? o : null;
 		} catch (e) { return null; }
 	}
-	function deleteSave() {
-		try {
-			if (localStorage.removeItem) localStorage.removeItem(saveKey());
-			else localStorage.setItem(saveKey(), "null");
-		} catch (e) { /* 消せなくても遊べる */ }
-	}
+	function deleteSave() { lsDel(saveKey()); }
 	function applySave(o) {
 		coins = Number(o.coins) || 0;
 		upgLv = o.upgLv || {}; bag = o.bag || {}; buys = o.buys || {}; items = o.items || {};
@@ -3630,7 +3676,7 @@
 			//     "" / "ask" / "in" / "bag"（リュックに近づいた）/ "box"（中身）/
 			//     "sleep"（出ますか）/ "fade"（眠りにつく暗転）
 			campPhase: "", trip: null,
-			lastMark: !testMode && PR ? PR.snapshot().lastDistance : 0, moment: "", hpGrowMs: 0,
+			lastMark: PR ? PR.snapshot().lastDistance : 0, moment: "", hpGrowMs: 0,
 			fishing: null, fishBtn: "", // 釣果はこのランだけ。再訪時は保持。
 			campBagMs: 0,          // ★リュックに近づいてからの時間（★通りすがりよけ）
 			// ★★★★★いま指で押しているボタン（2026-09-04）。"" / "yes" / "no"
@@ -3646,6 +3692,8 @@
 			campDir: CAMP_DIR0,    // ★いま向いているほう（★止まっても覚えている）
 			campWalkMs: 0,         // ★★歩いた時間（★コマを送るための時計）
 			campExitMs: 0,         // ★出口に足を入れてからの時間（★誤って出ないための「間」）
+			saveBtn: "", saveOkMs: 0,   // ★★★★★キャンプの SAVE 看板（2026-09-21(6)）
+			distCommitted: 0,      // ★★総距離にもう繰り入れたところ（★二重に数えない）
 			// ★★★★★キャンプを出るときの「間」（2026-09-04(4) 島さんの指定）
 			campFadeMs: 0,         // ★暗くなっていく途中（ミリ秒）
 			campDarkMs: 0,         // ★★まっ暗のまま待っている時間（2026-09-04(6)）
@@ -4350,7 +4398,7 @@
 	function learnJourneyAction(id, label) {
 		if (unlocked[id]) return;
 		unlocked[id] = true; st.moment = label;
-		if (!testMode && PR) PR.learn(id);
+		if (PR) PR.learn(id);
 		syncShopUnlocks(true);
 		addPop(label, "gain");
 		var notice = st.pops[st.pops.length - 1];
@@ -5497,7 +5545,7 @@
 		if (!st.giftRang && giftX2()) {
 			st.giftRang = true; st.moment = "DOUBLE JUMP LEARNED";
 			st.dj = true;
-			if (!testMode && PR) PR.learn("doubleJump");
+			if (PR) PR.learn("doubleJump");
 			giftSound();
 		}
 	}
@@ -5511,7 +5559,7 @@
 
 	// ★★★授かる場面を終えて、走り出す（★ここから二段ジャンプ）
 	function giftDone() {
-		if (!testMode && PR) PR.learn("doubleJump");
+		if (PR) PR.learn("doubleJump");
 		st.dj = true;              // ★★念のため（★音より先に押されても必ず渡す）
 		st.giftMs = 0;
 		// ★★★もう一度 READY / GO を出してから走り出す（2026-08-23 島さんの指定）
@@ -5678,7 +5726,7 @@
 		st.phaseMs = 0;
 		st.reached = meters();
 		st.newBest = updateBest(st.reached);
-		if (!testMode && PR) PR.finish(st.reached);
+		if (PR) PR.finish(st.reached);
 		if (!testMode) deleteSave();          // ★★★★★死んだらセーブも消える（2026-09-13）
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
 		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
@@ -5801,7 +5849,7 @@
 		UP.UPGRADES.concat(UP.ITEMS || [],UP.UNLOCKS || [],[{id:"prestige"}]).forEach(function(u){
 			if (!openedPanels[u.id] && shopConditionMet(u.id)) { openedPanels[u.id]=true; added.push(u.id); }
 		});
-		if (added.length && !testMode && PR) PR.unlockPanels(added);
+		if (added.length && PR) PR.unlockPanels(added);
 		st.newPanels=st.newPanels || {}; st.panelFx=st.panelFx || {};
 		if (announce) added.forEach(function(id){if(id!=="coin" && id!=="prestige")st.newPanels[id]=true;});
 		if (announce && added.some(function(id){return id!=="coin" && id!=="prestige";})) prestigeReadySound();
@@ -6052,7 +6100,7 @@
 		} else {
 			coins -= r.cost;
 			unlocked[r.id] = true;
-			if (!testMode && PR) PR.learn(r.id);
+			if (PR) PR.learn(r.id);
 		}
 		saveCoins();
 		saveUpg();
@@ -6226,13 +6274,13 @@
 	function syncFishing() {
 		var f = st.fishing, discovered = [];
 		f.pool.forEach(function (o) { if (o.alive && !f.seen[o.type]) { f.seen[o.type] = true; discovered.push(o.type); } });
-		if (!testMode && PR && discovered.length) PR.observeFish(discovered);
+		if (PR && discovered.length) PR.observeFish(discovered);
 		// ★★★★★釣り場の音（2026-09-15 島さんが選んだ）。★自然の出来事は js/fishing-sound.js、知らせは電子音
 		f.events.splice(0).forEach(function (e) {
 			if (e.type === 'cast' || e.type === 'water' || e.type === 'hit') fishSound(e);
 			else if (e.type === 'miss') sound(165,.08);
 			else if (e.type === 'catch') {
-				if (!testMode && PR) { PR.recordFish(e.data); f.records = PR.snapshot().fish; }
+				if (PR) { PR.recordFish(e.data); f.records = PR.snapshot().fish; }
 				fishSound(e);   // ★水から出る水音（★知らせの電子音は下のまま）
 				melody(e.data.rare || e.data.giant || e.data.cm >= 35 ? [[660,.05,0],[880,.05,85],[1320,.09,170]] : [[660,.04,0],[880,.06,80]]);
 			}
@@ -6258,12 +6306,13 @@
 		if (!global.DotFishing || !st || st.campPhase !== "in" || st.shopOpen) return;
 		if (!st.fishing) st.fishing = global.DotFishing.create(WD.getSeed() ^ Date.now());
 		st.campVX = 0; st.campVY = 0;
-		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = "";
-		st.fishing.records = !testMode && PR ? PR.snapshot().fish : {};
-		st.fishing.seen = !testMode && PR ? PR.snapshot().fishSeen : {};
+		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = ""; st.saveBtn = ""; st.saveOkMs = 0;
+		st.fishing.records = PR ? PR.snapshot().fish : {};
+		st.fishing.seen = PR ? PR.snapshot().fishSeen : {};
 		var opt = {}; try { opt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
 		st.fishing.options = { reduced: !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches), shake: opt.shake !== 0, flash: opt.flash !== 0 };
 		st.campPhase = "fish";
+		saveGame("enter-fishing");     // ★★★場所を移るときは必ず書く（2026-09-21(6)）
 		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣り場の音と二重にしない）
 		if (soundOn && global.DotFishSound) global.DotFishSound.wake();   // ★触った瞬間に音を起こす（iPhone）
 		cancelFishingHold(); syncFishing();
@@ -6271,10 +6320,10 @@
 	function enterMining() {
 		if (!global.DotMining || !st || st.campPhase !== "in" || st.shopOpen) return;
 		// ★素材・ツルハシ・その地点の鉱石は旅の記録から戻す（★テストモードでは読みも書きもしない）
-		var saved = !testMode && PR && PR.snapshot ? PR.snapshot().mining : null;
+		var saved = PR && PR.snapshot ? PR.snapshot().mining : null;
 		st.mining = global.DotMining.create((WD.getSeed() ^ Date.now()) >>> 0, saved || null);
 		st.mineSavedAt = Date.now(); st.mineDown = null; st.mineBtn = ""; st.fishBtn = "";
-		st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0;
+		st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0; st.saveBtn = ""; st.saveOkMs = 0;
 		if (global.DotCampSound) global.DotCampSound.stop();   // ★キャンプの音は消す（★釣りと同じ）
 		if (soundOn && global.DotMineSound) global.DotMineSound.wake();
 		// ★★★すぐには切り替えず、「地上 → 地下」を短い絵と音で見せる（2026-09-21 島さんの指定）
@@ -6310,8 +6359,62 @@
 		}
 	}
 	function saveMining() {
-		if (!st || !st.mining || testMode || !PR || !PR.saveMining) return;
+		// ★★★★★ 2026-09-21(6): **`testMode` で止めるのをやめました**。
+		//   ★ここで止めていたせいで、★★**テスト中は素材が1つも覚えられていませんでした**
+		//   （★いまは `DotProgression` が「記憶だけモード」で受け止める ＝ 外には漏れない）
+		if (!st || !st.mining || !PR || !PR.saveMining) return;
 		PR.saveMining(global.DotMining.saveData(st.mining)); st.mining.dirty = false; st.mineSavedAt = Date.now();
+	}
+	// ============================================================
+	// ★★★★★保存の入口はこの1つ（2026-09-21(6) 島さんの指定）
+	// ============================================================
+	//
+	//   ★★**ここを呼べば、その瞬間のものがすべて書き出されます**。
+	//     ★採掘の素材・ツルハシ ／ ★釣果（★釣った瞬間にも書いています）／
+	//     ★財布・レベル・持ち物 ／ ★★スケボの総距離。
+	//
+	//   ★★★**AIへ: 保存をここ以外にもう一箇所作らないこと**。
+	//     ★二重になった瞬間、★★「片方だけ直す」事故が作れるようになります
+	var saveDirty = false, lastSaveAt = 0;
+	var SAVE_DEBOUNCE = 1500;     // ★★続けざまに書かない（★最短 1.5 秒間隔）
+	var lastSaveOK = 0, lastSaveReason = "";
+	// ★何か変わったときに呼ぶ（★すぐには書かない。★★次の間隔でまとめて書く）
+	function touchSave() { saveDirty = true; }
+	// ★★走った分を総距離へ繰り入れる（★二重に数えないため、「前回より先」だけ）
+	function commitDistance() {
+		if (!st || !PR || !PR.addDistance) return 0;
+		var now = meters(), from = Number.isFinite(st.distCommitted) ? st.distCommitted : now;
+		var add = Math.floor(now - from);
+		if (add > 0) { st.distCommitted = now; return PR.addDistance(add); }
+		st.distCommitted = Math.max(from, now);
+		return 0;
+	}
+	function saveGame(reason) {
+		if (!st) return false;
+		saveMining();                 // ★採掘（★中身の確かめは DotMining.saveData → cleanMining）
+		saveCoins(); saveUpg(); saveItems();
+		commitDistance();
+		if (PR && PR.flush) PR.flush();
+		saveDirty = false; lastSaveAt = Date.now(); lastSaveOK = lastSaveAt; lastSaveReason = reason || "";
+		return true;
+	}
+	// ★★★★★アプリを閉じる・裏に回る瞬間にも書く（2026-09-21(6)）
+	//   ★iPhone では、ホームボタンを押した瞬間に★★**そのまま死んだことになる**ことがある。
+	//   ★★`visibilitychange`（裏に回った）と `pagehide`（閉じる）の両方で書く
+	var leaveBound = false;
+	function bindLeaveSave() {
+		if (leaveBound || !global.addEventListener) return;
+		leaveBound = true;
+		global.addEventListener("visibilitychange", function () {
+			if (global.document && global.document.visibilityState === "hidden") saveGame("hidden");
+		});
+		global.addEventListener("pagehide", function () { saveGame("pagehide"); });
+	}
+	// ★★ちょっと間を置いて、まとめて書く（★毎フレーム書かない）
+	function autoSaveTick() {
+		if (!saveDirty || !st) return;
+		if (Date.now() - lastSaveAt < SAVE_DEBOUNCE) return;
+		saveGame("auto");
 	}
 	function leaveMining() {
 		if (!st || st.campPhase !== "mine") return false;
@@ -6323,6 +6426,7 @@
 		st.campVX = 0; st.campVY = 0;
 		// ★★★地下 → 地上（★つなぎのあいだ、採掘の状態はそのまま残す ＝ 壊さない）
 		if (!startTrip("up")) st.campPhase = "in";
+		saveGame("leave-mining");     // ★★★場所を移るときは必ず書く（2026-09-21(6)）
 		return true;
 	}
 	// ★採掘の出来事 → 音。★素材が増えたら、ときどき保存（★2秒に1回まで。出るときは必ず保存）
@@ -6330,11 +6434,13 @@
 		var m = st.mining; if (!m) return;
 		var upNow = false;
 		m.events.splice(0).forEach(function (e) { if (soundOn && global.DotMineSound) global.DotMineSound.event(e); if (/^upgrade_/.test(e.type)) upNow = true; });
+		if (m.dirty) touchSave();
 		if (m.dirty && (upNow || Date.now() - (st.mineSavedAt || 0) > 2000)) saveMining();   // ★作ったときは、すぐ保存
 	}
 	function leaveFishing() {
 		if (!st || st.campPhase !== "fish") return false;
 		global.DotFishing.leave(st.fishing);
+		saveGame("leave-fishing");     // ★★★場所を移るときは必ず書く（2026-09-21(6)）
 		if (global.DotFishSound) global.DotFishSound.stop();
 		st.campPhase = "in"; st.paused = false; st.fishBtn = "";
 		st.campVX = 0; st.campVY = 0;
@@ -6597,6 +6703,7 @@
 			return;
 		}
 		if (st.campPhase !== "in") return;
+		if (st.saveOkMs > 0) st.saveOkMs = Math.max(0, st.saveOkMs - dt * 1000);   // ★SAVED の消えこみ
 		if (lakesideCamp()) {
 			st.campVX = 0; st.campVY = 0; st.campBagMs = 0; st.campExitMs = 0;
 			if (!st.campLakeside) st.campLakeside = global.DotCampLakeside.create(WD.getSeed());
@@ -9905,6 +10012,7 @@
 		if (!sceneOnly && st.campPhase === "in" && global.DotFishing) {
 			if (lakesideCamp()) global.DotCampLakeside.button(ctx, st.fishBtn === "open");
 			if (mineEntry()) global.DotCampLakeside.mineButton(ctx, st.mineBtn === "open");
+			if (saveEntry()) global.DotCampLakeside.saveButton(ctx, st.saveBtn === "open", (st.saveOkMs || 0) > 0);
 			else global.DotFishing.button(ctx, campFishEntry(), "FISH", st.fishBtn === "open");
 		}
 		// ★★お店の下に敷くときは、ここまで（★問いかけも一覧も暗転も出さない）
@@ -10166,6 +10274,7 @@
 		if (st.shopOpen && global.DotShop && global.DotShop.isOpen()) return;
 		update(dt);
 		draw();
+		autoSaveTick();   // ★★★変わっていたら、まとめて書く（2026-09-21(6)）
 	}
 
 	function frame() {
@@ -10213,6 +10322,13 @@
 		padIcons: { sound: "BTN_SOUND_ON" },
 
 		start: function (c, w, h, opts) {
+			// ★★★★★**いちばん先にテストモードを決める**（2026-09-21(6)）。
+			//   ★これを `loadBest()` や `PR.load()` の**あと**に置くと、
+			//   ★★**読み込みだけが本物の localStorage を見る**ことになり、
+			//   ★★★「書く先」と「読む先」がずれて事故になります。
+			testMode = !!(opts && opts.testMode);
+			// ★★★★★テスト中は旅の記録も「記憶だけ」へ（★localStorage には書かない）
+			if (PR && PR.setMemoryOnly) PR.setMemoryOnly(testMode);
 			ctx = c; W = w; H = h;
 			beep = opts && opts.beep;
 			refreshPad = opts && opts.refreshPad;
@@ -10231,7 +10347,7 @@
 			// ★★★テストモード（2026-08-22 島さんの指定）。★**`reset()` より前に決めること**
 			//   ★`startM` … 何メートルから走り出すか / `testMode` … BEST を更新しない
 			startAtM = (opts && opts.startM) || 0;
-			testMode = !!(opts && opts.testMode);
+			// ★`testMode` は start() の冒頭で決め済み（★読み込みより先に決める必要がある）
 			// ★★★★★天気を見るためのテストモード（2026-09-06 島さんの指定）
 			startAtRain = (opts && opts.startRain) || 0;
 			startAtDay = (opts && typeof opts.startDayMs === "number")
@@ -10281,6 +10397,14 @@
 			// ★シェルが SEED ID 画面で見せた種を、そのまま受け取る
 			reset(resumeData ? resumeData.seed : (opts && typeof opts.seed === "number" ? opts.seed : undefined));
 			if (resumeData) applySave(resumeData);   // ★★同じ世界の、保存した場所・体力・財布から
+			// ★★★総距離の基準点（★ここから先に進んだ分だけを足す ＝ 二重に数えない）
+			st.distCommitted = meters();
+			saveDirty = false; lastSaveAt = Date.now();
+			// ★★★★★**キャンプで SAVE したなら、キャンプから再開**（2026-09-21(6)）。
+			//   ★判断は2つのどちらか: ★途中セーブの `camp` 印 ／ ★旅の記録の `resumeMode`
+			if (resumeData && (resumeData.camp || (PR && PR.snapshot && PR.snapshot().resumeMode === "camp"))) {
+				st.paused = false; campEnter();
+			}
 			syncShopUnlocks(false);
 			// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）
 			//   ★ふつうの道（キャンプに入る → FISH）を**そのまま2つ呼ぶだけ**（★近道の仕組みは作らない）。
@@ -10288,18 +10412,24 @@
 			if (testMode && startAtFish && global.DotFishing) { campEnter(); enterFishing(); }
 			// ★READY の音。★enter から始まるときは、enter が明けた瞬間に鳴る（updatePhase）
 			if (st.phase === "ready") sound(660, 0.06);
+			bindLeaveSave();   // ★★★アプリを閉じる・隠れる瞬間にも書く（2026-09-21(6)）
 			startLoop();
 			tick();          // 開始直後に1枚描いて、すぐ画面を切り替える
 		},
 
-		stop: function () { stopLoop(); if (global.DotShop) global.DotShop.close(); },
+		stop: function () {
+			stopLoop(); if (global.DotShop) global.DotShop.close();
+			// ★★★★★テストを抜けたら、保存をふつうに戻す（2026-09-21(6)）。
+			//   ★戻さないと、★★メニューに戻ったあとも「記憶だけ」のままになります
+			if (PR && PR.setMemoryOnly) PR.setMemoryOnly(false);
+		},
 
 		// ★★★扉ボタン（もどる）を押したとき（2026-08-16。★島さんの指定）
 		//   シェルはこれを呼んでからメニューへ戻る。
 		//   ★★**テストのため、ここでぜんぶ最初に戻す**（→ `resetAll` の説明）
 		//   ★要らなくなったら `RESET_ON_EXIT = 0` に。扉はただ「もどる」だけになる
 		onExit: function () {
-			if (st && st.phase !== "over" && !testMode && PR) PR.finish(meters());
+			if (st && st.phase !== "over" && PR) PR.finish(meters());
 			if (st) st.journeyEnded = true;
 			resetStatus();
 			return true;
@@ -10827,6 +10957,15 @@
 			catch (e) { return 0; }
 		},
 		_saveRun: saveRun,
+		// ★★★★★保存の確かめ用（2026-09-21(6)）。★test/save.test.js とブラウザでの確かめに使う
+		_saveGame: function (r) { return saveGame(r || "debug"); },
+		_campSaveNow: function () { return campSaveNow(); },
+		_saveEntry: saveEntry,
+		_touchSave: function () { touchSave(); },
+		_lsGet: lsGet,
+		_coins: function () { return coins; },
+		_addCoins: function (n) { return addCoins(n); },
+		_meters: function () { return meters(); },
 		_pauseRects: pauseBtnRects,
 		_resetOnExit: function () { return RESET_ON_EXIT; },
 		_resetStatus: resetStatus,
@@ -10913,6 +11052,12 @@
 				else { global.DotMining.release(st.mining); st.mineDown = null; }
 				return true;
 			}
+			var sEntry = saveEntry();
+			if (sEntry && st.campPhase === "in" && global.DotFishing) {
+				var onSave = global.DotFishing.contains(sEntry, lx, ly);
+				if (down) { st.saveBtn = onSave ? "open" : ""; if (onSave) return true; }
+				else if (st.saveBtn) { var doSave = onSave && st.saveBtn === "open" && !cancelled; st.saveBtn = ""; if (doSave) campSaveNow(); return true; }
+			}
 			var mEntry = mineEntry();
 			if (mEntry && st.campPhase === "in" && global.DotFishing) {
 				var onMine = global.DotFishing.contains(mEntry, lx, ly);
@@ -10983,6 +11128,7 @@
 				}
 				return true;
 			}
+			if (st && st.saveBtn && saveEntry() && global.DotFishing && !global.DotFishing.contains(saveEntry(), x, y)) { st.saveBtn = "cancel"; return true; }
 			if (st && st.mineBtn && mineEntry() && global.DotFishing && !global.DotFishing.contains(mineEntry(), x, y)) { st.mineBtn = "cancel"; return true; }
 			if (st && st.campPhase === 'fish' && !st.shopOpen) {
 				if (!st.fishOutside && (x < 0 || y < 0 || x >= W || y >= H)) cancelFishingHold();

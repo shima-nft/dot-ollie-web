@@ -139,10 +139,11 @@ function h2(a, b) { return hash(Math.imul(a | 0, 374761393) ^ Math.imul((b | 0) 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function event(s, type, data) { if (s.events.length < 24) s.events.push({ type: type, data: data || {} }); }
 // ★どの鉱石が出るかは HEAD の段で変わる（★古い鉱石も残る／次の鉱石が 5% 混ざる）
-function pickOre(s) { return B.pickOreId(function () { return rng(s); }, s.head); }
+// ★★どの鉱石が出るかは **進み具合**（headMax）。★装備を戻しても、世界は巻き戻らない
+function pickOre(s) { return B.pickOreId(function () { return rng(s); }, headProg(s)); }
 // ★いまの HEAD の「ひとつ上」の鉱石（★未来予告に使う）
 function nextLockedOre(s) {
-	for (var i = 0; i < ORES.length; i++) if (ORES[i].req === s.head + 1) return ORES[i].id;
+	for (var i = 0; i < ORES.length; i++) if (ORES[i].req === headProg(s) + 1) return ORES[i].id;
 	return ORES[ORES.length - 1].id;
 }
 function newOre(s, id) { var d = oreDef(id || pickOre(s)); return { type: d.id, hp: d.hp, max: d.hp, seed: Math.floor(rng(s) * 1e9) >>> 0, met: false }; }
@@ -171,7 +172,7 @@ function guardOre(s, o, slot) {
 	var ores = s.site ? s.site.ores : [], n = ores.length, locked = 0;
 	for (var i = 0; i < n; i++) { if (i === slot) continue; var q = ores[i]; if (q && !B.canBreak(q.type, s.head)) locked++; }
 	if (B.canBreak(o.type, s.head)) return o;
-	return locked + 1 > B.maxLocked(s.head, n) ? newOre(s, pickBreakableOre(s)) : o;
+	return locked + 1 > B.maxLocked(headProg(s), n) ? newOre(s, pickBreakableOre(s)) : o;
 }
 // ★かたまり全体を決まりに合わせる（★生まれたとき・読み込んだときだけ呼ぶ）
 //   need = 壊せる鉱石の下限。★足りない分だけ差し替え、ほかの LOCKED はそのまま残す
@@ -191,18 +192,23 @@ function fixGroup(s, ores, need) {
 function create(seed, saved) {
 	var s = { rng: (seed >>> 0) || 1, clock: 0, phase: "mine", held: false, swinging: false, swingT: 0, cycleMs: 0,
 		stop: 0, shake: 0, shakeAmp: 0, blocked: false, events: [], sfx: [],
-		mats: { iron: 0, carbon: 0, quartz: 0, crystal: 0 }, head: 0, handle: 0,
+		mats: { iron: 0, carbon: 0, quartz: 0, crystal: 0 }, head: 0, handle: 0, headMax: 0, handleMax: 0, equipSel: -1,   // ★★head / handle = いま装備しているもの／★headMax / handleMax = これまでに作ったいちばん上
 		site: null, camX: 0, slideFrom: 0, slideT: 1, chunks: [], bits: [], dust: [], sparks: [], pickups: [],
 		nextIn: 0, reveal: 1, craftKind: null, craftSel: -1, menuT: 0, craftT: 0, pulse: 0, flash: 0, dirty: false, pressX: null, swiped: false,
 		broken: 0, pop: {}, chain: {}, hudBits: [], iconDown: false, canUp: false, newPop: 0, pity: {}, seenOre: {}, discover: 0, hud: null, hudKey: "", lastOre: null, familiar: null,
 		seenMat: {}, matOrder: [], matFx: {},   // ★★見つけた素材（★見つけた順に並ぶ）／見つけた直後の光
-		sparkQ: [], spark: null, newHold: 0,   // ★★届いたあとの「キラッ」の待ち行列と、いま光っているもの／NEW を少しだけ後ろへ
+		sparkQ: [], spark: null, newHold: 0, pendingShow: null, show: null,   // ★★強化したあとの「予告」（★次に採掘画面へ戻ったとき、一度だけ）   // ★★届いたあとの「キラッ」の待ち行列と、いま光っているもの／NEW を少しだけ後ろへ
 		canUpHead: false, canUpHandle: false, newPopHead: 0, newPopHandle: 0,   // ★部位ごとの NEW
 		headMade: 0, handleMade: 0, scroll: 0, scrollV: 0, snap: null, snapPop: 0, dragClock: 0, tapAt: null, craftDrag: false, side: 0, sideAnim: null, sideOther: null };   // chain = 続けて届いた数（★音が少しずつ高く）／hudBits = 届いたときの粒   // broken = これまでに砕いた数（★はじめの体験に使う）／pop = 所持数が一瞬ふくらむ残り時間
 	if (saved) {
 		MAT_IDS.forEach(function (k) { var v = saved.mats && saved.mats[k]; if (Number.isFinite(v) && v >= 0) s.mats[k] = Math.floor(v); });
+		// ★★古いセーブには headMax が無いので、「装備 ＝ 最高」として移す（★装備状態は変えない）
 		if (saved.head >= 0 && saved.head < HEADS.length) s.head = saved.head | 0;
 		if (saved.handle >= 0 && saved.handle < HANDLES.length) s.handle = saved.handle | 0;
+		s.headMax = Number.isFinite(saved.headMax) && saved.headMax >= 0 && saved.headMax < HEADS.length ? saved.headMax | 0 : s.head;
+		s.handleMax = Number.isFinite(saved.handleMax) && saved.handleMax >= 0 && saved.handleMax < HANDLES.length ? saved.handleMax | 0 : s.handle;
+		if (s.head > s.headMax) s.headMax = s.head;                    // ★こわれた値でも、つじつまが合うように
+		if (s.handle > s.handleMax) s.handleMax = s.handle;
 		if (saved.broken >= 0) s.broken = Math.floor(saved.broken);
 		if (saved.seenOre && typeof saved.seenOre === "object") ORES.forEach(function (o) { if (saved.seenOre[o.id]) s.seenOre[o.id] = 1; });
 		// ★★見つけた素材（2026-09-20(9)）: 順番 → 一覧 → ★古い保存には無いので「1つでも持っていれば発見済み」
@@ -211,7 +217,7 @@ function create(seed, saved) {
 		if (saved.seenMat && typeof saved.seenMat === "object") MAT_IDS.forEach(function (k) { if (saved.seenMat[k]) { reserveMat(s, k); s.seenMat[k] = 1; } });
 		MAT_IDS.forEach(function (k) { if (s.mats[k] > 0) { reserveMat(s, k); s.seenMat[k] = 1; } });
 		// ★作った段の記録（★古い保存には無いので、いまの段までは「作った」とみなす）
-		["head", "handle"].forEach(function (k) { var v = saved[madeKey(k)], cur = k === "head" ? s.head : s.handle;
+		["head", "handle"].forEach(function (k) { var v = saved[madeKey(k)], cur = tierMax(s, k);
 			s[madeKey(k)] = Number.isFinite(v) && v >= 0 ? Math.floor(v) : (cur ? (1 << (cur + 1)) - 1 : 0); });
 		if (saved.site && Array.isArray(saved.site.ores) && saved.site.ores.length >= SITE_MIN && saved.site.ores.length <= SITE_MAX) {
 			s.site = { seed: saved.site.seed >>> 0, at: clamp(saved.site.at | 0, 0, saved.site.ores.length - 1), ores: saved.site.ores.map(function (o) {
@@ -226,9 +232,9 @@ function create(seed, saved) {
 		for (var i = 0; i < n; i++) ores.push(newOre(s));
 		s.site = { seed: Math.floor(rng(s) * 1e9) >>> 0, at: 0, ores: ores };
 		// ★いまの HEAD では壊せない鉱石を1つ混ぜる（★「カァン！」→ 強化 → 戻って「ピシッ」）
-		if (B.maxLocked(s.head, n) >= 1 && !ores.some(function (o) { return !B.canBreak(o.type, s.head); })) ores[n - 1] = newOre(s, nextLockedOre(s));
+		if (B.maxLocked(headProg(s), n) >= 1 && !ores.some(function (o) { return !B.canBreak(o.type, s.head); })) ores[n - 1] = newOre(s, nextLockedOre(s));
 		// ★★壊せる鉱石が足りなければ差し替える（★ソフトロックを生成の決まりとして禁止）
-		fixGroup(s, ores, B.minBreakable(s.head, n));
+		fixGroup(s, ores, B.minBreakable(headProg(s), n));
 		if (!B.canBreak(ores[0].type, s.head)) {   // ★最初に見る鉱石は、必ず壊せるものにする
 			for (var j = 1; j < n; j++) if (B.canBreak(ores[j].type, s.head)) { var t = ores[0]; ores[0] = ores[j]; ores[j] = t; break; }
 		}
@@ -240,7 +246,7 @@ function create(seed, saved) {
 }
 // ★保存する分（★キャンプ側のクラフト・装備からも読めるように、素材はそのままの名前で）
 function saveData(s) {
-	return { mats: JSON.parse(JSON.stringify(s.mats)), head: s.head, handle: s.handle, broken: s.broken, headMade: s.headMade, handleMade: s.handleMade, seenOre: JSON.parse(JSON.stringify(s.seenOre)),
+	return { mats: JSON.parse(JSON.stringify(s.mats)), head: s.head, handle: s.handle, headMax: s.headMax, handleMax: s.handleMax, broken: s.broken, headMade: s.headMade, handleMade: s.handleMade, seenOre: JSON.parse(JSON.stringify(s.seenOre)),
 		seenMat: JSON.parse(JSON.stringify(s.seenMat)), matOrder: s.matOrder.slice(),   // ★見つけた素材と、その順番
 		site: { seed: s.site.seed, at: s.site.at, ores: s.site.ores.map(function (o, i) {
 			// ★砕けた直後（次の鉱石が出る前）の空きは、ふつうの岩として残す（★サイコロは振らない）
@@ -260,6 +266,7 @@ function press(s, x, y) {
 	if (s.phase === "craft") { s.tapAt = { x: x, y: y }; s.craftDrag = false; return true; }   // ★決めるのは離したとき（★上下になぞると取り消し）
 	// ★★押した瞬間は「沈む」だけ。★開くのは指を離したとき（2026-09-20(10)）
 	if (x != null && y != null && inBox(CRAFT_ICON.hit, x, y)) { s.iconDown = true; s.held = false; return true; }
+	if (s.show) hurryShow(s);   // ★★予告の最中に押されたら、のこりを縮めてすぐ採掘へ
 	s.held = true; s.blocked = false; s.pressX = x; s.swiped = false;
 	if (!s.swinging) startSwing(s);
 	return true;
@@ -293,8 +300,17 @@ function startSwing(s) { s.swinging = true; s.swingT = 0; s.cycleMs = cycle(s); 
 //   ★NEXT 1 = すぐ上の段（安い・早い）／NEXT 2 = 1個飛ばし（重い・大きく強くなる）。★NEXT 3 以降は見せない
 //   ★飛び級すると、飛ばした段は作らなくてよい（★そのまま2段上へ）
 function tiers(kind) { return kind === "head" ? HEADS : HANDLES; }
+// ============================================================
+// ★★★★「いま使っている装備」と「どこまで進んだか」は別もの（2026-09-21(5) 島さんの指定）
+// ============================================================
+//   tierNow … いま装備しているもの（★過去の装備へ戻せる）
+//   tierMax … これまでに作った いちばん上（★★戻しても、ここは下がらない）
+//   ★★これから作れるもの・NEXT・NEW・??? は **ぜんぶ tierMax が基準**
+//   ★★★世界（どの鉱石が出るか）も tierMax。★壊せるかどうかだけが tierNow
 function tierNow(s, kind) { return kind === "head" ? s.head : s.handle; }
-function tierAt(s, kind, step) { return tiers(kind)[tierNow(s, kind) + step] || null; }
+function tierMax(s, kind) { return kind === "head" ? s.headMax : s.handleMax; }
+function headProg(s) { return s.headMax; }   // ★世界の進み具合（★装備を戻しても巻き戻らない）
+function tierAt(s, kind, step) { return tiers(kind)[tierMax(s, kind) + step] || null; }
 // ★その段を作るのに要る材料（★step 2 ＝ 飛び級は SKIP_MUL 倍）
 function costOf(s, kind, step) {
 	var t = tierAt(s, kind, step); if (!t || !t.cost) return null;
@@ -316,15 +332,19 @@ function craft(s, kind, step) {
 	step = step || 1;
 	var cost = costOf(s, kind, step); if (!affordable(s, cost)) { event(s, "cant"); return false; }
 	Object.keys(cost).forEach(function (k) { s.mats[k] -= cost[k]; });
-	if (kind === "head") s.head += step; else s.handle += step;
+	// ★★「いちばん上」を上げて、そのまま装備する（★装備は別に戻せる）
+	if (kind === "head") { s.headMax += step; s.head = s.headMax; } else { s.handleMax += step; s.handle = s.handleMax; }
 	// ★★HANDLE を上げた直後は、直前に掘っていたのと同じ鉱石を数個だけ出す（2026-09-20(7) 島さんの指定）
 	//   ★いきなり硬い新鉱石だと、速くなったのが分からないため
 	if (kind === "handle" && s.lastOre) s.familiar = { type: s.lastOre, n: FAMILIAR_N };
-	markMade(s, kind, tierNow(s, kind));
-	s.scroll = tierNow(s, kind); s.snap = null; s.scrollV = 0;   // ★作ったら、新しい装備がまん中へ   // ★作った段だけ記録（★飛ばした段は残らない ＝ SKIPPED）
-	var name = (kind === "head" ? HEADS[s.head] : HANDLES[s.handle]).name;
+	markMade(s, kind, tierMax(s, kind));
+	s.scroll = tierMax(s, kind); s.snap = null; s.scrollV = 0;   // ★作ったら、新しい装備がまん中へ   // ★作った段だけ記録（★飛ばした段は残らない ＝ SKIPPED）
+	var name = tiers(kind)[tierMax(s, kind)].name;
 	s.dirty = true; s.craftSel = -1; event(s, "upgrade_complete_" + kind, { kind: kind, name: name, step: step });   // ★音: 組み上がった音
 	s.upFx = { kind: kind, name: name, ms: UPGRADE_FX_MS, sparks: [], made: 0 };
+	// ★★採掘画面へ戻ったとき、一度だけ「予告」を出す（★両方そろえたら、まとめて一度）
+	s.pendingShow = s.pendingShow || { head: false, handle: false };
+	s.pendingShow[kind] = true;
 	for (var i = 0; i < 4; i++) { var a = -Math.PI * (.1 + rng(s) * .8); s.upFx.sparks.push({ x: 10, y: 10, vx: Math.cos(a) * (40 + rng(s) * 50) * (i % 2 ? 1 : .6), vy: Math.sin(a) * (40 + rng(s) * 50) }); }
 	return true;
 }
@@ -350,12 +370,38 @@ var LIST = {
 // ★縦の並び（★上から: 過去 → いま → NEXT 1 → NEXT 2 → ???）
 //   kindOf: past（作った ＝ OWNED ／ 飛ばした ＝ SKIPPED）／current ／ next（step 1・2 だけ作れる）／mystery（???）
 function historyRows(s, kind) {
-	var cur = tierNow(s, kind), list = tiers(kind), rows = [], i;
-	for (i = 0; i < cur; i++) rows.push({ i: i, kind: "past", made: owned(s, kind, i) });
-	rows.push({ i: cur, kind: "current" });
-	for (i = 1; i <= 2; i++) if (list[cur + i]) rows.push({ i: cur + i, kind: "next", step: i });
-	if (list[cur + 3]) rows.push({ i: cur + 3, kind: "mystery" });   // ★この先があることだけ見せる
+	// ★★上から: 持っている装備（★EQUIPPED は1つだけ・どこにあってもよい）→ これから2つ → ???
+	var top = tierMax(s, kind), eq = tierNow(s, kind), list = tiers(kind), rows = [], i;
+	for (i = 0; i <= top; i++) rows.push(i === eq ? { i: i, kind: "current" } : { i: i, kind: "past", made: owned(s, kind, i) });
+	for (i = 1; i <= 2; i++) if (list[top + i]) rows.push({ i: top + i, kind: "next", step: i });
+	if (list[top + 3]) rows.push({ i: top + 3, kind: "mystery" });   // ★この先があることだけ見せる
 	return rows;
+}
+// ★★その段に付け替えられるか（★OWNED だけ。★SKIPPED と ??? は不可）
+function canEquip(s, kind, i) {
+	return i >= 0 && i <= tierMax(s, kind) && i !== tierNow(s, kind) && owned(s, kind, i);
+}
+// ★★過去の装備へ付け替える（★進み具合は1つも下がらない）
+function equipTier(s, kind, i) {
+	if (!canEquip(s, kind, i)) return false;
+	if (kind === "head") s.head = i; else s.handle = i;
+	s.dirty = true; s.equipSel = -1; s.craftSel = -1;
+	if (kind === "head") rescueAfterEquip(s);          // ★★弱い HEAD へ戻しても、叩ける鉱石が1つは残る
+	s.pendingShow = s.pendingShow || { head: false, handle: false };
+	s.pendingShow[kind] = true;                        // ★付け替えたあと、一度だけ「予告」（★作った音は鳴らさない）
+	event(s, "equip_tool", { kind: kind, tier: i, name: tiers(kind)[i].name });
+	return true;
+}
+// ★★弱い HEAD へ戻したとき、かたまりが全部壊せなくなったら **1個だけ** 岩に差し替える
+//   ★★差し替えるのは ROCK だけ（★レア鉱石の厳選には使えない）。★ほかの鉱石はそのまま
+//   ★★★かたまり全体は作り直さない（★行ったり来たりしても、引き直しにならない）
+function rescueAfterEquip(s) {
+	if (!s.site || breakableCount(s, s.site.ores) > 0) return false;
+	var at = s.site.at;
+	if (!s.site.ores[at]) at = s.site.ores.findIndex(function (o) { return !!o; });
+	if (at < 0) return false;
+	s.site.ores[at] = newOre(s, ORES[0].id); s.reveal = 0; s.dirty = true;
+	return true;
 }
 // ★★装備の列を描いてよい場所（2026-09-20(7) 島さんの指定）。★上のヘッダーとは別の層
 //   ★カードも文字も星も素材も ??? も、ここから外へは描かない（★横に切り替えている途中の隣のページも）
@@ -441,7 +487,18 @@ function craftTap(s, x, y) {
 		craftBack(s); return;
 	}
 	var hit = craftRows(s).filter(function (r) { return y >= r.y && y < r.y + r.h && x >= r.x && x < r.x + r.w; })[0];
-	if (!hit || hit.row.kind !== "next") { s.craftSel = -1; return; }          // ★過去・いま・??? は押しても何も起きない（★戻したりしない）
+	if (!hit) { s.craftSel = -1; s.equipSel = -1; return; }
+	// ★★持っている過去の装備は、押すと付け替えられる（2026-09-21(5) 島さんの指定）
+	//   ★一度目は「選ぶ」・二度目で付け替え（★誤タップで装備が変わらない）
+	if (hit.row.kind === "past") {
+		s.craftSel = -1;
+		if (!canEquip(s, s.craftKind, hit.row.i)) { s.equipSel = -1; return; }   // ★SKIPPED は付け替えられない
+		if (s.equipSel === hit.row.i) equipTier(s, s.craftKind, hit.row.i);
+		else s.equipSel = hit.row.i;
+		return;
+	}
+	s.equipSel = -1;
+	if (hit.row.kind !== "next") { s.craftSel = -1; return; }                  // ★いま使っているもの・??? は押しても何も起きない
 	var step = hit.row.step;
 	// ★一度目は「選ぶ」・二度目で作る（★押しまちがいで作らない。★問いかけの画面は出さない）
 	if (s.craftSel === step && canMake(s, s.craftKind, step)) craft(s, s.craftKind, step);
@@ -449,7 +506,7 @@ function craftTap(s, x, y) {
 }
 // ★その部位の列をひらく（★いま使っているものがまん中。★はみ出さない範囲に収める）
 function openPart(s, kind) {
-	s.craftKind = kind; s.craftSel = -1; s.craftT = 0; s.snap = null; s.scrollV = 0; s.side = 0; s.sideAnim = null;
+	s.craftKind = kind; s.craftSel = -1; s.equipSel = -1; s.craftT = 0; s.snap = null; s.scrollV = 0; s.side = 0; s.sideAnim = null;
 	s.scroll = clamp(tierNow(s, kind), minScroll(s), maxScroll(s));
 	event(s, "open");
 }
@@ -488,6 +545,7 @@ function updateSide(s, ms) {
 function craftBack(s) {
 	if (s.craftKind) { s.craftKind = null; s.craftSel = -1; s.menuT = 0; s.side = 0; s.sideAnim = null; event(s, "close"); return; }
 	s.phase = "mine"; s.craftSel = -1; event(s, "close");
+	startShow(s);   // ★★強化していたら、ここで一度だけ「予告」
 }
 // ============================================================
 // ■ 進める
@@ -500,6 +558,7 @@ function update(s, dt) {
 	s.discover = Math.max(0, s.discover - ms);
 	MAT_IDS.forEach(function (k) { if (s.matFx[k] > 0) s.matFx[k] = Math.max(0, s.matFx[k] - ms); });   // ★見つけた直後の光
 	updateSpark(s, ms);   // ★★届いたあとの「キラッ」（★採掘とは別に流れる）
+	updateShow(s, ms);    // ★★強化したあとの「予告」
 	// ★「NEW」が出た瞬間だけ、小さくポンと跳ねる（★出っぱなしの間は静かに呼吸）
 	if (s.phase === "craft") { s.menuT = Math.min(CRAFT.openMs, s.menuT + ms); s.craftT = Math.min(CRAFT.dive, s.craftT + ms); updateScroll(s, ms); updateSide(s, ms); }
 	// ★「作れなかった → 作れる」に変わった瞬間だけ、知らせの音（★出ている間は鳴らし続けない）
@@ -607,7 +666,7 @@ function breakOre(s, o, d, head, oneShot) {
 function starterDrops(s) {
 	var have = {};
 	MAT_IDS.forEach(function (k) { have[k] = (s.mats[k] || 0) + s.pickups.filter(function (p) { return p.mat === k; }).length; });
-	return B.starterDrops(s.head, s.handle, have, s.broken);   // ★中身は js/mining-balance.js（★道具と同じ計算）
+	return B.starterDrops(s.headMax, s.handleMax, have, s.broken);   // ★中身は js/mining-balance.js（★道具と同じ計算）
 }
 function chipsAt(s, d, n, burst) {
 	for (var i = 0; i < n; i++) { var a = burst ? rng(s) * Math.PI * 2 : -Math.PI * (.35 + rng(s) * .9), sp = (burst ? 60 : 40) + rng(s) * (burst ? 150 : 70);
@@ -1040,7 +1099,7 @@ function draw(ctx, s, opt) {
 var DEBUG = { on: 0 };
 function etaMs(s, kind) {
 	var cost = costOf(s, kind, 1); if (!cost) return null;
-	var mix = B.ORE_MIX[Math.min(s.head, B.ORE_MIX.length - 1)], tot = 0, rate = {}, per = 0, k;
+	var mix = B.ORE_MIX[Math.min(headProg(s), B.ORE_MIX.length - 1)], tot = 0, rate = {}, per = 0, k;
 	for (k in mix) { if (!B.canBreak(k, s.head)) continue; tot += mix[k]; }
 	for (k in mix) {
 		if (!B.canBreak(k, s.head)) continue;
@@ -1056,7 +1115,7 @@ function etaMs(s, kind) {
 function drawDebug(ctx, s, box) {
 	var F = global.DotFont; if (!F) return;
 	var o = ore(s), d = o ? oreDef(o.type) : null, lines = [
-		"H" + s.head + " " + HEADS[s.head].id + " P" + HEADS[s.head].power + "  W" + s.handle + " " + HANDLES[s.handle].cycle + "MS",
+		"H" + s.head + "/" + s.headMax + " " + HEADS[s.head].id + " P" + HEADS[s.head].power + "  W" + s.handle + "/" + s.handleMax + " " + HANDLES[s.handle].cycle + "MS",
 		d ? d.id + " HP" + Math.ceil(o.hp) + "/" + d.hp + " REQ" + d.req + " HIT" + B.hitsFor(d.id, s.head) : "-",
 		d ? Object.keys(d.drops).map(function (k) { return k.slice(0, 2).toUpperCase() + Math.round((d.drops[k][2] === undefined ? 1 : d.drops[k][2]) * 100); }).join(" ") : "-",
 		"NEXT H" + (etaMs(s, "head") === null ? "MAX" : Math.round(etaMs(s, "head") / 1000) + "S") + " W" + (etaMs(s, "handle") === null ? "MAX" : Math.round(etaMs(s, "handle") / 1000) + "S")
@@ -1558,10 +1617,106 @@ function drawSprite(box, part, pal, x, y, rot, scale, colorOf, smooth, edgeOf) {
 		if (edgeOf) { var ec = edgeOf(i); if (ec && (sy === 0 || part.px[(sy - 1) * part.w + sx] === " ")) box(Math.round(x) + u * scale, Math.round(y) + (v - 1) * scale, scale, scale, ec); }
 	}
 }
+// ============================================================
+// ■ ★★★強化したあとの「予告」（2026-09-21(4) 島さんの指定）
+// ============================================================
+//   ★HEAD を強くした直後 → **次の一撃が強そう**（★刃に光が走り、先がキラッ、鉱石の中心が一瞬反応）
+//   ★HANDLE を強くした直後 → **次から明らかに速そう**（★新しい速さで短く素振り ＋ 柄に光）
+//   ★★**1アップグレードにつき1回だけ**。★採掘画面へ戻ってから、最初に叩く前に出る
+//   ★★★**新しい絵は作りません**。★既存の3ポーズ（待機・引く・命中）と、平行移動・既存の回し方・ドットの光だけ
+//   ★★★★**ダメージは与えません**（★鉱石には当てない・ヒビも入れない）
+var SHOW = {
+	head: { wait: 90, scan: 170, glint: 70, mark: 90 },   // ★合計 420ms（待つ → 刃を光が走る → 先がキラッ → 鉱石の中心）
+	handleWait: 60,          // ★素振りの前に待つ
+	handleSwing: .42,        // ★素振りの長さ ＝ いまの HANDLE の1振り × これ（★速い柄ほど、素振りも速い）
+	handleBack: .55,         // ★そのうち「引く」に使う割合（★のこりで待機へ戻る）
+	handleScan: .45,         // ★柄の光は、素振りの後ろ側これだけに重ねる
+	bothMax: 500,            // ★★HEAD と HANDLE を両方そろえた時は、合わせてこの長さに収める
+	skipTo: .35,             // ★長押しされたら、のこりをこれだけに縮める
+	band: .16,               // ★走る光の帯の太さ（0〜1）
+	core: "#ffffff", mid: "#fff3b0"   // ★白い芯 ＋ 薄い黄色（★魔法の武器にはしない）
+};
+// ★★HEAD（金属）の「根元 → 刃先」の向きを1回だけ測る
+function headGeom(P, metal, tip) {
+	if (P.hdGeom !== undefined) return P.hdGeom;
+	var t = tip || P.tip || P.head; if (!t) { P.hdGeom = null; return null; }
+	var L = Math.hypot(t[0], t[1]) || 1, ax = t[0] / L, ay = t[1] / L, p0 = 1e9, p1 = -1e9, x, y, n = 0;
+	for (y = 0; y < P.h; y++) for (x = 0; x < P.w; x++) {
+		var ch = P.px[y * P.w + x]; if (ch === " ") continue;
+		if (!metal[ABC.indexOf(ch)]) continue;
+		var pr = (x - P.ox) * ax + (y - P.oy) * ay; if (pr < p0) p0 = pr; if (pr > p1) p1 = pr; n++;
+	}
+	P.hdGeom = n ? { ax: ax, ay: ay, p0: p0, span: Math.max(1, p1 - p0) } : null;
+	return P.hdGeom;
+}
+// ★予告をひとつ始める（★craft したときに立てておいて、採掘画面へ戻ったら流す）
+function startShow(s) {
+	var p = s.pendingShow; if (!p || (!p.head && !p.handle)) return;
+	s.pendingShow = null;
+	var cyc = cycle(s), sw = p.handle ? Math.round(cyc * SHOW.handleSwing) : 0;
+	var d = { wait: p.handle ? SHOW.handleWait : SHOW.head.wait, swing: sw,
+		scan: p.head ? SHOW.head.scan : 0, glint: p.head ? SHOW.head.glint : 0, mark: p.head ? SHOW.head.mark : 0 };
+	var total = d.wait + d.swing + d.scan + d.glint + d.mark;
+	// ★★両方そろえた時は、まとめて 500ms に収める（★2つを長くつなげない）
+	if (p.head && p.handle && total > SHOW.bothMax) {
+		var f = SHOW.bothMax / total;
+		["wait", "swing", "scan", "glint", "mark"].forEach(function (k) { d[k] = Math.round(d[k] * f); });
+		total = d.wait + d.swing + d.scan + d.glint + d.mark;
+	}
+	s.show = { head: !!p.head, handle: !!p.handle, t: 0, total: total, d: d, said: false };
+}
+// ★時間を進める（★終わったら消す。★遊びには何も触らない）
+function updateShow(s, ms) {
+	var sh = s.show; if (!sh) return;
+	sh.t += ms;
+	if (!sh.said && sh.t >= sh.d.wait) { sh.said = true; event(s, sh.handle ? "handle_ready" : "head_ready", { head: sh.head, handle: sh.handle }); }
+	if (sh.t >= sh.total) s.show = null;
+}
+// ★★長押しされたら、のこりを縮める（★0.5秒以上も操作を止めない）
+function hurryShow(s) {
+	var sh = s.show; if (!sh) return false;
+	sh.total = sh.t + (sh.total - sh.t) * SHOW.skipTo;
+	return true;
+}
+// ★いま「素振り」の最中か（★0〜1。★素振りが無ければ null）
+function showSwing(s) {
+	var sh = s.show; if (!sh || !sh.swing && !sh.d.swing) return null;
+	var a = sh.d.wait, b = a + sh.d.swing;
+	if (sh.t < a || sh.t >= b || sh.d.swing <= 0) return null;
+	return (sh.t - a) / sh.d.swing;
+}
+// ★★素振りの姿（★待機 → 引く → 待機。★命中まで行かない ＝ 鉱石には当たらない）
+function showPose(s) {
+	var u = showSwing(s); if (u === null) return null;
+	var back = SHOW.handleBack, k;
+	if (u < back) { k = 1 - Math.pow(1 - u / back, 2); return lerpPose(POSE.rest, POSE.back, k, k < .5 ? "rest" : "back"); }
+	k = (u - back) / (1 - back); k = k * k * (3 - 2 * k);
+	return lerpPose(POSE.back, POSE.rest, k, k < .5 ? "back" : "rest");
+}
+// ★★走る光の位置（0 = 根元 / 1 = 先）。★出ていないときは null
+function showScan(s, which) {
+	var sh = s.show; if (!sh) return null;
+	var d = sh.d;
+	if (which === "handle") {
+		if (!sh.handle || d.swing <= 0) return null;
+		var from = d.wait + d.swing * (1 - SHOW.handleScan), len = d.swing * SHOW.handleScan;
+		if (sh.t < from || sh.t >= from + len) return null;
+		return (sh.t - from) / len;
+	}
+	if (!sh.head || d.scan <= 0) return null;
+	var a = d.wait + d.swing;
+	if (sh.t < a || sh.t >= a + d.scan) return null;
+	return (sh.t - a) / d.scan;
+}
+// ★刃先のキラッ（0〜1）／★鉱石の中心のしるし（0〜1）
+function showGlint(s) { var sh = s.show; if (!sh || !sh.head || !sh.d.glint) return null;
+	var a = sh.d.wait + sh.d.swing + sh.d.scan; return sh.t >= a && sh.t < a + sh.d.glint ? (sh.t - a) / sh.d.glint : null; }
+function showMark(s) { var sh = s.show; if (!sh || !sh.head || !sh.d.mark) return null;
+	var a = sh.d.wait + sh.d.swing + sh.d.scan + sh.d.glint; return sh.t >= a && sh.t < a + sh.d.mark ? (sh.t - a) / sh.d.mark : null; }
 function drawPick(ctx, s, box, quiet) {
 	var S = sprites(); if (!S) return;
 	if (POSE.strike.a === undefined) setupPoses();
-	var pose = swingPose(s), level = s.head, metal = {};
+	var pose = (!s.swinging && showPose(s)) || swingPose(s), level = s.head, metal = {};
 	S.metal.forEach(function (i) { metal[i] = 1; });
 	function stamp(pa, ghost) {
 		var spr = nearestPose(pa.a), P = S.poses[spr], rot = pa.a - sprAngle(spr);
@@ -1569,17 +1724,48 @@ function drawPick(ctx, s, box, quiet) {
 		if (ghost) { drawSprite(box, P.hand, S.pickPal, pa.x, pa.y, rot, PICK_SCALE, function (i, col, u, v) { return metal[i] && (u + v) % 2 ? "#5a5d70" : null; }); return; }
 		drawSprite(box, P.arm, S.pickPal, pa.x, pa.y, 0, PICK_SCALE);   // 腕（★回らない）
 		var hTier = s.handle, HP = handlePart(P.hand, S), pal2 = S.pickPal.concat(["#000000"]), gi = S.pickPal.length;
+		// ★★強化したあとの「予告」: 帯が 根元 → 先 へ走る（★輪郭の外へは出ない ＝ 絵のドットの中だけ）
+		var hScan = showScan(s, "head"), wScan = showScan(s, "handle");
+		var hG = hScan !== null ? headGeom(P.hand, metal, P.tip || P.head) : null, wG = wScan !== null ? handleGeom(HP.base || HP, null) : null;
+		function bandCol(tp, at, tint) {
+			var d = Math.abs(tp - at); if (d > SHOW.band) return null;
+			return d < SHOW.band * .45 ? SHOW.core : d < SHOW.band * .78 ? SHOW.mid : tint;
+		}
 		drawSprite(box, HP, pal2, pa.x, pa.y, rot, PICK_SCALE, function (i, col, u, v, sx, sy) {
-			if (metal[i]) return steelColor(col, level);                                   // ★頭 ＝ HEAD の段の色
+			if (metal[i]) { var mc = steelColor(col, level);                                // ★頭 ＝ HEAD の段の色
+				if (hG) { var tp = (((sx - P.hand.ox) * hG.ax + (sy - P.hand.oy) * hG.ay) - hG.p0) / hG.span;
+					var bc = bandCol(tp, hScan, HEADS[level].col[2]); if (bc) return bc; }   // ★★頭だけ光る（★柄・手・腕は変えない）
+				return mc; }
 			var wch = HP.wood ? HP.wood[sy * HP.w + sx] : "0";
 			// ★★柄だけ ＝ HANDLE の段の見た目（★手・グローブ・指・腕・頭は1ドットも変わらない）
-			if (wch === "1") return handleColor(col, hTier, sx, sy, HP, false);
+			if (wch === "1") { var hc = handleColor(col, hTier, sx, sy, HP, false);
+				// ★★柄だけ光る（★下 → 上。★頭・手・腕は変えない）
+				if (wG && hc) { var wt = 1 - Math.max(0, Math.min(1, wG.tOf(sx, sy)));
+					var wb = bandCol(wt, wScan, HANDLE_LOOK[hTier] ? HANDLE_LOOK[hTier].col[2] : SHOW.mid); if (wb) return wb; }
+				return hc; }
 			if (i === gi) return handleColor(P.hand.px[sy * HP.w + sx] !== " " ? col : "#808080", hTier, sx, sy, HP, true);   // ★太らせた分
 			return col;
 		}, true, (HEADS[level].edge || 0) >= 1 ? function (i) { return metal[i] ? HEADS[level].col[2] : null; } : null);
 	}
 	// ★残像は描かない（2026-09-19(2) 島さんの指摘「別のポーズが残像のように残る」）
 	stamp(pose, false);
+	// ★★刃先のキラッ（★予告のときだけ。★絵そのものは触らない）
+	var gl = showGlint(s);
+	if (gl !== null) {
+		var tp2 = tipOf(pose), n = Math.round(1 + Math.sin(Math.PI * gl) * 2.4);
+		box(tp2.x, tp2.y, 1, 1, SHOW.core);
+		for (var g = 1; g <= n; g++) { var c2 = g === n ? HEADS[level].col[2] : SHOW.mid;
+			box(tp2.x, tp2.y - g, 1, 1, c2); box(tp2.x, tp2.y + g, 1, 1, c2);
+			box(tp2.x - g, tp2.y, 1, 1, c2); box(tp2.x + g, tp2.y, 1, 1, c2); }
+	}
+	// ★★鉱石の中心が一瞬だけ反応する（★次の一撃はここへ入る、というだけ。★ヒビもダメージも無し）
+	var mk = showMark(s);
+	if (mk !== null) {
+		var r2 = 2 + Math.round(Math.sin(Math.PI * mk) * 2), c3 = mk < .5 ? SHOW.core : SHOW.mid;
+		box(HIT.x, HIT.y, 1, 1, SHOW.core);
+		box(HIT.x - r2, HIT.y, 1, 1, c3); box(HIT.x + r2, HIT.y, 1, 1, c3);
+		box(HIT.x, HIT.y - r2, 1, 1, c3); box(HIT.x, HIT.y + r2, 1, 1, c3);
+	}
 }
 // ★鉱石の中心（★島さんの鉱石の絵の形の重心）→ ORE_CENTER（＝ HIT）。★ツルハシの向きもここから決まる
 (function () {
@@ -1740,7 +1926,7 @@ function drawList(ctx, s, kind, dx, box, text) {
 		if (c.y + c.h < V.y || c.y > V.y + V.h) return;                     // ★上下で外 ＝ 描かない
 		if (c.x + c.w < V.x || c.x > V.x + V.w) return;                     // ★左右で外 ＝ 描かない
 		var isCur = r.kind === "current", mystery = r.kind === "mystery", t = tiers(kind)[r.i];
-		var ok = r.kind === "next" && canMake(s, kind, r.step), sel = r.kind === "next" && s.craftSel === r.step;
+		var ok = r.kind === "next" && canMake(s, kind, r.step), sel = (r.kind === "next" && s.craftSel === r.step) || (r.kind === "past" && r.made && s.equipSel === r.i);
 		var far = Math.min(1, Math.abs(i - s.scroll));
 		var fx = s.upFx && isCur ? s.upFx : null, sink = fx && fx.made < MAKE_FX.sinkMs ? Math.round(MAKE_FX.sink * (1 - fx.made / MAKE_FX.sinkMs)) : 0;
 		c.y += sink;
@@ -1780,9 +1966,12 @@ function drawList(ctx, s, kind, dx, box, text) {
 			var ex = nx + F.textWidth(8) + 3;
 			[[0, 2], [1, 3], [2, 4], [3, 3], [4, 2], [5, 1], [6, 0]].forEach(function (q) { box(ex + q[0], ct.y + CARD.midY + q[1], 1, 2, "#7fe07f"); });
 		} else if (r.kind === "past") {
-			var tag = r.made ? "OWNED" : "SKIPPED";
-			box(nx - 2, ct.y + CARD.midY - 1, F.textWidth(tag.length) + 4, 9, r.made ? "#3e4359" : "#2b2438");
-			text(tag, nx, ct.y + CARD.midY, r.made ? "#c2c3c7" : "#9a9dab");
+			// ★★持っている装備を選ぶと「EQUIP」に変わる（★もう一度押すと付け替え）
+			var picked = r.made && s.equipSel === r.i, tag = picked ? "EQUIP" : r.made ? "OWNED" : "SKIPPED";
+			box(nx - 2, ct.y + CARD.midY - 1, F.textWidth(tag.length) + 4, 9, picked ? "#4a3f18" : r.made ? "#3e4359" : "#2b2438");
+			text(tag, nx, ct.y + CARD.midY, picked ? (Math.floor(s.clock / 260) % 2 ? "#fff1e8" : "#ffcc4a") : r.made ? "#c2c3c7" : "#9a9dab");
+			// ★選んでいる間だけ、その装備の強さを小さく出す（★むずかしい比べ表は出さない）
+			if (picked) text(kind === "head" ? "BREAK" : "SPEED", ct.x + CARD.needX, ct.y + CARD.midY, "#9a9dab");
 		} else if (ok) text("MAKE", nx, ct.y + CARD.midY, sel && Math.floor(s.clock / 260) % 2 ? "#fff1e8" : "#ffcc4a");
 		// ── 下段: 星（★固定の行。★名前が長くても下へ押し出されない） ──
 		drawStars(box, nx, ct.y + CARD.starY, t.stars || 1);
@@ -1811,7 +2000,7 @@ global.DotMining = {
 	create: create, update: update, draw: draw, press: press, release: release, swipe: swipe, dragSide: dragSide, dragSideEnd: dragSideEnd, openPart: openPart, scrollRange: scrollRange, minScroll: minScroll, craft: craft, saveData: saveData,
 	stageOf: stageOf, canBreak: canBreak, breakableCount: breakableCount, lockedCount: lockedCount, fixGroup: fixGroup, guardOre: guardOre, pickBreakableOre: pickBreakableOre, canUpgradePart: canUpgradePart, craftRows: craftRows, dragScroll: dragScroll, dragEnd: dragEnd, LIST: LIST, rowTop: rowTop, maxScroll: maxScroll, historyRows: historyRows, scrollBy: scrollBy, owned: owned, canMake: canMake, costOf: costOf, tierAt: tierAt, CRAFT: CRAFT, SKIP_MUL: SKIP_MUL, damageOf: damageOf, swingPose: swingPose, counterAt: counterAt, POSE: POSE, HIT: HIT,
 	setDebug: function (v) { DEBUG.on = v ? 1 : 0; }, DEBUG: DEBUG, balance: B, etaMs: etaMs,
-	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, collectAll: collectAll, SPARK: SPARK, SPARK_KIND: SPARK_KIND, SPARK_TIP: SPARK_TIP, askSpark: askSpark, drawSpark: drawSpark, NEW_AFTER_SPARK: NEW_AFTER_SPARK, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
+	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, collectAll: collectAll, tierMax: tierMax, tierNow: tierNow, canEquip: canEquip, equipTier: equipTier, rescueAfterEquip: rescueAfterEquip, newOre: newOre, owned: owned, SHOW: SHOW, startShow: startShow, showPose: showPose, showScan: showScan, showGlint: showGlint, showMark: showMark, hurryShow: hurryShow, headGeom: headGeom, SPARK: SPARK, SPARK_KIND: SPARK_KIND, SPARK_TIP: SPARK_TIP, askSpark: askSpark, drawSpark: drawSpark, NEW_AFTER_SPARK: NEW_AFTER_SPARK, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
 	STARTER_BREAKS: STARTER_BREAKS, STARTER_ROCKS: STARTER_ROCKS,
 	FEEL: FEEL, HEADS: HEADS, HANDLES: HANDLES, ORES: ORES, MATS: MATS, MAT_IDS: MAT_IDS, CRAFT_ICON: CRAFT_ICON, SPACING: SPACING,
 	TEXTS: ["HEAD", "HANDLE", "MAX", "BREAK", "SPEED", "EQUIPPED", "MAKE", "OWNED", "SKIPPED", "?????", "???", "PICKAXE UPGRADE", "0123456789", NEW_TEXT]

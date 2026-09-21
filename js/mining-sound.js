@@ -11,9 +11,9 @@
 (function (global) {
 "use strict";
 var MINE_SOUND_ON = 1;
-var LV = { hit: 0.42, hitHard: 0.42, clang: 0.5, crack: 0.3, break: 0.62, scatter: 0.2, absorb: 0.16, rare: 0.34, upgrade_complete_head: 0.34, upgrade_complete_handle: 0.3, upgrade_available: 0.24, ui_tick: 0.07, discover: 0.26, new_material_discovered: 0.3, trip_close: 0.4, mine_arrive: 0.55, camp_arrive: 0.38 };
+var LV = { hit: 0.42, hitHard: 0.42, clang: 0.5, crack: 0.3, break: 0.62, scatter: 0.2, absorb: 0.16, rare: 0.34, upgrade_complete_head: 0.34, upgrade_complete_handle: 0.3, upgrade_available: 0.24, ui_tick: 0.07, discover: 0.26, new_material_discovered: 0.3, trip_close: 0.4, mine_arrive: 0.55, camp_arrive: 0.38 , head_ready: 0.22, handle_ready: 0.2, equip_tool: 0.34 };
 // ★音のファイルに差し替える口（2026-09-19）: ここに "assets/sound/xxx.wav" のように書くと、その音を鳴らす（★無い・読めないときは下の作った音）
-var SAMPLES = { upgrade_complete_head: null, upgrade_complete_handle: null, upgrade_available: null, ui_tick: null, new_material_discovered: null, trip_close: null, mine_arrive: null, camp_arrive: null };
+var SAMPLES = { upgrade_complete_head: null, upgrade_complete_handle: null, upgrade_available: null, ui_tick: null, new_material_discovered: null, trip_close: null, mine_arrive: null, camp_arrive: null , head_ready: null, handle_ready: null, equip_tool: null };
 
 var seed = ((Date.now() ^ 0x1b873593) >>> 0) || 1;
 function rnd() { seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; }
@@ -64,6 +64,23 @@ var VOICES = {
 	// 砕けない「カァン！」: 金属の倍音（整数比でない）＋火花の粒
 	clang: function (o) { [1, 2.76, 5.4, 8.93].forEach(function (m, i) { tone(o, { f: 620 * m * R(.99, 1.01), dur: .55 - i * .1, g: .32 / (i + 1), atk: .001 }); });
 		burst(o, { type: "highpass", f: 4000, dur: .08, g: .4, atk: .0005 }); for (var i = 0; i < 4; i++) burst(o, { type: "highpass", f: 6000, at: .02 + i * R(.02, .05), dur: .012, g: .18 }); },
+	// ★★過去の装備へ付け替えた「カチッ」（2026-09-21(5)。★作った音とは別の、短い装着音）
+	equip_tool: function (o) {
+		tone(o, { f: 320, f2: 210, dur: .05, g: .6, atk: .001 });
+		burst(o, { type: "bandpass", f: 2200, q: 1.6, dur: .035, g: .3, atk: .001 });
+		burst(o, { type: "highpass", f: 5000, at: .03, dur: .02, g: .12, atk: .001 }); },
+	// ============================================================
+	// ★★強化したあとの「予告」の音（2026-09-21(4)）
+	// ============================================================
+	//   ★★どちらもとても小さい（★知らせではなく「気配」）。★仮の音（★SAMPLES で WAV に差し替え）
+	// HEAD: 刃に光が走る「チッ → キン…」
+	head_ready: function (o) {
+		burst(o, { type: "highpass", f: 5200, dur: .02, g: .18, atk: .0005 });
+		[1, 2.76, 5.1].forEach(function (m, i) { tone(o, { f: 1180 * m, at: .05, dur: .26 - i * .07, g: .12 / (i + 1), atk: .003 }); }); },
+	// HANDLE: 素振りの「シュッ」（★金属音より軽く・速い）
+	handle_ready: function (o) {
+		burst(o, { type: "bandpass", f: 2600, q: .9, dur: .09, g: .2, atk: .006 });
+		burst(o, { type: "highpass", f: 4200, at: .05, dur: .05, g: .1, atk: .004 }); },
 	// ============================================================
 	// ★★★キャンプ（地上）↔ 採掘（地下）の坑道ワイプの音（2026-09-21(2)）
 	// ============================================================
@@ -140,7 +157,7 @@ var VOICES = {
 	// ★装備の列が1段カチッと決まった音（★とても小さい）
 	ui_tick: function (o) { burst(o, { f: 2000, q: 4, dur: .014, g: .5, atk: .0004 }); tone(o, { wave: "square", f: 620, dur: .02, g: .12 }); }
 };
-var BY = { hit: {}, hitHard: {}, clang: {}, crack: {}, "break": {}, scatter: {}, absorb: {}, rare: {}, upgrade_complete_head: {}, upgrade_complete_handle: {}, upgrade_available: {}, ui_tick: {}, discover: {}, new_material_discovered: {}, trip_close: {}, mine_arrive: {}, camp_arrive: {} };   // ★HEAD × 鉱石で差し替える口（★absorb は素材ごと: BY.absorb.iron など）
+var BY = { hit: {}, hitHard: {}, clang: {}, crack: {}, "break": {}, scatter: {}, absorb: {}, rare: {}, upgrade_complete_head: {}, upgrade_complete_handle: {}, upgrade_available: {}, ui_tick: {}, discover: {}, new_material_discovered: {}, trip_close: {}, mine_arrive: {}, camp_arrive: {} , head_ready: {}, handle_ready: {}, equip_tool: {} };   // ★HEAD × 鉱石で差し替える口（★absorb は素材ごと: BY.absorb.iron など）
 function voice(kind, head, ore, mat) { var t = BY[kind] || {}; return (mat && t[mat]) || t[head + ":" + ore] || t[head] || t[ore] || VOICES[kind]; }
 var lastAbsorb = 0, loaded = {}, recent = [], ABSORB_WINDOW = .15, ABSORB_MAX = 4;
 // ★SAMPLES に書いたファイルを1度だけ読んで鳴らす（★読めるまでは作った音）
