@@ -2407,6 +2407,11 @@
 	//   ★★★★ここで保存すると、★**次に開いたときはキャンプから再開**します（resumeMode）
 	var SAVE_OK_MS = 900;
 	function saveEntry() { return lakesideCamp() && global.DotCampLakeside.SAVE_ENTRY ? global.DotCampLakeside.SAVE_ENTRY : null; }
+	// ★★★★★キャンプから本編（スケボ）へ戻る看板（2026-09-22 島さんの指定）。
+	//   ★★**セーブから直接キャンプで開いても必ず出ます**
+	//     （★「スケボから来た」という一時的な印に依存しません）。
+	//   ★★★押すと、いままでどおり**出口と同じ問いかけ**へ（★問いかけは飛ばしません）。
+	function roadEntry() { return lakesideCamp() && global.DotCampLakeside.ROAD_ENTRY ? global.DotCampLakeside.ROAD_ENTRY : null; }
 	function campSaveNow() {
 		saveRun();                                  // ★いまのラン（場所・体力・財布・レベル）
 		if (PR && PR.setResume) PR.setResume("camp");   // ★★次はキャンプから
@@ -3524,6 +3529,11 @@
 		data.grindIndex = st.cones.indexOf(st.grindRail);
 		// ★★キャンプにいたなら、戻ったときもキャンプ（★`mine` / `fish` / `trip` は外に出してから）
 		data.camp = (st.campPhase === "in" || st.campPhase === "mine" || st.campPhase === "fish" || st.campPhase === "trip") ? 1 : 0;
+		// ★★★★★**このセーブをどこで作ったか**を、★**セーブ自身に**書きます（2026-09-22）。
+		//   ★★前は旅の記録の `resumeMode` だけを見ていて、
+		//   ★★★**昔キャンプで 1 回 SAVE しただけで、以後ずっとキャンプから始まる**事故になりました。
+		data.mode = data.camp ? "camp" : "run";
+		data.rev = (PR && PR.snapshot ? (PR.snapshot().rev || 0) : 0);
 		return lsSet(saveKey(), JSON.stringify(data));
 	}
 	function peekSave(n) {
@@ -3693,6 +3703,7 @@
 			campWalkMs: 0,         // ★★歩いた時間（★コマを送るための時計）
 			campExitMs: 0,         // ★出口に足を入れてからの時間（★誤って出ないための「間」）
 			saveBtn: "", saveOkMs: 0,   // ★★★★★キャンプの SAVE 看板（2026-09-21(6)）
+			roadBtn: "",               // ★★★★★キャンプから本編へ戻る ROAD 看板（2026-09-22）
 			distCommitted: 0,      // ★★総距離にもう繰り入れたところ（★二重に数えない）
 			// ★★★★★キャンプを出るときの「間」（2026-09-04(4) 島さんの指定）
 			campFadeMs: 0,         // ★暗くなっていく途中（ミリ秒）
@@ -5727,7 +5738,9 @@
 		st.reached = meters();
 		st.newBest = updateBest(st.reached);
 		if (PR) PR.finish(st.reached);
-		if (!testMode) deleteSave();          // ★★★★★死んだらセーブも消える（2026-09-13）
+		// ★★★★★死んだらセーブも消える（2026-09-13）。
+		//   ★★**ここだけが「やり直し防止」の核**です（★CONTINUE では消しません）
+		if (!testMode) deleteSave();
 		// ★★積分した稼ぎを整数にする。★COIN のアップグレードはここで効く
 		//   ★★★死んだときは `st.coin` が 0 にされているので、自然に 0 になる
 		//     （★「死亡＝未確定分を失う」を、ここに if を足さずに表す）
@@ -6306,7 +6319,7 @@
 		if (!global.DotFishing || !st || st.campPhase !== "in" || st.shopOpen) return;
 		if (!st.fishing) st.fishing = global.DotFishing.create(WD.getSeed() ^ Date.now());
 		st.campVX = 0; st.campVY = 0;
-		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = ""; st.saveBtn = ""; st.saveOkMs = 0;
+		st.campBagMs = 0; st.campExitMs = 0; st.fishBtn = ""; st.saveBtn = ""; st.saveOkMs = 0; st.roadBtn = "";
 		st.fishing.records = PR ? PR.snapshot().fish : {};
 		st.fishing.seen = PR ? PR.snapshot().fishSeen : {};
 		var opt = {}; try { opt = JSON.parse(global.localStorage.getItem('dotollie-options')) || {}; } catch (e) { /* defaults */ }
@@ -6394,6 +6407,12 @@
 		saveMining();                 // ★採掘（★中身の確かめは DotMining.saveData → cleanMining）
 		saveCoins(); saveUpg(); saveItems();
 		commitDistance();
+		// ★★★★★**途中セーブも、ここで常に最新にします**（2026-09-22 島さんの指定）。
+		//   ★★これが無いと、★★★**古いセーブの財布で、いまの財布を巻き戻してしまいます**。
+		//   ★★★★また、常に最新なので**「閉じて開いてやり直す」ができません**。
+		//     ★島さんの 2026-09-13 の決まり「やり直しに使えない」は、この形で守られます。
+		//   ★★★★★**resumeMode はここでは絶対に書きません**（★手動 SAVE だけ）。
+		if (st.phase !== "over" && st.stamina > 0) saveRun();
 		if (PR && PR.flush) PR.flush();
 		saveDirty = false; lastSaveAt = Date.now(); lastSaveOK = lastSaveAt; lastSaveReason = reason || "";
 		return true;
@@ -10013,6 +10032,7 @@
 			if (lakesideCamp()) global.DotCampLakeside.button(ctx, st.fishBtn === "open");
 			if (mineEntry()) global.DotCampLakeside.mineButton(ctx, st.mineBtn === "open");
 			if (saveEntry()) global.DotCampLakeside.saveButton(ctx, st.saveBtn === "open", (st.saveOkMs || 0) > 0);
+			if (roadEntry()) global.DotCampLakeside.roadButton(ctx, st.roadBtn === "open");
 			else global.DotFishing.button(ctx, campFishEntry(), "FISH", st.fishBtn === "open");
 		}
 		// ★★お店の下に敷くときは、ここまで（★問いかけも一覧も暗転も出さない）
@@ -10370,9 +10390,13 @@
 			//       ★そもそもテストモードは BEST を**更新もしません**）
 			// ★★★★★NEW GAME は技も成長も引き継がない（2026-09-13）。★旅の記録とセーブを消してから始める
 			if (!testMode && opts && opts.fresh) { if (PR) PR.clear(); deleteSave(); setBoostDeadline(0); }
-			// ★★★★★CONTINUE: セーブを読んで、読んだら消す
+			// ★★★★★CONTINUE: セーブを読む。
+			//   ★★★**読んだだけでは消しません**（2026-09-22 島さんの指定）。
+			//     ★前は読んだ瞬間に消していたので、★★**そのあとアプリを閉じると
+			//     ★★★財布も距離も丸ごと失いました**（★島さんが遇った CASE 2）。
+			//   ★★★★消すのは **死んだとき** と **NEW GAME** だけ。
+			//     ★「死んだら最初から」という決まりは、そのまま守られています。
 			var resumeData = (!testMode && opts && opts.resume) ? peekSave() : null;
-			if (resumeData) deleteSave();
 			if (PR) PR.load();
 			reloadCaps();               // ★★伸びた天井を控えに取る（2026-09-12）
 			resetStatus(); // A new departure always starts a new run.
@@ -10400,11 +10424,18 @@
 			// ★★★総距離の基準点（★ここから先に進んだ分だけを足す ＝ 二重に数えない）
 			st.distCommitted = meters();
 			saveDirty = false; lastSaveAt = Date.now();
-			// ★★★★★**キャンプで SAVE したなら、キャンプから再開**（2026-09-21(6)）。
-			//   ★判断は2つのどちらか: ★途中セーブの `camp` 印 ／ ★旅の記録の `resumeMode`
-			if (resumeData && (resumeData.camp || (PR && PR.snapshot && PR.snapshot().resumeMode === "camp"))) {
-				st.paused = false; campEnter();
-			}
+			// ★★★★★**再開する場所は、そのセーブ自身の印だけで決めます**（2026-09-22）。
+			//
+			//   ★★★**ここが島さんが遇った CASE 1 の原因でした。**
+			//     ★前は `resumeData.camp || PR.snapshot().resumeMode === "camp"` と **`||`** になっていて、
+			//     ★★途中セーブが「キャンプではない（camp = 0）」と言っていても、
+			//     ★★★**昔の `resumeMode = camp` が勝っていました**。
+			//     ★★★★結果、スケボで SAVE したのにキャンプから始まりました。
+			//
+			//   ★★**旅の記録の `resumeMode` は、途中セーブが無いときの保険だけ**に使います。
+			var resumeAt = resumeData ? (resumeData.mode || (resumeData.camp ? "camp" : "run"))
+				: ((PR && PR.snapshot) ? (PR.snapshot().resumeMode || "run") : "run");
+			if (resumeAt === "camp") { st.paused = false; campEnter(); }
 			syncShopUnlocks(false);
 			// ★★★★★釣りを見るテストモード（2026-09-15 島さんの指定）
 			//   ★ふつうの道（キャンプに入る → FISH）を**そのまま2つ呼ぶだけ**（★近道の仕組みは作らない）。
@@ -11001,7 +11032,12 @@
 				st.pauseBtn = "";
 				if (pzWas && pzWas === pz) {
 					if (pz === "resume") this.togglePause();
-					else if (saveRun()) { sound(990, 0.06); st.paused = false; if (exitToMenu) exitToMenu(); }
+					else if (saveRun()) {
+						// ★★★★★**手動 SAVE なので、次はここ（スケボ）から再開**（2026-09-22）
+						if (PR && PR.setResume) PR.setResume(st.campPhase ? "camp" : "run");
+						saveGame("manual-save");
+						sound(990, 0.06); st.paused = false; if (exitToMenu) exitToMenu();
+					}
 					else st.saveFailed=true;
 				}
 				return true;
@@ -11051,6 +11087,12 @@
 					if (!st.paused) global.DotMining.press(st.mining, lx, ly); }
 				else { global.DotMining.release(st.mining); st.mineDown = null; }
 				return true;
+			}
+			var rEntry = roadEntry();
+			if (rEntry && st.campPhase === "in" && global.DotFishing) {
+				var onRoad = global.DotFishing.contains(rEntry, lx, ly);
+				if (down) { st.roadBtn = onRoad ? "open" : ""; if (onRoad) return true; }
+				else if (st.roadBtn) { var goRoad = onRoad && st.roadBtn === "open" && !cancelled; st.roadBtn = ""; if (goRoad) campAskSleep(); return true; }
 			}
 			var sEntry = saveEntry();
 			if (sEntry && st.campPhase === "in" && global.DotFishing) {
@@ -11128,6 +11170,7 @@
 				}
 				return true;
 			}
+			if (st && st.roadBtn && roadEntry() && global.DotFishing && !global.DotFishing.contains(roadEntry(), x, y)) { st.roadBtn = "cancel"; return true; }
 			if (st && st.saveBtn && saveEntry() && global.DotFishing && !global.DotFishing.contains(saveEntry(), x, y)) { st.saveBtn = "cancel"; return true; }
 			if (st && st.mineBtn && mineEntry() && global.DotFishing && !global.DotFishing.contains(mineEntry(), x, y)) { st.mineBtn = "cancel"; return true; }
 			if (st && st.campPhase === 'fish' && !st.shopOpen) {
@@ -11168,6 +11211,7 @@
 		_toggleCamp: toggleCamp,
 		_campAnswer: campAnswer,
 		_campBtnRects: campBtnRects,
+		_roadEntry: roadEntry, _saveEntry2: saveEntry,   // ★★★キャンプの看板の確かめ用（2026-09-22）
 		_inCampBag: inCampBag,
 		_inWakeClear: inWakeClear,
 		_inNoSpawn: inNoSpawn,
@@ -11176,6 +11220,9 @@
 		_railCoinPerDot: railCoinPerDot,
 		_learnJourneyAction: learnJourneyAction,
 		// Explicit fixtures for geometry/physics tests; never saved or used by the shell.
+		// ★★★ショップの解放を確かめる用（2026-09-22）
+		_syncShopUnlocks: function (a) { return syncShopUnlocks(!!a); },
+		_shopConditionMet: shopConditionMet,
 		_setRunFixture: function (o) {
 			upgLv = o.lv || {}; unlocked = o.un || {}; bag = o.bag || {}; buys = o.buys || {};
 			if (st) st.stamina = st.staminaMax = curStaminaMax();

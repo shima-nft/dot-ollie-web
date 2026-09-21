@@ -130,7 +130,111 @@ var FLOCK = [
 	{ dir: null, bulge: 0, bend: .7, speed: .45, pull: .8, hang: 40 },     // 4個目: 手前で少し漂う → 速く吸い込まれる
 	{ dir: null, bulge: 0, bend: .6, speed: .7, pull: 1, s: true }         // 5個目: まん中寄り → 短いS字
 ];   // ★作ったときの演出の長さ（★アイコンがふくらむ・光が飛ぶ・新しい名前）
+// ★★★★★ 4 つの採掘ポイント（2026-09-21(8) 島さんの指定）。
+//   ★前は 3〜5 個の「ちょうど良い数」でしたが、★★**役割を持たせるので 4 つに固定**。
+//   ★★★SHALLOW / STANDARD / DEEP / RICH（★中身は `js/mining-balance.js` の `POINTS`）
 var SITE_MIN = 3, SITE_MAX = 5;
+var POINT_N = (B.POINT_N || 4);
+
+// ============================================================
+// ★★★★★ポイントごとの状態（`s.site.pts[i]`）2026-09-21(8)
+// ============================================================
+//
+//   ★★**これが無かったのが「空の穴」バグの原因でした**。
+//     ★前は `s.nextIn`（次の鉱石までの時間）が★★**画面全体で 1 つだけ**で、
+//     ★★★時間が来たときに**「その瞬間見ている場所」**へ置いていました。
+//     ★だから壊した直後になぞると、★★壊した場所は**永久に空**、
+//     ★★★しかも隣の鉱石が**上書き**されていました（═ なぞるだけで引き直せた）。
+//
+//   ★★★★**いまは、時間も次の鉱石もポイントが自分で持ちます**。
+//     ★見ていなくても進みます（★戻ったらもう出ている）。
+//     ★★**次の鉱石は「壊した瞬間」に決まります**（═ なぞっても変わらない）。
+function ptRng(pt) { var x = pt.rng || 1; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; pt.rng = x >>> 0; return pt.rng / 4294967296; }
+function points(s) { return (s.site && s.site.pts) || []; }
+function pointAt(s, i) { var a = points(s); return a[i] || a[0] || null; }
+function curPt(s) { return pointAt(s, s.site ? s.site.at : 0); }
+// ★そのポイントの役割にあった鉱石を 1 つ（★ポイント自分のサイコロを使う）
+//   ★★世界の進みは `headProg(s)`（headMax）／★壊せるかは `s.head`（いまの装備）
+function pickOreAtPoint(s, i) {
+	var pt = pointAt(s, i); if (!pt) return pickOre(s);
+	return B.pickOreAt(function () { return ptRng(pt); }, headProg(s), s.head, pt.role);
+}
+// ★そのポイントで、いまの装備で壊せる鉱石を 1 つ
+function pickBreakableAtPoint(s, i) {
+	for (var k = 0; k < 12; k++) { var id = pickOreAtPoint(s, i); if (B.canBreak(id, s.head)) return id; }
+	return ORES[0].id;
+}
+// ★★そのポイントに置く鉱石を 1 つ作る（★役割 ＋ ソフトロックの決まりを通して）
+function newOreAt(s, i, want) {
+	var pt = pointAt(s, i);
+	var id = want || pickOreAtPoint(s, i);
+	// ★★★SHALLOW は**原則 100% 壊せる**（★古い HEAD へ戻しても遊べる）
+	if (pt && B.POINTS[pt.role] && B.POINTS[pt.role].safe && !B.canBreak(id, s.head)) id = pickBreakableAtPoint(s, i);
+	var d = oreDef(id);
+	return { type: d.id, hp: d.hp, max: d.hp, seed: Math.floor((pt ? ptRng(pt) : rng(s)) * 1e9) >>> 0, met: false };
+}
+// ★★★★★ 4 ポイント全体の安全保証（★島さんの指定：**2 つ以上は必ず壊せる**）
+var SAFE_POINTS = 2;
+
+// ★★★★★ポイントごとの小さな見た目の差（2026-09-21(8) 島さんの指定）
+//   ★★**今回は大がかりな新背景を作りません**。★壁の色をごくわずか寄せるだけ。
+//   ★★★**将来、この表を差し替えれば背景ごと変えられます**（★拡張口）。
+//   ★★★★**鉱石の見やすさを邪魔しない**こと（★混ぜるのは 1 割前後まで）
+var POINT_TINT = [
+	{ r: 18, g: 8, b: -6, mix: .10 },    // ① SHALLOW … 少し茶色寄り
+	{ r: 0, g: 0, b: 0, mix: 0 },        // ② STANDARD … いまの色のまま
+	{ r: -10, g: -8, b: 0, mix: .12 },   // ③ DEEP … 少し暗い
+	{ r: -2, g: 4, b: 16, mix: .09 }     // ④ RICH … ごく少量の結晶寄り
+];
+// ★★★★★いまどこにいるかの目印（● ○ ○ ○）
+//   ★**文字は出しません**（★島さんの指定「長い説明文は不要」）。
+//   ★★切り替わった瞬間だけ、一瞬大きくなる
+//   ★★下は瓦礫の絵で暗いので、★**小さな下敷き**を敷いてから描きます（★無いと埋もれて読めない）
+// ★★★★★目印の出し入れ（2026-09-22 島さんの指定）
+// ============================================================
+//
+//   ★★**掘っている間は、鉱石と素材だけに集中させる**。
+//   ★★★**指を離したら、ふわっと戻ってくる**。
+//
+//   ★★★★**押した瞬間には消しません**。
+//     ★なぞるために触っただけで消えてしまうからです。
+//     ★★消すのは、★★★**ツルハシが実際に 1 発当たった瞬間**（`s.digging`）。
+//     ★短いタップは当たる前に戻るので、★★**ちらつきません**。
+//
+//   ★★★★★**新しいタイマーは作っていません**（★既存の命中の仕組みをそのまま使う）。
+//     ★`setTimeout` も使いません（★毎フレーム、濃さを目標へ近づけるだけ）。
+var PFADE = {
+	out: 120,     // ★掘り始めたら消えるまで（ms）
+	wait: 60,     // ★★離してから、戻り始めるまでの「間」
+	in: 180       // ★★★戻るのは少しゆっくり（★邪魔にならず、ふわっと戻る）
+};
+var PIND = { on: 1, y: 152, gap: 11, r: 3, pop: 220,
+	dim: "#6f7691", lit: "#fff1e8", ring: "#141827",
+	pad: 4, padH: 9, plate: "#0d101a", plateTop: "#232a42" };
+// ★壁の色に、その場所の味を少しだけ混ぜる
+function tintWall(col, t) {
+	if (!t || !t.mix) return col;
+	var v = parseInt(col.slice(1), 16), R = v >> 16, G = (v >> 8) & 255, Bl = v & 255;
+	R = clamp(Math.round(R + t.r * t.mix * 10), 0, 255);
+	G = clamp(Math.round(G + t.g * t.mix * 10), 0, 255);
+	Bl = clamp(Math.round(Bl + t.b * t.mix * 10), 0, 255);
+	return "#" + ((1 << 24) + (R << 16) + (G << 8) + Bl).toString(16).slice(1);
+}
+function ensureSafePoints(s) {
+	var ores = s.site.ores, have = breakableCount(s, ores), i;
+	if (have >= Math.min(SAFE_POINTS, ores.length)) return false;
+	// ★SHALLOW（役割 0）から順に、壊せる鉱石へ差し替える（★作り直しはしない）
+	var order = ores.map(function (o, j) { return j; }).sort(function (a, b) {
+		var ra = pointAt(s, a), rb = pointAt(s, b);
+		return (ra ? ra.role : a) - (rb ? rb.role : b);
+	});
+	for (i = 0; i < order.length && have < Math.min(SAFE_POINTS, ores.length); i++) {
+		var j = order[i];
+		if (ores[j] && B.canBreak(ores[j].type, s.head)) continue;
+		ores[j] = newOreAt(s, j, pickBreakableAtPoint(s, j)); have++;
+	}
+	return true;
+}
 
 // ---- この画面だけのサイコロ（★世界のサイコロには触らない） ----
 function rng(s) { var x = s.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; s.rng = x >>> 0; return s.rng / 4294967296; }
@@ -172,7 +276,10 @@ function guardOre(s, o, slot) {
 	var ores = s.site ? s.site.ores : [], n = ores.length, locked = 0;
 	for (var i = 0; i < n; i++) { if (i === slot) continue; var q = ores[i]; if (q && !B.canBreak(q.type, s.head)) locked++; }
 	if (B.canBreak(o.type, s.head)) return o;
-	return locked + 1 > B.maxLocked(headProg(s), n) ? newOre(s, pickBreakableOre(s)) : o;
+	// ★★差し替えるときも、★その場所の役割とサイコロを使う（2026-09-21(8)）
+	return locked + 1 > B.maxLocked(headProg(s), n)
+		? (Number.isFinite(slot) && pointAt(s, slot) ? newOreAt(s, slot, pickBreakableAtPoint(s, slot)) : newOre(s, pickBreakableOre(s)))
+		: o;
 }
 // ★かたまり全体を決まりに合わせる（★生まれたとき・読み込んだときだけ呼ぶ）
 //   need = 壊せる鉱石の下限。★足りない分だけ差し替え、ほかの LOCKED はそのまま残す
@@ -180,7 +287,7 @@ function fixGroup(s, ores, need) {
 	var n = ores.length, have = breakableCount(s, ores);
 	for (var i = n - 1; i >= 0 && have < need; i--) {
 		if (ores[i] && B.canBreak(ores[i].type, s.head)) continue;
-		ores[i] = newOre(s, pickBreakableOre(s)); have++;
+		ores[i] = pointAt(s, i) ? newOreAt(s, i, pickBreakableAtPoint(s, i)) : newOre(s, pickBreakableOre(s)); have++;
 	}
 	return ores;
 }
@@ -197,7 +304,12 @@ function create(seed, saved) {
 		nextIn: 0, reveal: 1, craftKind: null, craftSel: -1, menuT: 0, craftT: 0, pulse: 0, flash: 0, dirty: false, pressX: null, swiped: false,
 		broken: 0, pop: {}, chain: {}, hudBits: [], iconDown: false, canUp: false, newPop: 0, pity: {}, seenOre: {}, discover: 0, hud: null, hudKey: "", lastOre: null, familiar: null,
 		seenMat: {}, matOrder: [], matFx: {},   // ★★見つけた素材（★見つけた順に並ぶ）／見つけた直後の光
-		sparkQ: [], spark: null, newHold: 0, pendingShow: null, show: null,   // ★★強化したあとの「予告」（★次に採掘画面へ戻ったとき、一度だけ）   // ★★届いたあとの「キラッ」の待ち行列と、いま光っているもの／NEW を少しだけ後ろへ
+		sparkQ: [], spark: null, newHold: 0, pendingShow: null, show: null,
+		// ★★★★★「いま作れるよ」のキラキラ（2026-09-21(7)）。★光っているのは常に1つだけ
+		uspark: null, usparkWait: USPARK.first, usparkTurn: 0, usparkKey: "", usparkSeq: 0,
+		pindPop: 0,   // ★★場所の目印の反応（2026-09-21(8)）
+		// ★★★★★目印の濃さと「間」（2026-09-22）。★`digging` = ツルハシが当たったか
+		digging: false, pindA: 1, pindWait: 0, pindHide: false,   // ★★強化したあとの「予告」（★次に採掘画面へ戻ったとき、一度だけ）   // ★★届いたあとの「キラッ」の待ち行列と、いま光っているもの／NEW を少しだけ後ろへ
 		canUpHead: false, canUpHandle: false, newPopHead: 0, newPopHandle: 0,   // ★部位ごとの NEW
 		headMade: 0, handleMade: 0, scroll: 0, scrollV: 0, snap: null, snapPop: 0, dragClock: 0, tapAt: null, craftDrag: false, side: 0, sideAnim: null, sideOther: null };   // chain = 続けて届いた数（★音が少しずつ高く）／hudBits = 届いたときの粒   // broken = これまでに砕いた数（★はじめの体験に使う）／pop = 所持数が一瞬ふくらむ残り時間
 	if (saved) {
@@ -220,26 +332,44 @@ function create(seed, saved) {
 		["head", "handle"].forEach(function (k) { var v = saved[madeKey(k)], cur = tierMax(s, k);
 			s[madeKey(k)] = Number.isFinite(v) && v >= 0 ? Math.floor(v) : (cur ? (1 << (cur + 1)) - 1 : 0); });
 		if (saved.site && Array.isArray(saved.site.ores) && saved.site.ores.length >= SITE_MIN && saved.site.ores.length <= SITE_MAX) {
-			s.site = { seed: saved.site.seed >>> 0, at: clamp(saved.site.at | 0, 0, saved.site.ores.length - 1), ores: saved.site.ores.map(function (o) {
-				var d = oreDef(o.type); return { type: d.id, hp: clamp(Number(o.hp) || d.hp, 1, d.hp), max: d.hp, seed: o.seed >>> 0, met: !!o.met }; }) };
+			var sv = saved.site, base = sv.seed >>> 0;
+			s.site = { seed: base, at: clamp(sv.at | 0, 0, sv.ores.length - 1), ores: sv.ores.map(function (o) {
+				var d = oreDef(o.type); return { type: d.id, hp: clamp(Number(o.hp) || d.hp, 1, d.hp), max: d.hp, seed: o.seed >>> 0, met: !!o.met }; }), pts: [] };
+			// ★★★★★ポイントごとの状態を戻す（2026-09-21(8)）。
+			//   ★古い保存には `pts` が無いので、★★**並び順をそのまま役割にする**（★鉱石は 1 つも作り直さない）
+			var pv = Array.isArray(sv.pts) ? sv.pts : [];
+			s.site.ores.forEach(function (o, i) {
+				var q = pv[i] || {};
+				s.site.pts.push({
+					role: clamp(Number.isFinite(q.role) ? q.role : i, 0, POINT_N - 1),
+					rng: (q.rng >>> 0) || ((base + i * 2654435761) >>> 0) || (i + 1),
+					nextIn: Math.max(0, Math.min(FEEL.nextOreMs, Number(q.nextIn) || 0)),
+					next: null, reveal: 1
+				});
+				// ★★空の場所を保存から戻したときは、★★★**必ず次の鉱石を持たせる**
+				//   （★古い保存は空を岩として保存していたので、ここはふつうは通らない）
+				if (!o) { var pt = s.site.pts[i]; pt.next = newOreAt(s, i); pt.nextIn = pt.nextIn || FEEL.nextOreMs; }
+			});
 			// ★★古い保存の救済（2026-09-20(8)）: 全部が壊せない状態なら、1個だけ壊せる鉱石に差し替える
 			//   ★作り直さない／ほかの LOCKED はそのまま残す（★戻ってきて砕く楽しみを消さない）
 			if (breakableCount(s, s.site.ores) === 0) fixGroup(s, s.site.ores, 1);
 		}
 	}
 	if (!s.site) {
-		var n = SITE_MIN + Math.floor(rng(s) * (SITE_MAX - SITE_MIN + 1)), ores = [];
-		for (var i = 0; i < n; i++) ores.push(newOre(s));
-		s.site = { seed: Math.floor(rng(s) * 1e9) >>> 0, at: 0, ores: ores };
+		// ★★★★★**必ず 4 つ**（2026-09-21(8)）。★左から SHALLOW / STANDARD / DEEP / RICH
+		var n = POINT_N, ores = [], seed0 = Math.floor(rng(s) * 1e9) >>> 0, i, j;
+		s.site = { seed: seed0, at: 0, ores: ores, pts: [] };
+		for (i = 0; i < n; i++) s.site.pts.push({ role: i, rng: ((seed0 + i * 2654435761) >>> 0) || (i + 1), nextIn: 0, next: null, reveal: 1 });
+		for (i = 0; i < n; i++) ores.push(newOreAt(s, i));
 		// ★いまの HEAD では壊せない鉱石を1つ混ぜる（★「カァン！」→ 強化 → 戻って「ピシッ」）
-		if (B.maxLocked(headProg(s), n) >= 1 && !ores.some(function (o) { return !B.canBreak(o.type, s.head); })) ores[n - 1] = newOre(s, nextLockedOre(s));
+		//   ★★置くのはいちばん右（RICH）だけ。★★★SHALLOW には絶対に置かない
+		if (B.maxLocked(headProg(s), n) >= 1 && !ores.some(function (o) { return !B.canBreak(o.type, s.head); })) ores[n - 1] = newOreAt(s, n - 1, nextLockedOre(s));
 		// ★★壊せる鉱石が足りなければ差し替える（★ソフトロックを生成の決まりとして禁止）
 		fixGroup(s, ores, B.minBreakable(headProg(s), n));
-		if (!B.canBreak(ores[0].type, s.head)) {   // ★最初に見る鉱石は、必ず壊せるものにする
-			for (var j = 1; j < n; j++) if (B.canBreak(ores[j].type, s.head)) { var t = ores[0]; ores[0] = ores[j]; ores[j] = t; break; }
-		}
-		if (s.broken < STARTER_ROCKS) ores[0] = newOre(s, "rock");   // ★はじめの体験は岩から
+		if (s.broken < STARTER_ROCKS) ores[0] = newOreAt(s, 0, "rock");   // ★はじめの体験は岩から
 	}
+	// ★★★★★どんなときも、**2 つ以上は壊せる**（★全部 LOCKED は禁止）
+	ensureSafePoints(s);
 	s.camX = s.site.at * SPACING;
 	s.canUpHead = canUpgradePart(s, "head"); s.canUpHandle = canUpgradePart(s, "handle"); s.canUp = s.canUpHead || s.canUpHandle;   // ★読み込み直後は音を鳴らさない
 	return s;
@@ -249,10 +379,16 @@ function saveData(s) {
 	return { mats: JSON.parse(JSON.stringify(s.mats)), head: s.head, handle: s.handle, headMax: s.headMax, handleMax: s.handleMax, broken: s.broken, headMade: s.headMade, handleMade: s.handleMade, seenOre: JSON.parse(JSON.stringify(s.seenOre)),
 		seenMat: JSON.parse(JSON.stringify(s.seenMat)), matOrder: s.matOrder.slice(),   // ★見つけた素材と、その順番
 		site: { seed: s.site.seed, at: s.site.at, ores: s.site.ores.map(function (o, i) {
-			// ★砕けた直後（次の鉱石が出る前）の空きは、ふつうの岩として残す（★サイコロは振らない）
-			if (!o) return { type: ORES[0].id, hp: ORES[0].hp, seed: (s.site.seed + i * 7919) >>> 0, met: false };
-			return { type: o.type, hp: o.hp, seed: o.seed, met: o.met }; }) } };
+			// ★★★★★砕けた直後（次の鉱石が出る前）は、★**もう決まっている次の鉱石**を保存する。
+			//   ★前は「ふつうの岩」にすり替えていたので、★★保存すると鉱石が変わっていました
+			var pt = (s.site.pts || [])[i], q = o || (pt && pt.next);
+			if (!q) return { type: ORES[0].id, hp: ORES[0].hp, seed: (s.site.seed + i * 7919) >>> 0, met: false };
+			return { type: q.type, hp: q.hp, seed: q.seed, met: q.met }; }),
+			// ★★ポイントごとの役割・サイコロ・残り時間（★途中のヒビは鉱石の hp に入っています）
+			pts: (s.site.pts || []).map(function (pt, i) {
+				return { role: pt.role, rng: pt.rng >>> 0, nextIn: o0(s, i) ? 0 : Math.round(pt.nextIn || 0) }; }) } };
 }
+function o0(s, i) { return s.site.ores[i]; }
 function ore(s) { return s.site.ores[s.site.at]; }
 function cycle(s) { return HANDLES[s.handle].cycle; }
 function canBreak(s, o) { return !!o && B.canBreak(o.type, s.head); }
@@ -279,6 +415,7 @@ function release(s) {
 		else if (t) craftTap(s, t.x, t.y);
 		s.craftDrag = false; return; }
 	s.held = false; s.pressX = null;
+	s.digging = false;   // ★★★指を離した ＝ 目印がふわっと戻ってくる（2026-09-22）
 }
 
 // ★左右スワイプ: 壁ごと横へ。★その地点の 3〜5 個の中だけ（★端で止まる）
@@ -287,6 +424,10 @@ function swipe(s, dir) {
 	var to = s.site.at + (dir > 0 ? 1 : -1);
 	if (to < 0 || to >= s.site.ores.length) { s.shake = 90; s.shakeAmp = 1; event(s, "edge"); return false; }
 	s.held = false; s.swiped = true; s.slideFrom = s.camX; s.slideT = 0; s.site.at = to; s.blocked = false; s.dirty = true;
+	s.digging = false;   // ★★なぞっている間は目印を見せる（★○●○○ が動くのが大事）
+	// ★★場所が変わった合図（2026-09-21(8)）。★小さな「コッ」と、目印が一瞬大きくなるだけ
+	s.pindPop = PIND.pop;
+	event(s, "point", { at: to, role: (s.site.pts[to] || {}).role });
 	s.guide = null; swipeLearned = true;
 	event(s, "slide", { dir: dir });
 	return true;
@@ -400,7 +541,9 @@ function rescueAfterEquip(s) {
 	var at = s.site.at;
 	if (!s.site.ores[at]) at = s.site.ores.findIndex(function (o) { return !!o; });
 	if (at < 0) return false;
-	s.site.ores[at] = newOre(s, ORES[0].id); s.reveal = 0; s.dirty = true;
+	s.site.ores[at] = newOreAt(s, at, ORES[0].id);
+	var rp = pointAt(s, at); if (rp) { rp.reveal = 0; rp.nextIn = 0; rp.next = null; }
+	s.reveal = 0; s.dirty = true;
 	return true;
 }
 // ★★装備の列を描いてよい場所（2026-09-20(7) 島さんの指定）。★上のヘッダーとは別の層
@@ -556,9 +699,12 @@ function update(s, dt) {
 	s.clock += ms; s.pulse = Math.max(0, s.pulse - ms); s.flash = Math.max(0, (s.flash || 0) - ms);
 	Object.keys(s.pop).forEach(function (k) { s.pop[k] = Math.max(0, s.pop[k] - ms); });
 	s.discover = Math.max(0, s.discover - ms);
+	s.pindPop = Math.max(0, (s.pindPop || 0) - ms);   // ★場所の目印の一瞬の反応
+	updatePointHud(s, ms);                            // ★★★目印の出し入れ（2026-09-22）
 	MAT_IDS.forEach(function (k) { if (s.matFx[k] > 0) s.matFx[k] = Math.max(0, s.matFx[k] - ms); });   // ★見つけた直後の光
 	updateSpark(s, ms);   // ★★届いたあとの「キラッ」（★採掘とは別に流れる）
 	updateShow(s, ms);    // ★★強化したあとの「予告」
+	updateUSpark(s, ms);  // ★★★「いま作れるよ」のキラキラ（★同時に1つだけ）
 	// ★「NEW」が出た瞬間だけ、小さくポンと跳ねる（★出っぱなしの間は静かに呼吸）
 	if (s.phase === "craft") { s.menuT = Math.min(CRAFT.openMs, s.menuT + ms); s.craftT = Math.min(CRAFT.dive, s.craftT + ms); updateScroll(s, ms); updateSide(s, ms); }
 	// ★「作れなかった → 作れる」に変わった瞬間だけ、知らせの音（★出ている間は鳴らし続けない）
@@ -583,13 +729,29 @@ function update(s, dt) {
 	if (s.stop > 0) { s.stop -= ms; updatePickups(s, ms, true); return; }   // ★素材は採掘の上を流れ続ける
 	s.shake = Math.max(0, s.shake - ms);
 	if (s.phase === "mine") updateSwing(s, ms);
-	if (s.nextIn > 0) { s.nextIn -= ms; if (s.nextIn <= 0) {
-			var want = s.broken < STARTER_ROCKS ? "rock" : null;
-			if (!want && s.familiar && s.familiar.n > 0 && B.canBreak(s.familiar.type, s.head)) { want = s.familiar.type; s.familiar.n--; }   // ★速さを見くらべる数個
-			// ★★置く前に決まりを通す（★これ以上 LOCKED を増やさない）
-			var no = s.site.ores[s.site.at] = guardOre(s, newOre(s, want), s.site.at); s.reveal = 0; s.dirty = true; event(s, "appear");
-			if (!s.seenOre[no.type]) { s.seenOre[no.type] = 1; s.discover = DISCOVER_MS; s.dirty = true; event(s, "discover", { ore: no.type }); } } }
-	if (s.reveal < 1) s.reveal = Math.min(1, s.reveal + ms / FEEL.revealMs);
+	// ★★★★★**見ていない場所の時間も進める**（2026-09-21(8)）。
+	//   ★これが「空の穴」バグの治療です。★★なぞってもタイマーは止まらないし、
+	//   ★★★**壊した場所にしか置かない**（★隣を上書きしない）。
+	//   ★★★★なぞって戻ってきても、★**タイマーも次の鉱石も作り直しません**（═ 引き直し禁止）。
+	points(s).forEach(function (pt, i) {
+		if (pt.nextIn > 0) {
+			pt.nextIn -= ms;
+			if (pt.nextIn <= 0) {
+				pt.nextIn = 0;
+				var no = pt.next || guardOre(s, newOreAt(s, i), i);
+				pt.next = null;
+				s.site.ores[i] = no; pt.reveal = 0; s.dirty = true;
+				if (i === s.site.at) event(s, "appear");   // ★音は見ている場所だけ
+				if (!s.seenOre[no.type]) { s.seenOre[no.type] = 1;
+					if (i === s.site.at) { s.discover = DISCOVER_MS; event(s, "discover", { ore: no.type }); }
+					s.dirty = true; }
+			}
+		}
+		if (pt.reveal < 1) pt.reveal = Math.min(1, pt.reveal + ms / FEEL.revealMs);
+	});
+	// ★いま見ている場所の写し（★古い書き方をしているところがそのまま動くように）
+	var cp = curPt(s);
+	s.nextIn = cp ? cp.nextIn : 0; s.reveal = cp ? cp.reveal : 1;
 	updateBits(s, dt);
 }
 function updateSwing(s, ms) {
@@ -608,7 +770,12 @@ function updateSwing(s, ms) {
 // ---- 命中 ----
 function impact(s) {
 	var o = ore(s);
-	if (!o || s.nextIn > 0 || s.reveal < .6) { s.stop = FEEL.hitStopMs * .5; event(s, "hitWall"); puff(s, HIT.x, HIT.y, 5); return; }
+	// ★★★★★ここが「長押し採掘だ」と確定する場所（2026-09-22）。
+	//   ★押した瞬間ではなく、★★**ツルハシが実際に当たったとき**。
+	//   ★★★短いタップは当たる前に戻るので、ここを通りません。
+	s.digging = true;
+	var ip = curPt(s);
+	if (!o || (ip && ip.nextIn > 0) || (ip ? ip.reveal : s.reveal) < .6) { s.stop = FEEL.hitStopMs * .5; event(s, "hitWall"); puff(s, HIT.x, HIT.y, 5); return; }
 	var d = oreDef(o.type), head = HEADS[s.head].id;
 	if (!canBreak(s, o)) {
 		// ★砕けない: 大きな金属音・火花・ヒビなし。★自動採掘はここで止まる（★離して押せば、また1発振る）
@@ -620,7 +787,9 @@ function impact(s) {
 		event(s, "clang", { head: head, ore: d.id });
 		// ★★安全弁（2026-09-20(8)）: それでも壊せる鉱石が1つも無いときだけ、いま叩いた1個を差し替える
 		//   ★ふだんは生成の決まりで防いでいるので動かない。★文字での説明はしない
-		if (breakableCount(s, s.site.ores) === 0) { s.site.ores[s.site.at] = newOre(s, pickBreakableOre(s)); s.reveal = 0; }
+		if (breakableCount(s, s.site.ores) === 0) { var bi = s.site.at;
+			s.site.ores[bi] = newOreAt(s, bi, pickBreakableAtPoint(s, bi));
+			var bp = pointAt(s, bi); if (bp) { bp.reveal = 0; bp.nextIn = 0; bp.next = null; } s.reveal = 0; }
 		return;
 	}
 	var before = stageOf(o);
@@ -647,7 +816,10 @@ function breakOre(s, o, d, head, oneShot) {
 		s.dust.push({ x: cx + Math.cos(a) * rng(s) * ORE_RX * .8, y: cy + Math.sin(a) * rng(s) * ORE_RY * .8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 6, r: 2 + rng(s) * 3, life: .7 + rng(s) * .5, age: 0 }); }
 	// ★素材: 1種類ではなく、何種類か。★少し飛んでから、プレイヤーへ吸い込まれる
 	var drops = [], rare = false;
-	var count = B.rollDrops(function () { return rng(s); }, d.id, s.pity);   // ★表のとおり（★運が悪すぎるときだけ助ける ＝ pity）
+	// ★表のとおり（★運が悪すぎるときだけ助ける ＝ pity）
+	// ★★★RICH だけ、**レア素材の落ちやすさだけ**が少し上がります（2026-09-21(8)）
+	var dp = curPt(s), dm = B.rareDropOf(dp ? dp.role : 1);
+	var count = B.rollDrops(function () { return rng(s); }, d.id, s.pity, dm);
 	s.broken++; s.lastOre = d.id;
 	var sure = starterDrops(s); Object.keys(sure).forEach(function (k) { count[k] = Math.max(count[k] || 0, sure[k]); });
 	MAT_IDS.forEach(function (k) { if (count[k] && MATS[k].rare) rare = true; });
@@ -658,7 +830,21 @@ function breakOre(s, o, d, head, oneShot) {
 	event(s, "break", { head: head, ore: d.id, drops: drops.length, rare: rare, oneShot: !!oneShot, tone: f.tone || 1 });
 	event(s, "scatter", { count: drops.length });
 	if (rare) event(s, "rare", {});
-	s.site.ores[s.site.at] = null; s.nextIn = FEEL.nextOreMs; s.dirty = true;
+	// ★★★★★壊した瞬間に、その場所の「次の鉱石」を**ここで決める**（2026-09-21(8)）。
+	//   ★★前は `s.site.ores[at] = null` として放置し、★★★画面全体で 1 つしか無い
+	//     `s.nextIn` が切れたときに「その瞬間見ている場所」へ置いていました。
+	//   ★だから壊した直後になぞると、★★**壊した場所は永久に空**で、
+	//     ★★★隣の鉱石が**上書き**されていました（═ なぞるだけで引き直せた）。
+	//   ★★★★いまは、**次の鉱石もサイコロもこの行で確定**します（═ なぞっても変わらない）。
+	var at = s.site.at, pt = curPt(s);
+	s.site.ores[at] = null;
+	if (pt) {
+		var want = s.broken < STARTER_ROCKS ? "rock" : null;
+		if (!want && s.familiar && s.familiar.n > 0 && B.canBreak(s.familiar.type, s.head)) { want = s.familiar.type; s.familiar.n--; }   // ★速さを見くらべる数個
+		pt.next = guardOre(s, newOreAt(s, at, want), at);
+		pt.nextIn = FEEL.nextOreMs;
+	}
+	s.nextIn = FEEL.nextOreMs; s.dirty = true;
 }
 // ★★はじめの体験（2026-09-20(8)）: 最初の「HANDLE」の材料のうち、まだ足りない分を
 //   「残りの回数」で割って必ず落とす（★1回目で約半分、2回目でそろう。★飛んでいる途中の素材も手持ちに数える）
@@ -923,13 +1109,17 @@ function wallColor(seed, wx, wy) {
 	return (wy - by < -best * .45 && (wx + wy) % 2 === 0) ? PAL.lit : tone;
 }
 function buildWall(s) {
-	var width = (s.site.ores.length - 1) * SPACING + W, key = s.site.seed + ":" + width;
+	// ★★場所ごとの色の差も含めて、**1 枚の絵に焼き付けます**（★毎フレームの重さは 0）
+	var roleKey = (s.site.pts || []).map(function (q) { return q.role; }).join("");
+	var width = (s.site.ores.length - 1) * SPACING + W, key = s.site.seed + ":" + width + ":" + roleKey;
 	if (caches.wall && caches.wall.key === key) return caches.wall;
 	var c = canvas(width, H), rows = null;
 	if (c) {
 		var x2 = c.getContext("2d"), img = x2.createImageData(width, H), d = img.data;
 		for (var y = 0; y < H; y++) for (var x = 0; x < width; x++) {
-			var col = wallColor(s.site.seed | 0, x, y);
+			var pi = Math.min(s.site.ores.length - 1, Math.max(0, Math.round(x / SPACING)));
+			var pr = (s.site.pts || [])[pi], tint = POINT_TINT[pr ? pr.role : pi] || null;
+			var col = tintWall(wallColor(s.site.seed | 0, x, y), tint);
 			// 天井のつらら・床の瓦礫
 			var st = h2(s.site.seed + Math.floor(x / 7), 5), tip = st > .55 ? 6 + st * 22 : 0;
 			if (y < tip && (x % 7) >= 1 && (x % 7) <= 5 - Math.floor(y / tip * 4)) col = y > tip - 3 ? PAL.edge : PAL.lit;
@@ -1048,7 +1238,8 @@ function draw(ctx, s, opt) {
 	// 鉱石（★いまの鉱石と、スライド中に見える隣）
 	s.site.ores.forEach(function (o, i) {
 		var ox = ORE_X + i * SPACING - cam; if (!o || ox < -ORE_RX - 10 || ox > W + ORE_RX + 10) return;
-		drawOre(ctx, s, o, ox, i === s.site.at, box, quiet);
+		var pti = (s.site.pts || [])[i];
+		drawOre(ctx, s, o, ox, i === s.site.at, box, quiet, pti ? pti.reveal : 1);
 	});
 	// 破片・粉塵・火花・素材
 	s.dust.forEach(function (c) { var t = c.age / c.life, r = Math.round(c.r * (1 + t)); if ((Math.floor(c.x) + Math.floor(c.y)) % 2 && t > .5) return;
@@ -1082,9 +1273,13 @@ function draw(ctx, s, opt) {
 		// ★★NEW はボタンのすぐ下・右ぞろえ（★ボタンを大きくしても隠れない。★2026-09-20(10)）
 		global.DotFont.drawTextShadow(ctx, NEW_TEXT, CRAFT_ICON.x + CRAFT_ICON.w - global.DotFont.textWidth(NEW_TEXT.length), CRAFT_ICON.y + CRAFT_ICON.h + 4 - jump, br > .5 ? "#fff1e8" : "#ffcc4a", PAL.void);
 	}
+	// ★★★★★⛏ボタンのキラッ（2026-09-21(7)）。★**NEW が出ているときだけ**・たまに・小さく。
+	//   ★★NEW の文字自体はいままでどおり（★激しく点滅させない）。★光るのは⛏側だけ
+	usparkAt(box, s, "icon", CRAFT_ICON, "icon");
 	drawGuide(s, box);
 	if (DEBUG.on) drawDebug(ctx, s, box);
 	if (s.phase === "craft") { drawCraft(ctx, s, box); return; }   // ★アップグレードの画面では、左の縦並びと飛んでいる素材は出さない
+	drawPointInd(ctx, s, box);   // ★★★いまどこにいるかの目印（2026-09-21(8)・出し入れは 2026-09-22）
 	drawCounters(ctx, s, box);
 	// 飛んでいる素材（★所持数と同じアイコンを小さく。★所持数の上を通って吸い込まれる）
 	s.pickups.forEach(function (p) { var m = MATS[p.mat];
@@ -1246,6 +1441,191 @@ function drawSpark(box, s) {
 		box(cx + 4, cy - 5, 1, 1, tip); box(cx + 4, cy - 3, 1, 1, tip);
 	}
 }
+
+// ============================================================
+// ★★★★★「いま作れるよ」のキラキラ（USPARK）2026-09-21(7) 島さんの指定
+// ============================================================
+//
+//   ★★**目的は「気づかせる」こと**。★「見続けさせる」演出ではありません。
+//     ★鉱石・素材の飛行・破壊・ツルハシより目立たせない（★小さく・短く）。
+//
+//   ★★★**同じ瞬間に光るのは 1 つだけ**（`s.uspark` が1つしか無い═仕組みで保証）。
+//     ★HEAD と HANDLE が両方作れるときも、★★**必ず時間差**で順番に回ります。
+//
+//   ★★★★**買った瞬間に止まります**:
+//     ★`usparkTargets()` が毎フレーム「いま作れるもの」を数え直すので、
+//     ★★作れなくなったものは**その場で一覧から消える** ＝ 光り続けられない。
+//     ★★★完成の演出（`s.upFx`）のあいだも、一覧は空 ＝ **重ならない**。
+//
+//   ★★★★★**音は鳴らしません**（2026-09-21(7) 島さんの指定。
+//     ★すでに NEW 音・完成音・素材の吸収音があるため）。
+//
+//   ★**`Math.random()` は呼びません**。★★`rng(s)` も呼びません
+//     （★見た目のために世界のサイコロを進めると、★★**鉱石の並びがずれます**）。
+//     ★`h2(時刻, 順番)` ═ 計算するだけのサイコロを使います。
+var USPARK = {
+	on: 1,
+	dur: 150,          // ★キラッ1回の長さ（ms。★島さんの指定 120〜180 のまん中）
+	restMin: 1400, restMax: 2200,   // ★★ひと回りしたあとの「静かな間」（★毎回ちがう＝機械的に見えない）
+	stepMin: 400, stepMax: 700,     // ★★★HEAD → HANDLE など、対象が複数のときの時間差
+	first: 450,        // ★★NEW が出てから最初のキラッまで（★300〜600 のまん中）
+	enter: 350,        // ★画面を開いた直後の少しの間
+	r: 2,              // ★腕の長さ（★最大でも 9 ドットほど）
+	edgeEvery: 3,      // ★カードだけ: 何回に1回、枠を光が1周するか
+	sound: 0           // ★★★**音は追加しない**（★欲しくなったときだけ 1）
+};
+// ★光のかたち3種（★小さい十字 ／ 斜め十字 ／ 1ドットの強い光＋小粒2つ）
+var USPARK_KIND = ["cross", "diag", "dot"];
+// ★心は必ず白。★先だけ薄い黄色、★★HEAD は金属色、HANDLE は柄の明るい色を少しだけ
+var USPARK_CORE = "#ffffff", USPARK_MID = "#fff3b0";
+var USPARK_TIP = { head: "#dfe6f2", handle: "#e8c08a", icon: "#dfe6f2", card: "#fff3b0" };
+// ★出る場所（★枠の中の割合）: ★左上 → 金属（まん中）→ 右上
+var USPARK_SPOT = [[.14, .24], [.5, .5], [.86, .24]];
+// ★★カードだけは別の場所（★装備の絵の金属部分 ／ 右上の角）。
+//   ★まん中は**装備名や MAKE の文字に重なる**ので使いません
+var USPARK_SPOT_CARD = [[.11, .46], [.94, .16], [.13, .26]];
+
+// ★★いま「光らせてよいもの」の一覧（★毎フレーム数え直す ＝ 買った瞬間に消える）
+function usparkTargets(s) {
+	if (!USPARK.on || !s) return [];
+	if (s.upFx) return [];                       // ★★★完成の演出中は出さない（★重ねない）
+	var out = [];
+	if (s.phase === "craft" && s.craftKind) {    // ★★詳細の列: **いま本当に作れるカードだけ**
+		historyRows(s, s.craftKind).forEach(function (r) {
+			if (r.kind === "next" && canMake(s, s.craftKind, r.step)) out.push("card:" + r.step);
+		});
+		return out;                                // ★OWNED / SKIPPED / EQUIPPED / ??? / 足りない は入らない
+	}
+	if (s.phase === "craft") {                   // ★HEAD / HANDLE の選択画面
+		if (s.canUpHead) out.push("part:head");
+		if (s.canUpHandle) out.push("part:handle");
+		return out;
+	}
+	if (s.canUp) out.push("icon");               // ★右上の⛏（★NEW が出ているときだけ）
+	return out;
+}
+// ★★一つずつ、順番に回す（★同時に2つ光らない）
+function updateUSpark(s, ms) {
+	if (!USPARK.on) return;
+	var sp = s.uspark;
+	if (sp) { sp.t += ms; if (sp.t >= sp.dur) s.uspark = sp = null; }
+	var list = usparkTargets(s);
+	if (!list.length) {                          // ★★作れるものが無い ＝ **その場で終わり**
+		s.uspark = null; s.usparkKey = ""; s.usparkTurn = 0; s.usparkWait = USPARK.first;
+		return;
+	}
+	var key = list.join("|");
+	if (key !== s.usparkKey) {                   // ★対象が変わった（★買った・画面が移った）
+		s.usparkKey = key; s.usparkTurn = 0;
+		if (s.uspark && list.indexOf(s.uspark.who) < 0) s.uspark = null;   // ★★消えた対象はその場で止める
+		if (s.usparkWait < USPARK.enter) s.usparkWait = USPARK.enter;
+	}
+	if (s.uspark) return;                        // ★★★光っている間は次を始めない
+	s.usparkWait -= ms;
+	if (s.usparkWait > 0) return;
+	var turn = s.usparkTurn % list.length, who = list[turn];
+	var d = h2(Math.floor(s.clock), turn * 31 + list.length);
+	var d2 = h2(Math.floor(s.clock) + 977, turn * 7 + 3);
+	s.uspark = { who: who, t: 0, dur: USPARK.dur,
+		kind: USPARK_KIND[Math.floor(d * 3) % 3],
+		spot: Math.floor(d2 * 3) % 3,
+		edge: (s.usparkSeq % USPARK.edgeEvery) === 0, seed: Math.floor(d2 * 4096) };
+	s.usparkSeq = (s.usparkSeq + 1) % 1000;
+	s.usparkTurn = (turn + 1) % list.length;
+	// ★★ひと回りしたら長く休む／★回りの途中なら短い時間差で次へ
+	// ★★この待ち時間は**光り終わってから**減ります（★上の `if (s.uspark) return;` が止めている）。
+	//   ★★★**だから `USPARK.dur` を足さないこと**（★足すと二重になり、間が伸びすぎる）
+	s.usparkWait = s.usparkTurn === 0
+		? USPARK.restMin + d * (USPARK.restMax - USPARK.restMin)
+		: USPARK.stepMin + d * (USPARK.stepMax - USPARK.stepMin);
+	if (USPARK.sound) event(s, "upgrade_spark", { who: who });
+}
+// ★★その場所にキラッを描く（★`who` が合わなければ何もしない）。
+//   ★`rect` は、その目印の枠（⛏ボタン・大きな絵・カード）
+function usparkAt(box, s, who, rect, tipKey) {
+	var sp = s.uspark;
+	if (!USPARK.on || !sp || sp.who !== who || !rect) return false;
+	var u = sp.t / sp.dur, g = sparkBell(u);
+	if (g <= .05) return false;
+	var sq = (tipKey === "card" ? USPARK_SPOT_CARD : USPARK_SPOT)[sp.spot];
+	var cx = Math.round(rect.x + rect.w * sq[0]), cy = Math.round(rect.y + rect.h * sq[1]);
+	var tip = USPARK_TIP[tipKey || "card"] || USPARK_MID, i;
+	var nn = Math.max(1, Math.round(USPARK.r * g));
+	box(cx, cy, 1, 1, USPARK_CORE);                                  // ★心は必ず白
+	if (sp.kind === "cross") {
+		for (i = 1; i <= nn; i++) { box(cx, cy - i, 1, 1, i === nn ? tip : USPARK_MID); box(cx, cy + i, 1, 1, i === nn ? tip : USPARK_MID);
+			box(cx - i, cy, 1, 1, i === nn ? tip : USPARK_MID); box(cx + i, cy, 1, 1, i === nn ? tip : USPARK_MID); }
+	} else if (sp.kind === "diag") {
+		for (i = 1; i <= nn; i++) { box(cx - i, cy - i, 1, 1, i === nn ? tip : USPARK_MID); box(cx + i, cy - i, 1, 1, i === nn ? tip : USPARK_MID);
+			box(cx - i, cy + i, 1, 1, i === nn ? tip : USPARK_MID); box(cx + i, cy + i, 1, 1, i === nn ? tip : USPARK_MID); }
+	} else {                                                          // ★1ドットの強い光 ＋ 小粒2つ
+		box(cx, cy - nn, 1, 1, tip); box(cx, cy + nn, 1, 1, USPARK_MID);
+		box(cx - nn - 1, cy + 1, 1, 1, tip); box(cx + nn + 1, cy - 1, 1, 1, tip);
+	}
+	return true;
+}
+// ★★カードだけ: たまに、枠を 2 ドットの光が短く走る（★枠全体は点滅させない）
+function usparkEdge(box, s, who, c) {
+	var sp = s.uspark;
+	if (!USPARK.on || !sp || sp.who !== who || !sp.edge || !c) return false;
+	var u = sp.t / sp.dur;
+	if (u <= 0 || u >= 1) return false;
+	var per = 2 * (c.w + c.h), pp = u * per, qx, qy;
+	if (pp < c.w) { qx = c.x + pp; qy = c.y; }
+	else if (pp < c.w + c.h) { qx = c.x + c.w - 1; qy = c.y + (pp - c.w); }
+	else if (pp < 2 * c.w + c.h) { qx = c.x + c.w - (pp - c.w - c.h); qy = c.y + c.h - 1; }
+	else { qx = c.x; qy = c.y + c.h - (pp - 2 * c.w - c.h); }
+	box(qx, qy, 2, 1, USPARK_MID);
+	return true;
+}
+// ★★★★★目印の濃さを、毎フレーム目標へ近づける（2026-09-22 島さんの指定）
+//   ★★消すのは**ツルハシが当たっていて、かつ止まっていない**ときだけ。
+//   ★★★壊せない鉱石で止まった（`blocked`）ら、★**戻します**
+//     （★なぞってほしい場面なので、目印が見えるほうが良い）。
+//   ★★★★**途中で入力が変わっても、1.0 へ戻してからやり直しません**
+//     （★いまの濃さから、そのまま反対へ向かう ＝ ちらつかない）。
+function updatePointHud(s, ms) {
+	// ★★★なぞっている間（`slideT < 1` ＝ 壁が横へ動いている）は、必ず見せる。
+	//   ★★飛んでいる途中の振りがもう一発当たることがあるので、★ここで守ります
+	// ★★★★★消すのは、★**指がまだ触れていて**、★★**ツルハシが当たっていて**、
+	//   ★★★**止まっておらず**、★★★★**なぞっていない**ときだけ。
+	//   ★`s.held` を入れないと、★★**なぞったあとに飛んでいた振りが当たって、
+	//   ★★★指を離しているのに目印がまた消えます**。
+	var hide = !!(s.digging && s.held && !s.blocked && s.phase === "mine" && s.slideT >= 1);
+	if (hide !== s.pindHide) {
+		s.pindHide = hide;
+		s.pindWait = hide ? 0 : PFADE.wait;   // ★戻るときだけ、ほんの少し間を置く
+	}
+	if (hide) { s.pindA = Math.max(0, s.pindA - ms / PFADE.out); return; }
+	if (s.pindA >= 1) { s.pindWait = 0; return; }
+	if (s.pindWait > 0) { s.pindWait = Math.max(0, s.pindWait - ms); if (s.pindWait > 0) return; }
+	s.pindA = Math.min(1, s.pindA + ms / PFADE.in);
+}
+// ★★★★★いまどこにいるかの目印（● ○ ○ ○）2026-09-21(8)
+//   ★画面下のまん中。★★**文字は出さない**（★見た目だけで分かるように）
+function drawPointInd(ctx, s, box) {
+	if (!PIND.on || !s.site || s.phase !== "mine") return;
+	// ★★★濃さが 0 なら**描かない**（★掘っている間は一筆も出さない）
+	var A = Math.max(0, Math.min(1, s.pindA === undefined ? 1 : s.pindA));
+	if (A <= 0.01) return;
+	var had = ctx.globalAlpha;
+	if (A < 1) ctx.globalAlpha = had * A;
+	var a = s.site.ores, n2 = a.length, all = (n2 - 1) * PIND.gap, x0 = Math.round((W - all) / 2);
+	var pop = (s.pindPop || 0) > 0 ? (s.pindPop / PIND.pop) : 0;
+	// ★小さな下敷き（★瓦礫の上でも読めるように）
+	var px = x0 - PIND.r - PIND.pad, pw = all + PIND.r * 2 + PIND.pad * 2, py = PIND.y - Math.floor(PIND.padH / 2);
+	box(px, py, pw, PIND.padH, PIND.plate);
+	box(px, py, pw, 1, PIND.plateTop);
+	for (var i = 0; i < n2; i++) {
+		var cx = x0 + i * PIND.gap, cy = PIND.y, on = i === s.site.at;
+		var r = PIND.r + (on ? Math.round(pop * 2) : 0);
+		// ★中の点（★いまいる場所だけ明るくて中が詰まっている）
+		box(cx - Math.floor(r / 2), cy - Math.floor(r / 2), r, r, on ? PIND.lit : PIND.dim);
+		// ★いない場所は、中を抜いて「○」に見せる
+		if (!on && r >= 3) box(cx, cy, 1, 1, PIND.ring);
+	}
+	ctx.globalAlpha = had;   // ★このあとの描画に濃さを残さない
+}
 // ★★左はしの縦並び（★発見した素材だけ。★いちばん下に「まだ知らない素材」が1つ）
 function drawCounters(ctx, s, box) {
 	var F = global.DotFont, N = F && F.NUM ? F.NUM : F, S = sprites(), H = hudRows(s);
@@ -1346,8 +1726,9 @@ function drawBury(ctx, s, o, ox, box) {
 		box(left + q[0], sy, 1, 1, artColor(A, A.bg[sy * W + sx]));
 	});
 }
-function drawOre(ctx, s, o, ox, current, box, quiet) {
-	var b = buildOre(o), left = Math.round(ox + b.offX), top = Math.round(ORE_Y + b.offY), rev = current ? s.reveal : 1;
+function drawOre(ctx, s, o, ox, current, box, quiet, ptReveal) {
+	// ★★浮かび上がりは**その場所ごと**（2026-09-21(8)）。★見ていない間に出たものも正しく見える
+	var b = buildOre(o), left = Math.round(ox + b.offX), top = Math.round(ORE_Y + b.offY), rev = Number.isFinite(ptReveal) ? ptReveal : (current ? s.reveal : 1);
 	if (rev < 1) {   // 次の鉱石: 暗がりから浮かび上がる（★ドットの市松で。★4段を一度だけ絵にしておく ＝ 砕くたびに重くならない）
 		var lv = Math.min(3, Math.floor(rev * 4));
 		b.rev = b.rev || [];
@@ -1855,6 +2236,8 @@ function drawCraft(ctx, s, box) {
 			// ★部位ごとの NEW（★大きな絵の右上。★出た瞬間だけ少し上から降りてくる）
 			var pop = p.kind === "head" ? s.newPopHead : s.newPopHandle, up = pop > 0 ? Math.round(Math.sin(Math.PI * (1 - pop / NEW_POP_MS)) * 3) : 0;
 			if (p.kind === "head" ? s.canUpHead : s.canUpHandle) F.drawTextShadow(ctx, NEW_TEXT, x + CRAFT.pickW - 26, CRAFT.pickY + 5 - up, "#ffcc4a", PAL.void);
+			// ★★★作れる側だけキラッ（★HEAD と HANDLE が同時に光ることはありません。★必ず時間差）
+			usparkAt(box, s, "part:" + p.kind, { x: x, y: CRAFT.pickY, w: CRAFT.pickW, h: CRAFT.pickH }, p.kind);
 		});
 		// ★下に一列で「いま持っている素材ぜんぶ」（★この画面でも数が分かる）
 		var N2 = F.NUM || F;
@@ -1991,6 +2374,10 @@ function drawList(ctx, s, kind, dx, box, text) {
 				else if (pp < 2 * c.w + c.h) { qx = c.x + c.w - (pp - c.w - c.h); qy = c.y + c.h - 1; } else { qx = c.x; qy = c.y + c.h - (pp - 2 * c.w - c.h); }
 				box(qx, qy, 2, 1, "#fff1e8"); }
 		}
+		// ★★★★★「いま作れる」カードだけキラッ（2026-09-21(7)）。
+		//   ★OWNED / SKIPPED / EQUIPPED / ??? / 素材が足りない は**光りません**。
+		//   ★★飛び級で 2 枚作れるときも、★★★**順番に1枚ずつ**（★同時に光らない）
+		if (ok) { usparkEdge(box, s, "card:" + r.step, c); usparkAt(box, s, "card:" + r.step, c, "card"); }
 		if (cl) ctx.restore();
 	});
 }
@@ -1998,9 +2385,14 @@ function drawList(ctx, s, kind, dx, box, text) {
 
 global.DotMining = {
 	create: create, update: update, draw: draw, press: press, release: release, swipe: swipe, dragSide: dragSide, dragSideEnd: dragSideEnd, openPart: openPart, scrollRange: scrollRange, minScroll: minScroll, craft: craft, saveData: saveData,
+	// ★★★★★ 4 つの採掘ポイント（2026-09-21(8)）
+	POINTS: B.POINTS, POINT_N: POINT_N, PIND: PIND, PFADE: PFADE, POINT_TINT: POINT_TINT, drawPointInd: drawPointInd, updatePointHud: updatePointHud, tintWall: tintWall, newOreAt: newOreAt, pickOreAtPoint: pickOreAtPoint, pickBreakableAtPoint: pickBreakableAtPoint,
+	points: points, pointAt: pointAt, curPt: curPt, ensureSafePoints: ensureSafePoints, SAFE_POINTS: SAFE_POINTS,
 	stageOf: stageOf, canBreak: canBreak, breakableCount: breakableCount, lockedCount: lockedCount, fixGroup: fixGroup, guardOre: guardOre, pickBreakableOre: pickBreakableOre, canUpgradePart: canUpgradePart, craftRows: craftRows, dragScroll: dragScroll, dragEnd: dragEnd, LIST: LIST, rowTop: rowTop, maxScroll: maxScroll, historyRows: historyRows, scrollBy: scrollBy, owned: owned, canMake: canMake, costOf: costOf, tierAt: tierAt, CRAFT: CRAFT, SKIP_MUL: SKIP_MUL, damageOf: damageOf, swingPose: swingPose, counterAt: counterAt, POSE: POSE, HIT: HIT,
 	setDebug: function (v) { DEBUG.on = v ? 1 : 0; }, DEBUG: DEBUG, balance: B, etaMs: etaMs,
-	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, collectAll: collectAll, tierMax: tierMax, tierNow: tierNow, canEquip: canEquip, equipTier: equipTier, rescueAfterEquip: rescueAfterEquip, newOre: newOre, owned: owned, SHOW: SHOW, startShow: startShow, showPose: showPose, showScan: showScan, showGlint: showGlint, showMark: showMark, hurryShow: hurryShow, headGeom: headGeom, SPARK: SPARK, SPARK_KIND: SPARK_KIND, SPARK_TIP: SPARK_TIP, askSpark: askSpark, drawSpark: drawSpark, NEW_AFTER_SPARK: NEW_AFTER_SPARK, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
+	oreCenter: ORE_CENTER, GUIDE: GUIDE, capPickups: capPickups, collectAll: collectAll, tierMax: tierMax, tierNow: tierNow, canEquip: canEquip, equipTier: equipTier, rescueAfterEquip: rescueAfterEquip, newOre: newOre, owned: owned, SHOW: SHOW, startShow: startShow, showPose: showPose, showScan: showScan, showGlint: showGlint, showMark: showMark, hurryShow: hurryShow, headGeom: headGeom, SPARK: SPARK, SPARK_KIND: SPARK_KIND, SPARK_TIP: SPARK_TIP, askSpark: askSpark, drawSpark: drawSpark,
+	// ★★★★★「いま作れるよ」のキラキラ（2026-09-21(7)）
+	USPARK: USPARK, USPARK_KIND: USPARK_KIND, USPARK_SPOT: USPARK_SPOT, USPARK_SPOT_CARD: USPARK_SPOT_CARD, usparkTargets: usparkTargets, updateUSpark: updateUSpark, usparkAt: usparkAt, usparkEdge: usparkEdge, NEW_AFTER_SPARK: NEW_AFTER_SPARK, drawUnknown: drawUnknown, MATERIAL_ICON_CENTER_X: MATERIAL_ICON_CENTER_X, CRAFT: CRAFT, BURY: BURY, buryOf: buryOf, HANDLE_LOOK: HANDLE_LOOK, handleColor: handleColor, drawPart: drawPart, partSize: partSize, handleGeom: handleGeom, handlePart: handlePart, drawBtn: drawBtn, hudRows: hudRows, reserveMat: reserveMat, spawnPickup: spawnPickup, PAL: PAL, drawUnknown: drawUnknown, MATFX_MS: MATFX_MS, UPGRADE_VIEWPORT: UPGRADE_VIEWPORT, sideOk: sideOk, CARD: CARD, cardRect: cardRect, contentRect: contentRect, drawStars: drawStars, canUpgrade: canUpgrade, dragStart: dragStart, FLOCK: FLOCK, FLY: FLY, FLIGHTS: FLIGHTS, flyAt: flyAt, tipOf: tipOf, crackPaths: crackPaths, buildOre: buildOre, ORE_X: ORE_X, ORE_Y: ORE_Y, PICK_SCALE: PICK_SCALE, COUNTER: COUNTER,
 	STARTER_BREAKS: STARTER_BREAKS, STARTER_ROCKS: STARTER_ROCKS,
 	FEEL: FEEL, HEADS: HEADS, HANDLES: HANDLES, ORES: ORES, MATS: MATS, MAT_IDS: MAT_IDS, CRAFT_ICON: CRAFT_ICON, SPACING: SPACING,
 	TEXTS: ["HEAD", "HANDLE", "MAX", "BREAK", "SPEED", "EQUIPPED", "MAKE", "OWNED", "SKIPPED", "?????", "???", "PICKAXE UPGRADE", "0123456789", NEW_TEXT]

@@ -387,10 +387,22 @@
    g.DotFont.drawText(ctx,'SAVE',199,y+5,'#e9debc');
   }
  }
+ // 2026-09-22: the way back to the skate run, a small sign at the top left.
+ //   The camp must ALWAYS offer a way home, even when the game was opened straight into camp
+ //   from a save (no "came from skate" temporary state exists then).
+ var ROAD_ENTRY={x:2,y:2,w:60,h:24};
+ function roadButton(ctx,pressed){
+  var y=pressed?7:6;ctx.fillStyle='#081e2b';ctx.fillRect(6,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(8,y,51,1);
+  // a small board + wheels, read as a skateboard
+  ctx.fillStyle='#d1c39d';ctx.fillRect(10,y+7,11,2);
+  ctx.fillStyle='#9a5528';ctx.fillRect(11,y+9,2,2);ctx.fillRect(18,y+9,2,2);
+  ctx.fillStyle='#e9debc';ctx.fillRect(10,y+6,2,1);ctx.fillRect(19,y+6,2,1);
+  g.DotFont.drawText(ctx,'ROAD',26,y+5,'#e9debc');
+ }
  function button(ctx,pressed){
   var y=pressed?139:138;ctx.fillStyle='#081e2b';ctx.fillRect(179,y,55,16);ctx.fillStyle='#62716a';ctx.fillRect(181,y,51,1);ctx.fillStyle='#d1c39d';
   ctx.fillRect(184,y+8,1,5);ctx.fillRect(185,y+6,1,2);ctx.fillRect(186,y+4,1,2);ctx.fillRect(187,y+3,5,1);ctx.fillRect(192,y+4,1,6);ctx.fillRect(191,y+10,2,1);
   g.DotFont.drawText(ctx,'FISH',199,y+5,'#e9debc');
  }
- g.DotCampLakeside={enabled:true,ENTRY:ENTRY,MINE_ENTRY:MINE_ENTRY,mineButton:mineButton,SAVE_ENTRY:SAVE_ENTRY,saveButton:saveButton,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
+ g.DotCampLakeside={enabled:true,ENTRY:ENTRY,MINE_ENTRY:MINE_ENTRY,mineButton:mineButton,ROAD_ENTRY:ROAD_ENTRY,roadButton:roadButton,SAVE_ENTRY:SAVE_ENTRY,saveButton:saveButton,create:create,update:update,draw:draw,button:button,_prepare:prepare,_wind:wind,_fireI:fireI,_gustAt:gustAt,CROAK_BEAT:CROAK_BEAT};
 })(typeof window!=='undefined'?window:globalThis);

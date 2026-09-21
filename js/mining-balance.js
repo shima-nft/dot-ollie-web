@@ -200,6 +200,96 @@ function breakMs(oreId, headTier, handleTier, timing) {
 	var t = timing || { hitStopMs: 45, breakStopMs: 75, nextOreMs: 220, revealMs: 140 };
 	return hitsFor(oreId, headTier) * swingMs(handleTier, t) + t.breakStopMs + t.nextOreMs + t.revealMs * .5;
 }
+
+// ============================================================
+// ★★★★★ 4 つの採掘ポインと、それぞれの役割（2026-09-21(8) 島さんの指定）
+// ============================================================
+//
+//   ★左右になぞると移る 4 つの場所に、★★**違う意味**を持たせます。
+//     ★新しい操作は足しません（★なぞる → 長押しする、だけ）。
+//
+//   | | 狙い | 出る鉱石 |
+//   |---|---|---|
+//   | ① SHALLOW  | ★**昔の鉱石を猛烈な速さで壊す** ／ 基本素材を短時間で大量に | ★進み具合の 3 世代下（★必ず壊せる） |
+//   | ② STANDARD | ★ふつうに進む | ★いままでどおりの表 |
+//   | ③ DEEP     | ★**いま壊せる中で硬いもの**を狙う | ★最新世代・1 世代前を強く |
+//   | ④ RICH     | ★**何が出るか少し楽しみ** | ★レアが出る鉱石 ＋ 未来の鉱石を少し |
+//
+//   ★★★**RICH だけ掘れば全部解決、にはしません**。
+//     ★RICH は壊すのに時間がかかり、★★壊せない鉱石も混ざります（★安定しない）。
+//
+//   ★★★★**「世界の進み」は `headMax`、「壊せるか」は `equipped`**。
+//     ★古い HEAD へ戻しても、★★SHALLOW にはその HEAD で壊せる鉱石が残ります。
+var POINTS = [
+	// ★`back` … 何世代下の鉱石を中心にするか（★島さんの指定は「2〜4 世代下」）。
+	//   ★★**4 にしてあります** ＝ ★★★「1発 1発 2発 1発」の手応え（★平均 1.35 発）。
+	//   ★ 3 にすると平均 2.1 発になり、★★「猛烈な速さで壊す」感じが藄れます
+	{ id: "shallow",  name: "SHALLOW",  back: 4, safe: 1, future: 0,   rareMul: 1,   locked: 0 },
+	{ id: "standard", name: "STANDARD", back: 0, safe: 0, future: 0,   rareMul: 1,   locked: 1 },
+	{ id: "deep",     name: "DEEP",     back: 0, safe: 0, future: 0,   rareMul: 1,   locked: 1 },
+	// ★★★`rareDrop` … **レア素材（CRYSTAL / RARE CORE）の落ちやすさだけ**を少し上げる。
+	//   ★島さんの指定「全素材×2 のような雑な倍率は避ける」に従い、★★**レアにしかかかりません**。
+	//   ★★★鉱石の種類を寄せるだけでは、RARE CORE の 2% がボトルネックで差が出なかったため。
+	{ id: "rich",     name: "RICH",     back: 0, safe: 0, future: .11, rareMul: 1.7, coreMul: 2.6, rareDrop: 1.6, locked: 1 }
+];
+var POINT_N = POINTS.length;
+// ★DEEP の寄せ方（★最新・1世代前を厚く、★★古い岩はかなり減らす）
+var DEEP_W = { top: 3.4, near: 1.0, old: .16, locked: .5 };
+// ★その鉱石からレア素材（CRYSTAL / RARE CORE）が出るか
+function oreHasRare(id) {
+	var d = oreDef(id), k;
+	for (k in d.drops) if (MATERIAL_DEFS[k] && MATERIAL_DEFS[k].rare) return true;
+	return false;
+}
+// ★その鉱石から RARE CORE が出るか（★RICH だけこれをさらに厚くする）
+function oreDropsCore(id) { return !!oreDef(id).drops.core; }
+// ★★そのポイントの「出やすさの表」を作る
+//   headTier  ＝ 世界の進み具合（headMax）
+//   equipped  ＝ いま装備している HEAD（★壊せるかどうかはこちら）
+function pointMix(headTier, equipped, pointIndex) {
+	var P = POINTS[pointIndex] || POINTS[1], out = {}, k, base, total = 0;
+	if (P.back > 0) {
+		// ★★SHALLOW: 進み具合の 3 世代下。★★★ただし**いまの装備で壊せるものだけ**
+		var idx = Math.max(0, Math.min(headTier - P.back, equipped));
+		base = ORE_MIX[Math.min(idx, ORE_MIX.length - 1)];
+		for (k in base) if (canBreak(k, equipped)) out[k] = base[k];
+		if (!Object.keys(out).length) out.rock = 100;
+		return out;
+	}
+	base = ORE_MIX[Math.min(headTier, ORE_MIX.length - 1)];
+	for (k in base) out[k] = base[k];
+	if (P.id === "deep") {
+		for (k in out) {
+			var req = oreDef(k).req;
+			if (!canBreak(k, equipped)) { out[k] *= DEEP_W.locked; continue; }
+			out[k] *= req >= equipped - 1 ? DEEP_W.top : (req >= equipped - 2 ? DEEP_W.near : DEEP_W.old);
+		}
+	} else if (P.id === "rich") {
+		// ★レア素材が出る鉱石を厚く、★★**RARE CORE が出る鉱石はさらに厚く**
+		for (k in out) { if (oreHasRare(k)) out[k] *= P.rareMul; if (oreDropsCore(k)) out[k] *= P.coreMul || 1; }
+		for (k in out) total += out[k];
+		// ★★未来の鉱石を少しだけ（★「お、これまだ無理だ」の予告。★★LOCKED だらけにはしない）
+		if (P.future > 0 && total > 0) out[FUTURE_ORE.id] = total * P.future / (1 - P.future);
+	}
+	for (k in out) if (!(out[k] > 0)) delete out[k];
+	if (!Object.keys(out).length) out.rock = 100;
+	return out;
+}
+// ★作った表から 1 つ選ぶ
+function pickFromMix(rand, mix) {
+	var total = 0, k;
+	for (k in mix) total += mix[k];
+	var r = rand() * total;
+	for (k in mix) { r -= mix[k]; if (r < 0) return k; }
+	return "rock";
+}
+// ★★ポイントごとに 1 つ選ぶ（★`pickOreId` はいままでどおり残してあります）
+function pickOreAt(rand, headTier, equipped, pointIndex) {
+	return pickFromMix(rand, pointMix(headTier, equipped, pointIndex));
+}
+
+// ★その場所の「レアの落ちやすさの補正」（★RICH だけ 1 より大きい）
+function rareDropOf(pointIndex) { var P = POINTS[pointIndex]; return (P && P.rareDrop) || 1; }
 // ★次に出る鉱石を選ぶ（rand = 0〜1 を返す関数）
 function pickOreId(rand, headTier) {
 	var mix = ORE_MIX[Math.min(headTier, ORE_MIX.length - 1)], total = 0, k;
@@ -209,10 +299,13 @@ function pickOreId(rand, headTier) {
 	return "rock";
 }
 // ★壊したときに出る材料（★pity = { iron: 何回出ていないか, ... } を渡すと、運が悪いときだけ助ける）
-function rollDrops(rand, oreId, pity) {
+// ★`rareDrop` を渡すと、★★**レア素材の落ちやすさだけ**がその倍率になる（★RICH 専用）
+function rollDrops(rand, oreId, pity, rareDrop) {
 	var d = oreDef(oreId), out = {}, k;
 	for (k in d.drops) {
-		var r = d.drops[k], chance = r[2] === undefined ? 1 : r[2], hit = rand() < chance;
+		var r = d.drops[k], chance = r[2] === undefined ? 1 : r[2];
+		if (rareDrop > 1 && MATERIAL_DEFS[k] && MATERIAL_DEFS[k].rare) chance = Math.min(1, chance * rareDrop);
+		var hit = rand() < chance;
 		if (!hit && pity && PITY.mats.indexOf(k) >= 0 && (pity[k] || 0) >= PITY.after) hit = true;   // ★出なさすぎたら助ける
 		if (pity && PITY.mats.indexOf(k) >= 0) pity[k] = hit ? 0 : (pity[k] || 0) + 1;
 		if (!hit) continue;
@@ -232,6 +325,8 @@ function costOf(list, cur, step) {
 global.DotMiningBalance = {
 	HEAD_TIERS: HEAD_TIERS, HANDLE_TIERS: HANDLE_TIERS, MATERIAL_DEFS: MATERIAL_DEFS, MATERIAL_IDS: MATERIAL_IDS,
 	ORE_DEFS: ORE_DEFS, FUTURE_ORE: FUTURE_ORE, ORE_MIX: ORE_MIX, PITY: PITY, GOALS: GOALS, SKIP_MUL: SKIP_MUL,
+	// ★★★★★4 つの採掘ポイント（2026-09-21(8)）
+	POINTS: POINTS, POINT_N: POINT_N, DEEP_W: DEEP_W, rareDropOf: rareDropOf, pointMix: pointMix, pickFromMix: pickFromMix, pickOreAt: pickOreAt, oreHasRare: oreHasRare, oreDropsCore: oreDropsCore,
 	STARTER: STARTER, starterDrops: starterDrops, GROUP: GROUP, maxLocked: maxLocked, minBreakable: minBreakable,
 	oreDef: oreDef, hitsFor: hitsFor, canBreak: canBreak, swingMs: swingMs, breakMs: breakMs,
 	pickOreId: pickOreId, rollDrops: rollDrops, costOf: costOf

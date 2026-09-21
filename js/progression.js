@@ -58,7 +58,11 @@
   //   ★★★これまでこの保存には「足跡」しか入れていませんでしたが、
   //     ★**島さんが「残るのは記録だけにこだわらない」と決めた**ので、
   //     ★★**初めて「力になるもの」が永久に残ります**。
-  function fresh() { return { version: SAVE_VERSION, savedAt: 0, totalM: 0, resumeMode: '', rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, fishSeen: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true}, mining: null }; }
+  // ★★★★★`rev`（saveRevision）2026-09-22 島さんの指定。
+  //   ★保存するたび +1 される**減らない番号**。
+  //   ★★読むときは、本体と控えのうち**いちばん番号が大きいもの**を採ります。
+  //   ★★★古い状態があとから書き戻そうとしたら、**断ります**（★`savedAt` だけより安全）。
+  function fresh() { return { version: SAVE_VERSION, savedAt: 0, rev: 0, totalM: 0, resumeMode: '', rank: 0, ready: false, tricks: {}, doubleJump: false, fish: {}, fishSeen: {}, routes: {}, lastDistance: 0, caps: {}, panels: {coin:true}, mining: null }; }
   // ★上限が伸びる項目（★`js/upgrades.js` の id とそろえること）
   var CAP_IDS = ['speed', 'stamina', 'coin', 'rail', 'wheels', 'magnet', 'light', 'recover', 'live', 'drink'];
   var PANEL_IDS = CAP_IDS.concat(['shoes','railpass','maxdrink','kickflip','pop','prestige']);
@@ -83,10 +87,11 @@
   function save() {
     if (!profile) return false;
     profile.version = SAVE_VERSION; profile.savedAt = Date.now();
+    profile.rev = (Number.isFinite(profile.rev) ? profile.rev : 0) + 1;   // ★★書くたび +1
     var key = slotKey(KEY), cur = rawGet(key);
     if (debug && cur) { try { warnDrop(JSON.parse(cur), profile); } catch (e) { /* broken save is not compared */ } }
     // ★★控えを2世代（★書き込みのたびではなく 15 秒に1回。★保存を重くしない）
-    if (cur && cur !== 'null' && Date.now() - lastBak > 15000) {
+    if (cur && cur !== 'null' && (Date.now() - lastBak > 15000 || !rawGet(key + BAK))) {
       var b1 = rawGet(key + BAK);
       if (b1 && b1 !== cur) rawSet(key + BAK2, b1);
       rawSet(key + BAK, cur); lastBak = Date.now();
@@ -96,21 +101,28 @@
     return ok;
   }
   function load() {
-    var raw = read(slotKey(KEY)); profile = fresh();
-    // ★★★本体が読めなければ、控え（2世代）から戻す（2026-09-21(6)）
-    if (!valid(raw)) {
-      var b1 = read(slotKey(KEY) + BAK);
-      if (valid(b1)) { raw = b1; note('restored from backup 1'); }
-      else {
-        var b2 = read(slotKey(KEY) + BAK2);
-        if (valid(b2)) { raw = b2; note('restored from backup 2'); }
-      }
-    }
+    profile = fresh();
+    // ★★★★★本体と控え 2 世代から、**番号（rev）がいちばん大きいもの**を採る。
+    //   ★前は「本体が壊れていたら控え」だけでしたが、
+    //   ★★★それだと**本体が古い値で上書きされていた場合に救えません**。
+    var cands = [
+      { tag: 'current', raw: read(slotKey(KEY)) },
+      { tag: 'backup1', raw: read(slotKey(KEY) + BAK) },
+      { tag: 'backup2', raw: read(slotKey(KEY) + BAK2) }
+    ].filter(function (c) { return valid(c.raw); });
+    var raw = null, pick = null;
+    cands.forEach(function (c) {
+      var r = Number.isFinite(c.raw.rev) ? c.raw.rev : 0;
+      var t = Number.isFinite(c.raw.savedAt) ? c.raw.savedAt : 0;
+      if (!pick || r > pick.r || (r === pick.r && t > pick.t)) { pick = { r: r, t: t, tag: c.tag }; raw = c.raw; }
+    });
+    if (pick && pick.tag !== 'current') note('restored from ' + pick.tag + ' (rev ' + pick.r + ')');
     if (valid(raw)) {
       // ★★版 1（古い保存）は、足りない欄を足すだけでそのまま読めます
       profile.totalM = (Number.isFinite(raw.totalM) && raw.totalM > 0) ? Math.floor(raw.totalM) : 0;
       profile.resumeMode = (raw.resumeMode === 'camp' || raw.resumeMode === 'run') ? raw.resumeMode : '';
       profile.savedAt = Number.isFinite(raw.savedAt) ? raw.savedAt : 0;
+      profile.rev = (Number.isFinite(raw.rev) && raw.rev > 0) ? Math.floor(raw.rev) : 0;
       // ★★★★★2026-09-12、**`=== 1` の頭打ちを外しました**。
       //   ★前は 1 以外を全部 0 に潰していたので、★★**転生 2 回目が保存できません**でした。
       profile.rank = (Number.isFinite(raw.rank) && raw.rank > 0) ? Math.floor(raw.rank) : 0;
@@ -218,6 +230,10 @@
     p.totalM = (p.totalM || 0) + n; save(); return p.totalM;
   }
   // ★★★次に開いたとき、どこから再開するか（'' / 'camp' / 'run'）
+  // ★★★★★**ここを呼んでよいのは「手動 SAVE」だけ**（2026-09-22 島さんの指定）。
+  //   ★★**自動保存からは絶対に命じないこと**。
+  //   ★★★スケボで押したら 'run' ／ キャンプで押したら 'camp'。
+  //     ★**「どこで SAVE しても camp」は禁止**（★これが 2026-09-22 の事故の原因）。
   function setResume(mode) { var p = get(); p.resumeMode = (mode === 'camp' || mode === 'run') ? mode : ''; save(); return p.resumeMode; }
   // ★★★★★いまの中身をまとめて確定して書く（★キャンプの SAVE ボタンから）
   function commit(data) {
@@ -246,5 +262,35 @@
     slot: function () { return slot; }, setSlot: setSlot, slotKey: slotKey,
     // ★そのスロットの記録を、切り替えずに覗く（★タイトルのスロット一覧用。無ければ null）
     peek: function (n) { var raw = read(slotKey(KEY, n)); return valid(raw) ? raw : null; },
-    clear: function () { profile = fresh(); save(); } };
+    // ★★★★★NEW GAME（本当に最初から）。2026-09-22 に直しました。
+    //
+    //   ★★**前は `profile = fresh(); save();` だけでした。**
+    //     ★`fresh()` の版（rev）は 0 なので、保存すると版は **1**。
+    //     ★★一方で控えには古い記録（版 25 など）が残る。
+    //     ★★★読むときは「版が最大のもの」を採るので、
+    //       ★★★★**NEW GAME なのに古い控えが復活していました**
+    //       （★ショップの解放も総距離も残っていた）。
+    //
+    //   ★★★★★だから 2 つやります:
+    //     ① ★**版は絶対に戻さない**（★いま見えている中でいちばん大きい版の次へ）
+    //     ② ★★**控えも新品にする**（★NEW GAME は「本当に最初から」だから）
+    //
+    //   ★★★★**CONTINUE / RESTART はここを通りません** ＝ 解放も財布も距離もそのまま。
+    clear: function () {
+      var key = slotKey(KEY), top = 0;
+      [key, key + BAK, key + BAK2].forEach(function (k) {
+        var o = read(k);
+        if (o && Number.isFinite(o.rev) && o.rev > top) top = o.rev;
+        if (o && Number.isFinite(o.savedAt) && o.savedAt > 0 && !Number.isFinite(o.rev)) top = Math.max(top, 1);
+      });
+      profile = fresh();
+      profile.rev = top;            // ★save() で +1 される ＝ 必ず古い控えより新しい
+      lastBak = Date.now();         // ★★この保存では控えを回さない（★古いものを残さない）
+      save();
+      // ★★★控え 2 世代も、まっさらの記録で上書きする
+      var textNow = rawGet(key);
+      if (textNow) { rawSet(key + BAK, textNow); rawSet(key + BAK2, textNow); }
+      note('new game: cleared (rev ' + profile.rev + ')');
+      return snapshot();
+    } };
 })(typeof window !== 'undefined' ? window : globalThis);
